@@ -1,0 +1,17 @@
+# mise
+.mise.local.toml
+mise.local.toml
+
+# dependencies / build output
+node_modules/
+dist/
+target/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# misc
+.DS_Store
+*.log

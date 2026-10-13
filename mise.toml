@@ -1,0 +1,60 @@
+# Tool versions for the whole monorepo, managed by mise (mise.jdx.dev).
+# Prune any tool whose stack was not scaffolded.
+[tools]
+node = "26"      # frontend (react-csr / astro-site)
+pnpm = "12"      # frontend package manager (jsr: prefix needs >= 12)
+rust = "1.99.0"  # backend (rust-api); toasty requires >= 1.95
+
+# Convenience tasks: `mise run <task>` (`mise r <task>`).
+# Prune tasks whose directory was not scaffolded.
+[tasks."dev:backend"]
+description = "Run the backend API server"
+dir = "backend"
+run = "cargo run"
+
+[tasks."dev:frontend"]
+description = "Run the frontend dev server"
+dir = "frontend"
+run = "pnpm dev"
+
+[tasks."check:backend"]
+description = "Run backend checks (rustfmt, clippy)"
+dir = "backend"
+run = "mise run check"
+
+[tasks."check:frontend"]
+description = "Run frontend checks (typecheck, lint, format)"
+dir = "frontend"
+run = "pnpm check"
+
+[tasks."build:frontend"]
+description = "Build the frontend bundle into frontend/dist"
+dir = "frontend"
+run = "pnpm build"
+
+[tasks."build:backend"]
+description = "Build the backend (embeds frontend/dist at compile time)"
+dir = "backend"
+run = "cargo build"
+
+[tasks.build]
+description = "Build frontend, then backend with the bundle embedded"
+run = "mise run build:frontend && mise run build:backend"
+
+[tasks.check]
+description = "Run each stack's checks"
+depends = ["check:backend", "check:frontend"]
+
+[tasks."fix:backend"]
+description = "Auto-fix backend lint and formatting"
+dir = "backend"
+run = "mise run fix"
+
+[tasks."fix:frontend"]
+description = "Auto-fix frontend lint and formatting"
+dir = "frontend"
+run = "pnpm fix"
+
+[tasks.fix]
+description = "Auto-fix in each stack"
+depends = ["fix:backend", "fix:frontend"]

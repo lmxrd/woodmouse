@@ -1,0 +1,17 @@
+# AGENTS.md
+
+## Commands
+
+- `mise install` — install the pinned toolchain
+- `mise run dev:backend` — API server (http://localhost:3000)
+- `mise run dev:frontend` — frontend dev server
+- `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
+  typecheck/lint/format in `frontend/`)
+- `mise run fix` — each stack's auto-fixes
+
+## Structure
+
+- One git repository at this root; `backend/` and `frontend/` are scaffolded
+  stacks with their own AGENTS.md (follow those inside each directory).
+- Tool versions are pinned in `mise.toml`; keep the file pruned to the tools
+  actually used by the scaffolded stacks.
