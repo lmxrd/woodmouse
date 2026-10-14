@@ -5,6 +5,10 @@ node = "26"      # frontend (react-csr / astro-site)
 pnpm = "12"      # frontend package manager (jsr: prefix needs >= 12)
 rust = "1.99.0"  # backend (rust-api); toasty requires >= 1.95
 
+[tasks.dev]
+description = "Run dev mode"
+depends = ["dev:backend", "dev:frontend"]
+
 # Convenience tasks: `mise run <task>` (`mise r <task>`).
 # Prune tasks whose directory was not scaffolded.
 [tasks."dev:backend"]
@@ -31,6 +35,10 @@ run = "pnpm check"
 description = "Build the frontend bundle into frontend/dist"
 dir = "frontend"
 run = "pnpm build"
+
+[tasks."gen:client"]
+description = "Regenerate the heyapi client package from the OpenAPI spec"
+run = "scripts/gen-client.sh"
 
 [tasks."build:backend"]
 description = "Build the backend (embeds frontend/dist at compile time)"

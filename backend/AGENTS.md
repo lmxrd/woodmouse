@@ -3,7 +3,7 @@
 ## Commands
 
 - `cargo check` — fast compile check
-- `cargo run` — serve on http://localhost:3000 (Swagger UI at `/swagger-ui`)
+- `cargo run` — serve on http://localhost:8000 (Swagger UI at `/swagger-ui`)
 - `cargo test` — run tests
 - `mise run check` — rustfmt --check + clippy (`-D warnings`); run before
   committing

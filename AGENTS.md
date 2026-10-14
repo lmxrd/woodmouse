@@ -3,7 +3,7 @@
 ## Commands
 
 - `mise install` — install the pinned toolchain
-- `mise run dev:backend` — API server (http://localhost:3000)
+- `mise run dev:backend` — API server (http://localhost:8000)
 - `mise run dev:frontend` — frontend dev server
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)

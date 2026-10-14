@@ -6,7 +6,7 @@ API service built with axum, utoipa (OpenAPI), and toasty on SQLite.
 
 | Command                | What it does                                        |
 | ---------------------- | --------------------------------------------------- |
-| `cargo run`           | Serve on http://localhost:3000 (Swagger at `/swagger-ui`) |
+| `cargo run`           | Serve on http://localhost:8000 (Swagger at `/swagger-ui`) |
 | `cargo test`          | Run tests (smoke test in `tests/api.rs`)           |
 | `mise run check`      | rustfmt --check + clippy                            |
 | `mise run fix`        | rustfmt + clippy --fix                              |
@@ -16,7 +16,7 @@ API service built with axum, utoipa (OpenAPI), and toasty on SQLite.
 
 Environment variables (see `src/main.rs`):
 
-- `BIND_ADDR` — listen address (default `0.0.0.0:3000`)
+- `BIND_ADDR` — listen address (default `0.0.0.0:8000`)
 - `DATABASE_URL` — toasty connection URL (default `sqlite:woodmouse.db`;
   use `sqlite::memory:` for a throwaway database)
 
@@ -24,5 +24,5 @@ Environment variables (see `src/main.rs`):
 
 ```sh
 docker build -t woodmouse .
-docker run -p 3000:3000 -v woodmouse-data:/data woodmouse
+docker run -p 8000:8000 -v woodmouse-data:/data woodmouse
 ```
