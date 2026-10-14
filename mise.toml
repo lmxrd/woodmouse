@@ -34,11 +34,29 @@ run = "pnpm check"
 [tasks."build:frontend"]
 description = "Build the frontend bundle into frontend/dist"
 dir = "frontend"
+depends = ["gen:client"]
 run = "pnpm build"
+
+[tasks."install:frontend"]
+description = "Install frontend workspace dependencies"
+dir = "frontend"
+run = "pnpm install --no-frozen-lockfile"
+
+# Client generation pipeline: spec (backend only, no frontend bundle needed)
+# -> heyapi openapi-ts -> frontend/packages/client/src (never committed).
+[tasks."gen:spec"]
+description = "Generate the OpenAPI spec from the backend"
+dir = "backend"
+run = "cargo specs"
+# Skip regeneration while the sources are older than the generated specs.
+sources = ["src/**/*.rs", "Cargo.toml"]
+outputs = ["target/specs/openapi.json", "target/specs/openapi.yaml"]
 
 [tasks."gen:client"]
 description = "Regenerate the heyapi client package from the OpenAPI spec"
-run = "scripts/gen-client.sh"
+depends = ["gen:spec", "install:frontend"]
+dir = "frontend/packages/client"
+run = "pnpm exec openapi-ts"
 
 [tasks."build:backend"]
 description = "Build the backend (embeds frontend/dist at compile time)"
@@ -46,8 +64,8 @@ dir = "backend"
 run = "cargo build"
 
 [tasks.build]
-description = "Generate client from spec, build frontend, then backend with the bundle embedded"
-run = "mise run gen:client && mise run build:frontend && mise run build:backend"
+description = "Build frontend (generates the client first), then backend with the bundle embedded"
+run = "mise run build:frontend && mise run build:backend"
 
 [tasks.check]
 description = "Run each stack's checks"

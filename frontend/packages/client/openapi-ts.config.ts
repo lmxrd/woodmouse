@@ -1,7 +1,7 @@
 import { defineConfig } from "@hey-api/openapi-ts";
 
-// Regenerate with `scripts/gen-client.sh` (runs `cargo specs` first, then
-// openapi-ts). Paths are relative to this package directory.
+// Regenerate with `mise run gen:client` (gen:spec -> openapi-ts, see
+// mise.toml). Paths are relative to this package directory.
 export default defineConfig({
   input: "../../../backend/target/specs/openapi.json",
   output: "src",
