@@ -6,11 +6,15 @@
 //!   /                    - embedded CSR frontend (SPA fallback)
 //!   /swagger-ui         - Swagger UI
 
+// The embedded frontend bundle — a module of this binary, not the library,
+// so spec generation (cargo specs) never requires a built frontend.
+mod frontend;
+
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 use utoipa_swagger_ui::SwaggerUi;
 
-use woodmouse::{frontend, routes, state::AppState};
+use woodmouse::{routes, state::AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

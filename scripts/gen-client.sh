@@ -3,6 +3,10 @@
 # the backend's utoipa OpenAPI spec. The generated source is never committed;
 # this script (plus openapi-ts.config.ts) is the source of truth. CI runs it
 # before building the frontend; publish the package from here on releases.
+#
+# `cargo specs` builds only the specs binary, which links the library — the
+# embedded frontend lives in the main binary only, so this works on a fresh
+# checkout before any frontend build.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

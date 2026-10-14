@@ -1,13 +1,37 @@
-# Frontend stage: build the CSR bundle that gets embedded into the binary.
-# Build from the repo root so the frontend sources are in the context:
+# Spec stage: generate the OpenAPI spec from the backend. The embedded
+# frontend lives in the main binary only, so this needs no frontend bundle.
+# Build from the repo root so all sources are in the context:
 #   docker build -f backend/Dockerfile -t woodmouse .
+FROM rust:1-alpine AS spec
+WORKDIR /app
+
+# C toolchain for rusqlite's bundled SQLite (toasty's SQLite driver).
+RUN apk add --no-cache build-base
+
+COPY backend/ ./backend/
+WORKDIR /app/backend
+RUN cargo build --release --bin specs && ./target/release/specs
+
+# Frontend stage: generate the heyapi client from the spec, then build the
+# bundle. The generated client (frontend/packages/client/src) is never
+# committed, so it must be produced here.
 FROM node:26-alpine AS frontend
-WORKDIR /app/frontend
 RUN corepack enable
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+WORKDIR /app
+
+# Workspace manifests first so pnpm install can resolve woodmouse-client.
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
+COPY frontend/packages/client/package.json ./frontend/packages/client/
+COPY frontend/packages/client/openapi-ts.config.ts ./frontend/packages/client/
+
+# The spec lands where openapi-ts.config.ts expects it
+# (../../../backend/target/specs from frontend/packages/client).
+COPY --from=spec /app/backend/target/specs/openapi.json ./backend/target/specs/openapi.json
+
+WORKDIR /app/frontend
 RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
-RUN pnpm build
+RUN pnpm --dir packages/client exec openapi-ts && pnpm build
 
 # Build stage: compile the release binary on Alpine (musl).
 # rust-embed embeds ../frontend/dist, so the bundle must be in place first.

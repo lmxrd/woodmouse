@@ -46,8 +46,8 @@ dir = "backend"
 run = "cargo build"
 
 [tasks.build]
-description = "Build frontend, then backend with the bundle embedded"
-run = "mise run build:frontend && mise run build:backend"
+description = "Generate client from spec, build frontend, then backend with the bundle embedded"
+run = "mise run gen:client && mise run build:frontend && mise run build:backend"
 
 [tasks.check]
 description = "Run each stack's checks"
