@@ -45,3 +45,11 @@
 - Tests: vitest for the utils in `src/lib` only — pure functions, node
   environment, colocated `*.test.ts` (see `src/lib/utils.test.ts`). Do not
   add component/visual tests.
+
+## Imports
+
+- Use relative imports; there is no `@/` alias in the app or the bundler.
+- `tsconfig.json` keeps a `paths` entry for `@/*` only so the shadcn CLI can
+  resolve its targets. After `pnpm dlx shadcn@latest add <name>`, rewrite the
+  generated `@/lib/utils` and `@/components/ui/*` imports to relative paths
+  (`../../lib/utils`, `./button`); `pnpm check` fails if one is left behind.

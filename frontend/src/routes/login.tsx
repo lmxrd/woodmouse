@@ -9,6 +9,10 @@ import {
   meQueryKey,
 } from "woodmouse-client/react-query";
 
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+
 export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
@@ -18,17 +22,30 @@ function LoginPage() {
   const bootstrap = status?.bootstrap_required ?? false;
 
   return (
-    <section className="mx-auto max-w-sm space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">
-        {bootstrap ? "Set up woodmouse" : "Log in"}
-      </h1>
-      <p className="text-sm text-gray-600">
-        {bootstrap
-          ? "Create the first account. It becomes the system super admin; afterwards accounts are created by admins."
-          : "Sign in to your workspaces."}
-      </p>
-      {isPending ? <p className="text-gray-500">Loading...</p> : null}
-      {status && (bootstrap ? <BootstrapForm /> : <LoginForm />)}
+    <section className="w-full max-w-md border border-border bg-card">
+      <header className="flex items-center justify-between border-b-2 border-foreground px-6 py-3">
+        <span className="font-display text-lg font-bold">Woodmouse</span>
+        <span className="label-mono text-[10px] text-muted-foreground">
+          {bootstrap ? "First run" : "Sign in"}
+        </span>
+      </header>
+      <div className="flex flex-col gap-5 p-6">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-display text-3xl leading-tight font-bold">
+            {bootstrap ? "Set up Woodmouse" : "Log in"}
+          </h1>
+          <p className="max-w-[44ch] text-sm leading-6 text-muted-foreground">
+            {bootstrap
+              ? "Create the first account. It becomes the system super admin. After this, admins create every other account."
+              : "Sign in to your workspaces."}
+          </p>
+        </div>
+        {isPending ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
+        {status && (bootstrap ? <BootstrapForm /> : <LoginForm />)}
+      </div>
+      <footer className="label-mono border-t border-border px-6 py-2.5 text-[10px] text-muted-foreground">
+        Self-hosted
+      </footer>
     </section>
   );
 }
@@ -46,34 +63,46 @@ function LoginForm() {
 
   return (
     <form
-      className="space-y-4"
+      className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
         login.mutate({ body: { email, password } });
       }}
     >
-      <Field label="Email">
-        <input
+      {login.isError ? (
+        <ErrorNote message="That did not work. Check your email and password." />
+      ) : null}
+      <Field id="email" label="Email">
+        <Input
+          id="email"
           type="email"
           required
+          autoComplete="email"
+          placeholder="you@home.example"
+          aria-invalid={login.isError}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className={inputClass}
+          className="h-10"
         />
       </Field>
-      <Field label="Password">
-        <input
+      <Field id="password" label="Password">
+        <Input
+          id="password"
           type="password"
           required
+          autoComplete="current-password"
+          aria-invalid={login.isError}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className={inputClass}
+          className="h-10"
         />
       </Field>
-      <button type="submit" disabled={login.isPending} className={buttonClass}>
+      <Button type="submit" size="lg" disabled={login.isPending}>
         {login.isPending ? "Signing in..." : "Log in"}
-      </button>
-      {login.isError ? <ErrorNote /> : null}
+      </Button>
+      <p className="text-sm text-muted-foreground">
+        No account? Ask a workspace admin to create one for you.
+      </p>
     </form>
   );
 }
@@ -92,43 +121,51 @@ function BootstrapForm() {
 
   return (
     <form
-      className="space-y-4"
+      className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
         bootstrapAccount.mutate({ body: { name, email, password } });
       }}
     >
-      <Field label="Your name">
-        <input
+      {bootstrapAccount.isError ? (
+        <ErrorNote message="Could not create the account. Check the details and try again." />
+      ) : null}
+      <Field id="name" label="Your name">
+        <Input
+          id="name"
           required
+          autoComplete="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className={inputClass}
+          className="h-10"
         />
       </Field>
-      <Field label="Email">
-        <input
+      <Field id="email" label="Email">
+        <Input
+          id="email"
           type="email"
           required
+          autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className={inputClass}
+          className="h-10"
         />
       </Field>
-      <Field label="Password (min 8 characters)">
-        <input
+      <Field id="password" label="Password" hint="min 8 characters">
+        <Input
+          id="password"
           type="password"
           required
           minLength={8}
+          autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className={inputClass}
+          className="h-10"
         />
       </Field>
-      <button type="submit" disabled={bootstrapAccount.isPending} className={buttonClass}>
+      <Button type="submit" size="lg" disabled={bootstrapAccount.isPending}>
         {bootstrapAccount.isPending ? "Creating..." : "Create admin account"}
-      </button>
-      {bootstrapAccount.isError ? <ErrorNote /> : null}
+      </Button>
     </form>
   );
 }
@@ -142,20 +179,33 @@ function finishLogin(
   void navigate({ to: "/" });
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <label className="block space-y-1">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} className="label-mono text-[11px] text-muted-foreground">
+        {label}
+      </Label>
       {children}
-    </label>
+      {hint ? <p className="font-mono text-[11px] text-muted-foreground">{hint}</p> : null}
+    </div>
   );
 }
 
-const inputClass =
-  "w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none";
-const buttonClass =
-  "w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50";
-
-function ErrorNote() {
-  return <p className="text-sm text-red-600">That did not work. Check your credentials.</p>;
+function ErrorNote({ message }: { message: string }) {
+  return (
+    <div role="alert" className="flex gap-3 border border-destructive bg-card px-3 py-2.5 text-sm">
+      <span className="font-mono font-medium text-destructive">ERR</span>
+      <span>{message}</span>
+    </div>
+  );
 }
