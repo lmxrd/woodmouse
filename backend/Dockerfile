@@ -30,9 +30,9 @@ RUN apk add --no-cache ca-certificates
 COPY --from=build /app/backend/target/release/woodmouse /usr/local/bin/app
 
 # The SQLite database lives on a mounted volume.
-ENV BIND_ADDR=0.0.0.0:3000
+ENV PORT=8000
 ENV DATABASE_URL=sqlite:/data/woodmouse.db
 VOLUME /data
 
-EXPOSE 3000
+EXPOSE 8000
 CMD ["app"]

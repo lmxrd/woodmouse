@@ -1,42 +1,57 @@
 use axum::{Json, extract::State, http::StatusCode};
 use serde::Serialize;
 use utoipa::ToSchema;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::state::AppState;
 
-#[derive(Serialize, ToSchema)]
-pub struct Health {
-    pub status: String,
+/// All health routes, registered next to their handlers.
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().routes(routes!(health))
 }
 
-/// Liveness probe.
+#[derive(Serialize, ToSchema)]
+pub struct Health {
+    /// The service itself: this endpoint answering proves the process is
+    /// alive.
+    pub status: String,
+    /// Database round-trip: `ok` or `unreachable`.
+    pub db: String,
+}
+
+/// Liveness probe with a database round-trip. The body reports the two
+/// concerns separately; the HTTP status is 200 only when both are healthy
+/// (503 when the database is unreachable).
 #[utoipa::path(
     get,
     path = "/health",
     tag = "health",
-    responses((status = 200, description = "Service is healthy", body = Health))
-)]
-pub async fn health() -> Json<Health> {
-    Json(Health {
-        status: "ok".to_string(),
-    })
-}
-
-/// Database round-trip probe: fails (500) if the connection is broken.
-#[allow(dead_code)]
-#[utoipa::path(
-    get,
-    path = "/health/db",
-    tag = "health",
     responses(
-        (status = 200, description = "Database query succeeded"),
-        (status = 500, description = "Database unavailable")
+        (status = 200, description = "Service and database are healthy", body = Health),
+        (status = 503, description = "Database unreachable", body = Health)
     )
 )]
-pub async fn health_db(
-    State(state): State<AppState>,
-) -> Result<StatusCode, crate::error::ApiError> {
+pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
     let db = &mut *state.db.lock().await;
-    let _: Vec<crate::models::Todo> = crate::models::Todo::all().exec(db).await?;
-    Ok(StatusCode::OK)
+    let db_status = match toasty::sql::query("SELECT 1").exec(db).await {
+        Ok(_) => "ok",
+        Err(err) => {
+            tracing::error!(error = %err, "health check: database unreachable");
+            "unreachable"
+        }
+    };
+
+    let code = if db_status == "ok" {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        code,
+        Json(Health {
+            status: "ok".into(),
+            db: db_status.into(),
+        }),
+    )
 }

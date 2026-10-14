@@ -3,13 +3,16 @@ name = "woodmouse"
 version = "0.1.0"
 edition = "2024"
 publish = false
+default-run = "woodmouse"
 
 [dependencies]
 axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
-tower-http = { version = "0.7", features = ["trace", "cors"] }
+tower-http = { version = "0.7", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+argon2 = "0.5"
 
 # ORM + SQLite driver
 toasty = { version = "0.11", features = ["sqlite"] }
@@ -22,6 +25,7 @@ utoipa-swagger-ui = { version = "10", features = ["axum"] }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+time = "0.3"
 
 # Embedded CSR frontend (frontend/dist baked into the binary)
 rust-embed = "8"
