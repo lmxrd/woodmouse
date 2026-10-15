@@ -92,7 +92,7 @@ async fn get_task_json(fx: &Fixture, task_id: uuid::Uuid) -> Value {
 }
 
 /// Tasks of the fixture's list, via the workspace endpoint. `query` is extra
-/// parameters like `?done=true` (or empty).
+/// parameters like `?is_completed=true` (or empty).
 async fn list_tasks_json(fx: &Fixture, query: &str) -> Vec<Value> {
     let extra = query.trim_start_matches('?');
     let res = request(
@@ -201,25 +201,25 @@ async fn task_lifecycle() {
 
     // New tasks append: position increments, defaults apply.
     let a = get_task_json(&fx, task_a).await;
-    assert_eq!(a["done"], false);
+    assert_eq!(a["is_completed"], false);
     assert_eq!(a["priority"], "medium");
     assert_eq!(a["position"], 1.0);
     let b = get_task_json(&fx, task_b).await;
     assert_eq!(b["position"], 2.0);
 
-    // Partial update: done + priority + due date.
+    // Partial update: is_completed + priority + due date.
     let res = request(
         &fx.app,
         patch_json(
             &format!("/api/tasks/{task_a}"),
-            r#"{"done":true,"priority":"urgent","due_date":1767225600}"#,
+            r#"{"is_completed":true,"priority":"urgent","due_date":1767225600}"#,
             Some(&fx.cookie),
         ),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     let a = get_task_json(&fx, task_a).await;
-    assert_eq!(a["done"], true);
+    assert_eq!(a["is_completed"], true);
     assert_eq!(a["priority"], "urgent");
     assert_eq!(a["due_date"], 1767225600);
 
@@ -411,20 +411,20 @@ async fn filtering_and_sorting() {
     let t2 = create_task(&fx, "Beta").await;
     let t3 = create_task(&fx, "Gamma").await;
 
-    // done filter.
+    // is_completed filter.
     request(
         &fx.app,
         patch_json(
             &format!("/api/tasks/{t1}"),
-            r#"{"done":true}"#,
+            r#"{"is_completed":true}"#,
             Some(&fx.cookie),
         ),
     )
     .await;
-    let done = list_tasks_json(&fx, "?done=true").await;
+    let done = list_tasks_json(&fx, "?is_completed=true").await;
     assert_eq!(done.len(), 1);
     assert_eq!(done[0]["title"], "Alpha");
-    let open = list_tasks_json(&fx, "?done=false").await;
+    let open = list_tasks_json(&fx, "?is_completed=false").await;
     assert_eq!(open.len(), 2);
 
     // assignee filter (t3 assigned to admin).
@@ -484,7 +484,7 @@ async fn filtering_and_sorting() {
     assert_eq!(titles, vec!["Alpha", "Beta", "Gamma"]);
 
     // Combined filters.
-    let combined = list_tasks_json(&fx, "?done=false&sort=title&order=desc").await;
+    let combined = list_tasks_json(&fx, "?is_completed=false&sort=title&order=desc").await;
     let titles: Vec<&str> = combined
         .iter()
         .map(|t| t["title"].as_str().unwrap())
@@ -928,4 +928,58 @@ async fn workspace_task_listing_scopes() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn completion_timestamp_and_project_id() {
+    let fx = fixture().await;
+    let t = create_task(&fx, "Alpha").await;
+
+    let task = get_task_json(&fx, t).await;
+    assert_eq!(task["is_completed"], false);
+    assert!(task["completed_at"].is_null());
+    assert_eq!(task["project_id"], fx.project_id.to_string());
+
+    let patch = |body: String| {
+        let app = fx.app.clone();
+        let cookie = fx.cookie.clone();
+        async move {
+            let res = request(
+                &app,
+                patch_json(&format!("/api/tasks/{t}"), &body, Some(&cookie)),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::OK);
+        }
+    };
+
+    // Completing sets the timestamp.
+    patch(r#"{"is_completed":true}"#.to_string()).await;
+    let done = get_task_json(&fx, t).await;
+    assert_eq!(done["is_completed"], true);
+    let stamp = done["completed_at"].as_i64().expect("completed_at set");
+    assert!(stamp > 1_700_000_000);
+
+    // Completing again (or editing something else) keeps the original timestamp.
+    patch(r#"{"is_completed":true,"priority":"high"}"#.to_string()).await;
+    assert_eq!(get_task_json(&fx, t).await["completed_at"], stamp);
+    patch(r#"{"title":"Alpha 2"}"#.to_string()).await;
+    assert_eq!(get_task_json(&fx, t).await["completed_at"], stamp);
+
+    // Reopening while moving to another list (a drag out of Done) clears it.
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/projects/{}/lists", fx.project_id),
+            r#"{"name":"Other"}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    let other = json_id(res).await;
+    patch(format!(r#"{{"is_completed":false,"list_id":"{other}"}}"#)).await;
+    let reopened = get_task_json(&fx, t).await;
+    assert_eq!(reopened["is_completed"], false);
+    assert!(reopened["completed_at"].is_null());
+    assert_eq!(reopened["list_id"], other.to_string());
 }

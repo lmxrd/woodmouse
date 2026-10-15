@@ -110,8 +110,8 @@ function TaskForm({
           <Checkbox
             className="mt-2.5 size-[18px]"
             aria-label="Done"
-            checked={task.done}
-            onCheckedChange={(done) => save({ done: done === true })}
+            checked={task.is_completed}
+            onCheckedChange={(done) => save({ is_completed: done === true })}
           />
           <textarea
             aria-label="Title"
@@ -129,7 +129,7 @@ function TaskForm({
               if (!trimmed) return setTitle(task.title);
               if (trimmed !== task.title) save({ title: trimmed });
             }}
-            className={`min-w-0 flex-1 resize-none border-b border-dashed border-transparent bg-transparent font-display text-2xl leading-tight font-medium field-sizing-content outline-none hover:border-border focus:border-ring ${task.done ? "text-muted-foreground line-through" : ""}`}
+            className={`min-w-0 flex-1 resize-none border-b border-dashed border-transparent bg-transparent font-display text-2xl leading-tight font-medium field-sizing-content outline-none hover:border-border focus:border-ring ${task.is_completed ? "text-muted-foreground line-through" : ""}`}
           />
         </div>
         <Field label="Description" htmlFor="task-description">

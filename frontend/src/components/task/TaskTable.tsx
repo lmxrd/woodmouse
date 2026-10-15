@@ -31,7 +31,7 @@ function TaskLink({
       to="/w/$workspaceId/p/$projectId/t/$taskId"
       params={{ workspaceId, projectId, taskId: task.id }}
       search={(prev) => prev}
-      className={cn(task.done && "text-muted-foreground line-through", className)}
+      className={cn(task.is_completed && "text-muted-foreground line-through", className)}
     >
       {task.title}
     </Link>
@@ -41,7 +41,9 @@ function TaskLink({
 function Due({ task }: { task: TaskResponse }) {
   if (task.due_date == null) return <span className="text-muted-foreground">—</span>;
   return (
-    <span className={cn(isDueNow(task.due_date) && !task.done && "font-medium text-signal")}>
+    <span
+      className={cn(isDueNow(task.due_date) && !task.is_completed && "font-medium text-signal")}
+    >
       {formatDay(task.due_date)}
     </span>
   );
@@ -93,7 +95,7 @@ export function TaskTable(props: Props) {
               <td className="py-2.5 pl-4">
                 <Checkbox
                   aria-label={`Done: ${task.title}`}
-                  checked={task.done}
+                  checked={task.is_completed}
                   onCheckedChange={(done) => onToggleDone(task, done === true)}
                 />
               </td>
@@ -134,7 +136,7 @@ export function TaskTable(props: Props) {
             <Checkbox
               className="mt-0.5"
               aria-label={`Done: ${task.title}`}
-              checked={task.done}
+              checked={task.is_completed}
               onCheckedChange={(done) => onToggleDone(task, done === true)}
             />
             <div className="min-w-0 flex-1">

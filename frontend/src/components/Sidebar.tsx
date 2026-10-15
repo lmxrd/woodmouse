@@ -88,6 +88,16 @@ export function Sidebar({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <Link
+        to="/w/$workspaceId/my-tasks"
+        params={{ workspaceId }}
+        onClick={onNavigate}
+        className="px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+        activeProps={{ className: "bg-accent font-medium !text-foreground" }}
+      >
+        My tasks
+      </Link>
+
       <nav className="flex flex-col text-sm" aria-label="Projects">
         <p className="label-mono mb-1.5 text-muted-foreground">Projects</p>
         {projects?.map((project) => (

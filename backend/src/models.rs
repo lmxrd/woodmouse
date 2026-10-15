@@ -175,7 +175,11 @@ pub struct Task {
     /// lands in Phase 3.
     pub description: String,
 
-    pub done: bool,
+    pub is_completed: bool,
+
+    /// When the task was completed (Unix epoch seconds); set and cleared together with
+    /// `is_completed`, so a Done view can show the most recent first.
+    pub completed_at: Option<i64>,
 
     /// Ordering within the list; new tasks append (max + 1).
     pub position: f64,

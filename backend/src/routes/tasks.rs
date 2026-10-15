@@ -9,7 +9,7 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::CurrentUser;
+use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
 use crate::models::{Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel, User};
 use crate::routes::auth::PublicUser;
@@ -66,9 +66,12 @@ async fn delete_tasks_by_ids(
 pub struct TaskResponse {
     pub id: uuid::Uuid,
     pub list_id: uuid::Uuid,
+    pub project_id: uuid::Uuid,
     pub title: String,
     pub description: String,
-    pub done: bool,
+    pub is_completed: bool,
+    /// Unix epoch seconds; set while `is_completed`.
+    pub completed_at: Option<i64>,
     pub position: f64,
     pub priority: Priority,
     /// Unix epoch seconds, if set.
@@ -97,7 +100,7 @@ pub struct CreateTaskRequest {
 pub struct UpdateTaskRequest {
     pub title: Option<String>,
     pub description: Option<String>,
-    pub done: Option<bool>,
+    pub is_completed: Option<bool>,
     pub priority: Option<Priority>,
     /// Absent leaves the due date unchanged; `null` clears it.
     #[serde(default, deserialize_with = "double_option")]
@@ -131,8 +134,8 @@ pub struct TaskFilters {
     pub project_id: Option<uuid::Uuid>,
     /// Only tasks in this list.
     pub list_id: Option<uuid::Uuid>,
-    /// Only tasks with this done state.
-    pub done: Option<bool>,
+    /// Only completed (true) or open (false) tasks.
+    pub is_completed: Option<bool>,
     /// Only tasks assigned to this user.
     pub assignee_id: Option<uuid::Uuid>,
     /// Only tasks carrying this label.
@@ -208,8 +211,8 @@ pub async fn list_tasks(
     }
 
     let mut query = Task::all().filter(in_list(Task::fields().list_id(), list_ids));
-    if let Some(done) = filters.done {
-        query = query.filter(Task::fields().done().eq(done));
+    if let Some(is_completed) = filters.is_completed {
+        query = query.filter(Task::fields().is_completed().eq(is_completed));
     }
     if let Some(assignee_id) = filters.assignee_id {
         let task_ids: Vec<uuid::Uuid> = TaskAssignee::filter_by_user_id(assignee_id)
@@ -308,7 +311,8 @@ pub async fn create_task(
         list_id,
         title: title.to_string(),
         description: input.description,
-        done: false,
+        is_completed: false,
+        completed_at: None,
         position,
         priority: input.priority.unwrap_or(Priority::Medium),
         start_date: input.start_date,
@@ -336,12 +340,15 @@ pub async fn create_task(
     }
     tx.commit().await?;
 
+    let project_id = List::get_by_id(db, &list_id).await?.project_id;
     let response = TaskResponse {
         id: task.id,
         list_id: task.list_id,
+        project_id,
         title: task.title,
         description: task.description,
-        done: task.done,
+        is_completed: task.is_completed,
+        completed_at: task.completed_at,
         position: task.position,
         priority: task.priority,
         start_date: task.start_date,
@@ -425,10 +432,11 @@ pub async fn update_task(
     let mut tx = db.transaction().await?;
     let mut task = Task::get_by_id(&mut tx, &id).await?;
 
+    let was_completed = task.is_completed;
     let mut update = task.update();
     let has_field_changes = input.title.is_some()
         || input.description.is_some()
-        || input.done.is_some()
+        || input.is_completed.is_some()
         || input.priority.is_some()
         || input.due_date.is_some()
         || input.position.is_some()
@@ -440,8 +448,12 @@ pub async fn update_task(
     if let Some(description) = input.description {
         update = update.description(description);
     }
-    if let Some(done) = input.done {
-        update = update.done(done);
+    if let Some(is_completed) = input.is_completed {
+        update = update.is_completed(is_completed);
+        // Keep the timestamp in step with the flag: set on completion, cleared on reopening.
+        if is_completed != was_completed {
+            update = update.completed_at(is_completed.then(auth::now_secs));
+        }
     }
     if let Some(priority) = input.priority {
         update = update.priority(priority);
@@ -595,6 +607,18 @@ async fn hydrate_tasks(
         .exec(db)
         .await?;
 
+    let list_ids: HashSet<uuid::Uuid> = tasks.iter().map(|t| t.list_id).collect();
+    let project_by_list: HashMap<uuid::Uuid, uuid::Uuid> = List::all()
+        .filter(in_list(
+            List::fields().id(),
+            list_ids.into_iter().collect::<Vec<_>>(),
+        ))
+        .exec(db)
+        .await?
+        .into_iter()
+        .map(|l| (l.id, l.project_id))
+        .collect();
+
     let user_ids: HashSet<uuid::Uuid> = assignee_rows.iter().map(|a| a.user_id).collect();
     let users: Vec<User> = if user_ids.is_empty() {
         vec![]
@@ -651,9 +675,14 @@ async fn hydrate_tasks(
             TaskResponse {
                 id: task.id,
                 list_id: task.list_id,
+                project_id: project_by_list
+                    .get(&task.list_id)
+                    .copied()
+                    .unwrap_or_default(),
                 title: task.title,
                 description: task.description,
-                done: task.done,
+                is_completed: task.is_completed,
+                completed_at: task.completed_at,
                 position: task.position,
                 priority: task.priority,
                 start_date: task.start_date,

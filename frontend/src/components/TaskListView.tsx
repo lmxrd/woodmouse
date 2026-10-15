@@ -55,7 +55,7 @@ export function TaskListView({
         list_id: search.list,
         assignee_id: search.assignee,
         label_id: search.label,
-        done: status === "all" ? undefined : status === "done",
+        is_completed: status === "all" ? undefined : status === "done",
         sort: serverSort,
         order: serverSort ? order : undefined,
       },
@@ -124,7 +124,9 @@ export function TaskListView({
         sort={search.sort}
         order={order}
         onSort={onSort}
-        onToggleDone={(task, done) => update.mutate({ path: { id: task.id }, body: { done } })}
+        onToggleDone={(task, done) =>
+          update.mutate({ path: { id: task.id }, body: { is_completed: done } })
+        }
       />
 
       {lists && lists.length > 0 ? (
