@@ -1,7 +1,9 @@
 pub mod auth;
 pub mod health;
+pub mod invites;
 pub mod labels;
 pub mod lists;
+pub mod members;
 pub mod projects;
 pub mod tasks;
 pub mod workspaces;
@@ -30,11 +32,14 @@ use crate::{openapi::ApiDoc, state::AppState};
 /// the SPA fallback and lets the dev frontend proxy a single prefix.
 pub fn api(state: AppState) -> OpenApiRouter<AppState> {
     // No session required.
-    let public = health::router().merge(auth::public_router());
+    let public = health::router()
+        .merge(auth::public_router())
+        .merge(invites::public_router());
 
     // Session required — enforced by the layer for every route below.
     let protected = auth::protected_router()
         .merge(workspaces::router())
+        .merge(members::router())
         .merge(projects::router())
         .merge(lists::router())
         .merge(tasks::router())

@@ -91,11 +91,17 @@ async fn get_task_json(fx: &Fixture, task_id: uuid::Uuid) -> Value {
     serde_json::from_str(&body).expect("valid json")
 }
 
+/// Tasks of the fixture's list, via the workspace endpoint. `query` is extra
+/// parameters like `?done=true` (or empty).
 async fn list_tasks_json(fx: &Fixture, query: &str) -> Vec<Value> {
+    let extra = query.trim_start_matches('?');
     let res = request(
         &fx.app,
         get(
-            &format!("/api/lists/{}/tasks{query}", fx.list_id),
+            &format!(
+                "/api/workspaces/{}/tasks?list_id={}&{extra}",
+                fx.workspace_id, fx.list_id
+            ),
             Some(&fx.cookie),
         ),
     )
@@ -809,6 +815,115 @@ async fn workspace_members_listing() {
         get(
             &format!("/api/workspaces/{workspace_id}/members"),
             Some(&format!("woodmouse_session={token}")),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn workspace_task_listing_scopes() {
+    let fx = fixture().await;
+    create_task(&fx, "In first list").await;
+
+    // A second list in the same project, and a second project with a list.
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/projects/{}/lists", fx.project_id),
+            r#"{"name":"Second"}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    let second_list = json_id(res).await;
+    request(
+        &fx.app,
+        post_json(
+            &format!("/api/lists/{second_list}/tasks"),
+            r#"{"title":"In second list"}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/workspaces/{}/projects", fx.workspace_id),
+            r#"{"name":"Other project"}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    let other_project = json_id(res).await;
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/projects/{other_project}/lists"),
+            r#"{"name":"Elsewhere"}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    let other_list = json_id(res).await;
+    request(
+        &fx.app,
+        post_json(
+            &format!("/api/lists/{other_list}/tasks"),
+            r#"{"title":"In other project"}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+
+    let fetch = |query: String| {
+        let app = fx.app.clone();
+        let cookie = fx.cookie.clone();
+        let workspace_id = fx.workspace_id;
+        async move {
+            let res = request(
+                &app,
+                get(
+                    &format!("/api/workspaces/{workspace_id}/tasks{query}"),
+                    Some(&cookie),
+                ),
+            )
+            .await;
+            let status = res.status();
+            let body = body_string(res.into_body()).await;
+            (status, body)
+        }
+    };
+    let count = |body: &str| {
+        serde_json::from_str::<Vec<Value>>(body)
+            .expect("json")
+            .len()
+    };
+
+    let (status, body) = fetch(String::new()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(count(&body), 3, "whole workspace");
+
+    let (_, body) = fetch(format!("?project_id={}", fx.project_id)).await;
+    assert_eq!(count(&body), 2, "one project, across its lists");
+
+    let (_, body) = fetch(format!("?list_id={second_list}")).await;
+    assert_eq!(count(&body), 1, "one list");
+
+    // A project or list from another workspace (or nonexistent) is a 404.
+    let (status, _) = fetch(format!("?project_id={}", uuid::Uuid::new_v4())).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = fetch(format!("?list_id={second_list}&project_id={other_project}")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "list not in that project");
+
+    // Another workspace entirely.
+    let other_ws = create_workspace(&fx.app, &fx.cookie, "Work").await;
+    let res = request(
+        &fx.app,
+        get(
+            &format!("/api/workspaces/{other_ws}/tasks?list_id={second_list}"),
+            Some(&fx.cookie),
         ),
     )
     .await;

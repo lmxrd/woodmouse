@@ -28,7 +28,7 @@ export function LabelPicker({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {selected.map((label) => (
-        <LabelTag key={label.id} name={label.name} />
+        <LabelTag key={label.id} name={label.name} color={label.color} />
       ))}
       <Popover>
         <PopoverTrigger asChild>

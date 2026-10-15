@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { TaskResponse } from "woodmouse-client";
 import {
@@ -21,9 +21,9 @@ import { AvatarStack } from "./UserAvatar";
 export function Board({ projectId, workspaceId }: { projectId: string; workspaceId: string }) {
   const queryClient = useQueryClient();
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
-  const taskQueries = useQueries({
-    queries: (lists ?? []).map((list) => listTasksOptions({ path: { list_id: list.id } })),
-  });
+  const { data: allTasks } = useQuery(
+    listTasksOptions({ path: { workspace_id: workspaceId }, query: { project_id: projectId } }),
+  );
 
   const refresh = () => queryClient.invalidateQueries();
   const createList = useMutation({ ...createListMutation(), onSuccess: refresh });
@@ -33,8 +33,8 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
 
   return (
     <div className="flex snap-x snap-mandatory scroll-px-4 items-start gap-4 overflow-x-auto p-4 sm:snap-none sm:p-6">
-      {lists?.map((list, index) => {
-        const tasks = taskQueries[index]?.data ?? [];
+      {lists?.map((list) => {
+        const tasks = allTasks?.filter((t) => t.list_id === list.id) ?? [];
         return (
           <section
             key={list.id}
@@ -52,9 +52,7 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
               e.preventDefault();
               setDragOver(null);
               const taskId = e.dataTransfer.getData("text/plain");
-              const moved = taskQueries.some((q) =>
-                q.data?.some((t) => t.id === taskId && t.list_id === list.id),
-              );
+              const moved = tasks.some((t) => t.id === taskId);
               if (taskId && !moved)
                 moveTask.mutate({ path: { id: taskId }, body: { list_id: list.id } });
             }}
@@ -99,6 +97,7 @@ function TaskCard({
     <Link
       to="/w/$workspaceId/p/$projectId/t/$taskId"
       params={{ workspaceId, projectId, taskId: task.id }}
+      search={(prev) => prev}
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/plain", task.id)}
       className="flex cursor-grab flex-col gap-2 border border-border bg-card p-3 hover:border-foreground"
@@ -126,7 +125,7 @@ function TaskCard({
       {task.labels.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {task.labels.map((label) => (
-            <LabelTag key={label.id} name={label.name} />
+            <LabelTag key={label.id} name={label.name} color={label.color} />
           ))}
         </div>
       ) : null}

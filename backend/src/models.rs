@@ -5,7 +5,17 @@ use utoipa::ToSchema;
 /// admin. The toasty `Embed` derive stores the snake_case variant label
 /// (`read`, `write`, `admin`) — same string the API uses.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, ToSchema, toasty::Embed,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    ToSchema,
+    toasty::Embed,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -38,6 +48,25 @@ pub struct User {
 /// A login session. The opaque token travels in an httpOnly cookie.
 #[derive(Debug, toasty::Model)]
 pub struct Session {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[unique]
+    pub token: String,
+
+    #[index]
+    pub user_id: uuid::Uuid,
+
+    /// Expiry as Unix epoch seconds.
+    pub expires_at: i64,
+}
+
+/// A one-time invite link for a user who has not set a password yet. The
+/// token is shown to the inviting admin in the UI; accepting it sets the
+/// password and deletes the invite.
+#[derive(Debug, toasty::Model)]
+pub struct Invite {
     #[key]
     #[auto]
     pub id: uuid::Uuid,

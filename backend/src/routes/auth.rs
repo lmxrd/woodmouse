@@ -66,19 +66,28 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-fn validate_credentials(email: &str, name: &str, password: &str) -> Result<(), ApiError> {
+pub(crate) fn validate_identity(email: &str, name: &str) -> Result<(), ApiError> {
     if email.trim().is_empty() || !email.contains('@') {
         return Err(ApiError::bad_request("email is invalid"));
     }
     if name.trim().is_empty() {
         return Err(ApiError::bad_request("name is required"));
     }
+    Ok(())
+}
+
+pub(crate) fn validate_password(password: &str) -> Result<(), ApiError> {
     if password.len() < 8 {
         return Err(ApiError::bad_request(
             "password must be at least 8 characters",
         ));
     }
     Ok(())
+}
+
+fn validate_credentials(email: &str, name: &str, password: &str) -> Result<(), ApiError> {
+    validate_identity(email, name)?;
+    validate_password(password)
 }
 
 /// Whether first-user bootstrap is open (users table empty).

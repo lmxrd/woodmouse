@@ -112,6 +112,16 @@ export function Sidebar({
         />
       </nav>
 
+      <Link
+        to="/w/$workspaceId/settings"
+        params={{ workspaceId }}
+        onClick={onNavigate}
+        className="px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+        activeProps={{ className: "bg-accent font-medium !text-foreground" }}
+      >
+        Settings
+      </Link>
+
       <div className="mt-auto flex items-center gap-2 text-sm text-muted-foreground">
         <UserAvatar name={me?.name ?? ""} size="md" />
         <span className="min-w-0 flex-1 truncate">{me?.name}</span>

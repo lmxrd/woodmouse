@@ -11,7 +11,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Label, Priority, Role, Task, TaskAssignee, TaskLabel, User};
+use crate::models::{Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel, User};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 
@@ -127,6 +127,10 @@ where
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct TaskFilters {
+    /// Only tasks in this project.
+    pub project_id: Option<uuid::Uuid>,
+    /// Only tasks in this list.
+    pub list_id: Option<uuid::Uuid>,
     /// Only tasks with this done state.
     pub done: Option<bool>,
     /// Only tasks assigned to this user.
@@ -139,29 +143,71 @@ pub struct TaskFilters {
     pub order: Option<String>,
 }
 
-/// List the tasks of a list, with optional filters and sorting.
+/// List the tasks of a workspace, optionally narrowed to a project or list,
+/// with filters and sorting. Filters combine with AND.
 #[utoipa::path(
     get,
-    path = "/lists/{list_id}/tasks",
+    path = "/workspaces/{workspace_id}/tasks",
     tag = "tasks",
     security(("session_cookie" = [])),
-    params(("list_id" = uuid::Uuid, Path, description = "List id"), TaskFilters),
+    params(("workspace_id" = uuid::Uuid, Path, description = "Workspace id"), TaskFilters),
     responses(
-        (status = 200, description = "The list's tasks", body = [TaskResponse]),
+        (status = 200, description = "The matching tasks", body = [TaskResponse]),
         (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access")
+        (status = 404, description = "No workspace with that id, or no access; also an unknown project or list filter")
     )
 )]
 pub async fn list_tasks(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Path(list_id): Path<uuid::Uuid>,
+    Path(workspace_id): Path<uuid::Uuid>,
     Query(filters): Query<TaskFilters>,
 ) -> Result<Json<Vec<TaskResponse>>, ApiError> {
     let db = &mut *state.db.lock().await;
-    access::require_list_access(db, &user, list_id, Role::Read).await?;
+    access::require_access(db, &user, workspace_id, Role::Read).await?;
 
-    let mut query = Task::filter_by_list_id(list_id);
+    // The lists whose tasks are in scope. A project or list filter must
+    // belong to this workspace, otherwise it looks nonexistent.
+    let list_ids: Vec<uuid::Uuid> = if let Some(list_id) = filters.list_id {
+        let list = List::get_by_id(db, &list_id).await?;
+        let project = Project::get_by_id(db, &list.project_id).await?;
+        if project.workspace_id != workspace_id
+            || filters.project_id.is_some_and(|p| p != project.id)
+        {
+            return Err(ApiError::not_found());
+        }
+        vec![list_id]
+    } else {
+        let project_ids: Vec<uuid::Uuid> = if let Some(project_id) = filters.project_id {
+            let project = Project::get_by_id(db, &project_id).await?;
+            if project.workspace_id != workspace_id {
+                return Err(ApiError::not_found());
+            }
+            vec![project_id]
+        } else {
+            Project::filter_by_workspace_id(workspace_id)
+                .exec(db)
+                .await?
+                .into_iter()
+                .map(|p| p.id)
+                .collect()
+        };
+        if project_ids.is_empty() {
+            return Ok(Json(vec![]));
+        }
+        List::all()
+            .filter(in_list(List::fields().project_id(), project_ids))
+            .exec(db)
+            .await?
+            .into_iter()
+            .map(|l| l.id)
+            .collect()
+    };
+    if list_ids.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    let mut query = Task::all().filter(in_list(Task::fields().list_id(), list_ids));
     if let Some(done) = filters.done {
         query = query.filter(Task::fields().done().eq(done));
     }
@@ -198,7 +244,6 @@ pub async fn list_tasks(
         (Some("title"), true) => Task::fields().title().desc(),
         (Some("due_date"), false) => Task::fields().due_date().asc(),
         (Some("due_date"), true) => Task::fields().due_date().desc(),
-        (Some("position"), true) => Task::fields().position().desc(),
         (_, true) => Task::fields().position().desc(),
         (_, false) => Task::fields().position().asc(),
     };

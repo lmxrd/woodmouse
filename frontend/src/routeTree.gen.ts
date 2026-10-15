@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
+import { Route as WWorkspaceIdSettingsRouteImport } from './routes/w.$workspaceId.settings'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
 import { Route as WWorkspaceIdTTaskIdRouteImport } from './routes/w.$workspaceId.t.$taskId'
 import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from './routes/w.$workspaceId.p.$projectId.t.$taskId'
@@ -27,6 +29,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteTokenRoute = InviteTokenRouteImport.update({
+  id: '/invite/$token',
+  path: '/invite/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WWorkspaceIdRoute = WWorkspaceIdRouteImport.update({
   id: '/w/$workspaceId',
   path: '/w/$workspaceId',
@@ -35,6 +42,11 @@ const WWorkspaceIdRoute = WWorkspaceIdRouteImport.update({
 const WWorkspaceIdIndexRoute = WWorkspaceIdIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdSettingsRoute = WWorkspaceIdSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
 const WWorkspaceIdPProjectIdRoute = WWorkspaceIdPProjectIdRouteImport.update({
@@ -57,7 +69,9 @@ const WWorkspaceIdPProjectIdTTaskIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
+  '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
@@ -66,6 +80,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/invite/$token': typeof InviteTokenRoute
+  '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
@@ -75,7 +91,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
+  '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
@@ -86,7 +104,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/invite/$token'
     | '/w/$workspaceId'
+    | '/w/$workspaceId/settings'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
@@ -95,6 +115,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/invite/$token'
+    | '/w/$workspaceId/settings'
     | '/w/$workspaceId'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
@@ -103,7 +125,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/login'
+    | '/invite/$token'
     | '/w/$workspaceId'
+    | '/w/$workspaceId/settings'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
@@ -113,6 +137,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  InviteTokenRoute: typeof InviteTokenRoute
   WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren
 }
 
@@ -132,6 +157,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite/$token': {
+      id: '/invite/$token'
+      path: '/invite/$token'
+      fullPath: '/invite/$token'
+      preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/w/$workspaceId': {
       id: '/w/$workspaceId'
       path: '/w/$workspaceId'
@@ -144,6 +176,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/w/$workspaceId/'
       preLoaderRoute: typeof WWorkspaceIdIndexRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/settings': {
+      id: '/w/$workspaceId/settings'
+      path: '/settings'
+      fullPath: '/w/$workspaceId/settings'
+      preLoaderRoute: typeof WWorkspaceIdSettingsRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
     '/w/$workspaceId/p/$projectId': {
@@ -185,12 +224,14 @@ const WWorkspaceIdPProjectIdRouteWithChildren =
   )
 
 interface WWorkspaceIdRouteChildren {
+  WWorkspaceIdSettingsRoute: typeof WWorkspaceIdSettingsRoute
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
   WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren
   WWorkspaceIdTTaskIdRoute: typeof WWorkspaceIdTTaskIdRoute
 }
 
 const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
+  WWorkspaceIdSettingsRoute: WWorkspaceIdSettingsRoute,
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,
   WWorkspaceIdPProjectIdRoute: WWorkspaceIdPProjectIdRouteWithChildren,
   WWorkspaceIdTTaskIdRoute: WWorkspaceIdTTaskIdRoute,
@@ -203,6 +244,7 @@ const WWorkspaceIdRouteWithChildren = WWorkspaceIdRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  InviteTokenRoute: InviteTokenRoute,
   WWorkspaceIdRoute: WWorkspaceIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport

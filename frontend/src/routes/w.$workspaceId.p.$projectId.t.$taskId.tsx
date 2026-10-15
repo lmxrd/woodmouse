@@ -13,7 +13,11 @@ function TaskDialog() {
   const { workspaceId, projectId, taskId } = Route.useParams();
   const navigate = useNavigate();
   const close = () =>
-    void navigate({ to: "/w/$workspaceId/p/$projectId", params: { workspaceId, projectId } });
+    void navigate({
+      to: "/w/$workspaceId/p/$projectId",
+      params: { workspaceId, projectId },
+      search: (prev) => prev,
+    });
 
   return (
     <ResponsiveDialog open onOpenChange={(open) => !open && close()} title="Task details">

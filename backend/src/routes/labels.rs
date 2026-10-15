@@ -1,7 +1,8 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -33,7 +34,18 @@ pub struct UpdateLabel {
     pub color: Option<String>,
 }
 
-/// List the labels of a workspace.
+/// A label with the number of tasks that carry it.
+#[derive(Serialize, ToSchema)]
+pub struct LabelWithCount {
+    pub id: uuid::Uuid,
+    pub workspace_id: uuid::Uuid,
+    pub name: String,
+    /// Hex color like `#71717a`.
+    pub color: String,
+    pub task_count: usize,
+}
+
+/// List the labels of a workspace, with how many tasks use each.
 #[utoipa::path(
     get,
     path = "/workspaces/{workspace_id}/labels",
@@ -41,7 +53,7 @@ pub struct UpdateLabel {
     security(("session_cookie" = [])),
     params(("workspace_id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
-        (status = 200, description = "The workspace's labels", body = [Label]),
+        (status = 200, description = "The workspace's labels", body = [LabelWithCount]),
         (status = 401, description = "Not logged in"),
         (status = 404, description = "No workspace with that id, or no access")
     )
@@ -50,11 +62,32 @@ pub async fn list_labels(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
-) -> Result<Json<Vec<Label>>, ApiError> {
+) -> Result<Json<Vec<LabelWithCount>>, ApiError> {
     let db = &mut *state.db.lock().await;
     access::require_access(db, &user, workspace_id, Role::Read).await?;
-    let labels = Label::filter_by_workspace_id(workspace_id).exec(db).await?;
-    Ok(Json(labels))
+    let mut labels = Label::filter_by_workspace_id(workspace_id).exec(db).await?;
+    labels.sort_by_key(|l| l.name.to_lowercase());
+    if labels.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    let label_ids: Vec<uuid::Uuid> = labels.iter().map(|l| l.id).collect();
+    let uses = TaskLabel::all()
+        .filter(in_list(TaskLabel::fields().label_id(), label_ids))
+        .exec(db)
+        .await?;
+    Ok(Json(
+        labels
+            .into_iter()
+            .map(|l| LabelWithCount {
+                task_count: uses.iter().filter(|u| u.label_id == l.id).count(),
+                id: l.id,
+                workspace_id: l.workspace_id,
+                name: l.name,
+                color: l.color,
+            })
+            .collect(),
+    ))
 }
 
 /// Create a label in the workspace.
