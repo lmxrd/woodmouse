@@ -38,6 +38,7 @@ function LoginForm() {
   const queryClient = useQueryClient();
   const login = useMutation({
     ...loginMutation(),
+    meta: { inline: true },
     onSuccess: (user: PublicUser) => finishLogin(queryClient, navigate, user),
   });
 
@@ -95,6 +96,7 @@ function BootstrapForm() {
   const queryClient = useQueryClient();
   const bootstrapAccount = useMutation({
     ...bootstrapMutation(),
+    meta: { inline: true },
     onSuccess: (user: PublicUser) => finishLogin(queryClient, navigate, user),
   });
 

@@ -59,6 +59,7 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
 
   const add = useMutation({
     ...addMemberMutation(),
+    meta: { inline: true },
     onSuccess: (result) => {
       void refresh();
       setNotice(result.invite_token ? null : `${result.member.user.name} was added.`);
@@ -67,9 +68,14 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
       );
     },
   });
-  const changeRole = useMutation({ ...updateMemberMutation(), onSuccess: refresh });
+  const changeRole = useMutation({
+    ...updateMemberMutation(),
+    meta: { inline: true },
+    onSuccess: refresh,
+  });
   const remove = useMutation({
     ...removeMemberMutation(),
+    meta: { inline: true },
     onSuccess: () => {
       setConfirmRemove(null);
       void refresh();

@@ -61,6 +61,7 @@ function SetPasswordForm({ token }: { token: string }) {
   const queryClient = useQueryClient();
   const accept = useMutation({
     ...acceptInviteMutation(),
+    meta: { inline: true },
     onSuccess: (user) => finishLogin(queryClient, navigate, user),
   });
   const [password, setPassword] = useState("");

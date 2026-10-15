@@ -82,7 +82,11 @@ function TaskForm({
   const { data: members } = useQuery(listMembersOptions({ path: { id: workspaceId } }));
   const { data: labels } = useQuery(listLabelsOptions({ path: { workspace_id: workspaceId } }));
 
-  const update = useMutation({ ...updateTaskMutation(), onSuccess: refresh });
+  const update = useMutation({
+    ...updateTaskMutation(),
+    meta: { inline: true },
+    onSuccess: refresh,
+  });
   const save = (body: Parameters<typeof update.mutate>[0]["body"]) =>
     update.mutate({ path: { id: task.id }, body });
   const createLabel = useMutation({ ...createLabelMutation(), onSuccess: refresh });
