@@ -88,7 +88,11 @@ function TaskForm({
   const createLabel = useMutation({ ...createLabelMutation(), onSuccess: refresh });
   const remove = useMutation({
     ...deleteTaskMutation(),
-    onSuccess: () => void refresh().then(onDeleted),
+    onSuccess: () => {
+      // Leave first: refetching the deleted task would only 404.
+      onDeleted();
+      void refresh();
+    },
   });
 
   const [title, setTitle] = useState(task.title);

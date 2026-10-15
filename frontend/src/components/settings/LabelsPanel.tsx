@@ -5,12 +5,11 @@ import {
   createLabelMutation,
   deleteLabelMutation,
   listLabelsOptions,
-  listMembersOptions,
-  meOptions,
   updateLabelMutation,
 } from "woodmouse-client/react-query";
 
 import { LABEL_COLORS } from "../../lib/labelColors";
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { InlineAdd } from "../InlineAdd";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -20,11 +19,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 export function LabelsPanel({ workspaceId }: { workspaceId: string }) {
   const queryClient = useQueryClient();
   const refresh = () => queryClient.invalidateQueries();
-  const { data: me } = useQuery(meOptions());
-  const { data: members } = useQuery(listMembersOptions({ path: { id: workspaceId } }));
   const { data: labels } = useQuery(listLabelsOptions({ path: { workspace_id: workspaceId } }));
-  const myRole = members?.find((m) => m.user.id === me?.id)?.role;
-  const canEdit = !!me?.super_admin || myRole === "admin" || myRole === "write";
+  const { canWrite: canEdit } = useWorkspaceRole(workspaceId);
 
   const create = useMutation({ ...createLabelMutation(), onSuccess: refresh });
   const update = useMutation({ ...updateLabelMutation(), onSuccess: refresh });

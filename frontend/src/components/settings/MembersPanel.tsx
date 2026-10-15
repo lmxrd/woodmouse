@@ -9,6 +9,7 @@ import {
 } from "woodmouse-client/react-query";
 import { listMembersOptions, meOptions } from "woodmouse-client/react-query";
 
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Field } from "../Field";
 import { UserAvatar } from "../UserAvatar";
 import { Button } from "../ui/button";
@@ -50,8 +51,7 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
   const refresh = () => queryClient.invalidateQueries();
   const { data: me } = useQuery(meOptions());
   const { data: members } = useQuery(listMembersOptions({ path: { id: workspaceId } }));
-  const isAdmin =
-    !!me?.super_admin || members?.some((m) => m.user.id === me?.id && m.role === "admin") === true;
+  const { isAdmin } = useWorkspaceRole(workspaceId);
 
   const [invite, setInvite] = useState<{ name: string; token: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

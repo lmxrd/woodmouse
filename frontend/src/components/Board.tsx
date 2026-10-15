@@ -1,20 +1,26 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { TaskResponse } from "woodmouse-client";
+import type { List, TaskResponse } from "woodmouse-client";
 import {
   createListMutation,
   createTaskMutation,
+  deleteListMutation,
   listListsOptions,
   listTasksOptions,
+  updateListMutation,
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
 import { formatDay, isDueNow } from "../lib/dates";
 import { PRIORITY_BADGE, isHotPriority } from "../lib/priority";
 import { cn } from "../lib/utils";
+import { useWorkspaceRole } from "../lib/useWorkspaceRole";
+import { ActionMenu } from "./ActionMenu";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { InlineAdd } from "./InlineAdd";
 import { LabelTag } from "./LabelTag";
+import { RenameInput } from "./RenameInput";
 import { AvatarStack } from "./UserAvatar";
 
 /** One column per list of the project; dragging a card onto another column moves the task. */
@@ -29,7 +35,18 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
   const createList = useMutation({ ...createListMutation(), onSuccess: refresh });
   const createTask = useMutation({ ...createTaskMutation(), onSuccess: refresh });
   const moveTask = useMutation({ ...updateTaskMutation(), onSuccess: refresh });
+  const renameList = useMutation({ ...updateListMutation(), onSuccess: refresh });
+  const deleteList = useMutation({ ...deleteListMutation(), onSuccess: refresh });
+  const { canWrite } = useWorkspaceRole(workspaceId);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<List | null>(null);
+
+  const deletingCount = allTasks?.filter((t) => t.list_id === deleting?.id).length ?? 0;
+  const deleteDescription =
+    deletingCount === 0
+      ? "This can't be undone."
+      : `This also deletes its ${deletingCount} ${deletingCount === 1 ? "task" : "tasks"}. This can't be undone.`;
 
   return (
     <div className="flex snap-x snap-mandatory scroll-px-4 items-start gap-4 overflow-x-auto p-4 sm:snap-none sm:p-6">
@@ -57,28 +74,72 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
                 moveTask.mutate({ path: { id: taskId }, body: { list_id: list.id } });
             }}
           >
-            <h2 className="label-mono flex justify-between border-b-2 border-foreground pb-1.5">
-              <span>{list.name}</span>
-              <span className="text-muted-foreground">{tasks.length}</span>
-            </h2>
+            <div className="flex items-center gap-1 border-b-2 border-foreground pb-1">
+              {renaming === list.id ? (
+                <RenameInput
+                  label={`Rename ${list.name}`}
+                  value={list.name}
+                  className="h-7 flex-1"
+                  onCancel={() => setRenaming(null)}
+                  onSave={(name) => {
+                    renameList.mutate({ path: { id: list.id }, body: { name } });
+                    setRenaming(null);
+                  }}
+                />
+              ) : (
+                <h2 className="label-mono flex min-w-0 flex-1 justify-between gap-2">
+                  <span className="truncate">{list.name}</span>
+                  <span className="text-muted-foreground">{tasks.length}</span>
+                </h2>
+              )}
+              {canWrite && renaming !== list.id ? (
+                <ActionMenu
+                  label={`Actions for ${list.name}`}
+                  items={[
+                    { label: "Rename list", onSelect: () => setRenaming(list.id) },
+                    { label: "Delete list…", destructive: true, onSelect: () => setDeleting(list) },
+                  ]}
+                />
+              ) : null}
+            </div>
             {tasks.map((task) => (
-              <TaskCard key={task.id} task={task} workspaceId={workspaceId} projectId={projectId} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                workspaceId={workspaceId}
+                projectId={projectId}
+                draggable={canWrite}
+              />
             ))}
-            <InlineAdd
-              label="Add task"
-              placeholder="Task title"
-              onSubmit={(title) =>
-                createTask.mutate({ path: { list_id: list.id }, body: { title } })
-              }
-            />
+            {canWrite ? (
+              <InlineAdd
+                label="Add task"
+                placeholder="Task title"
+                onSubmit={(title) =>
+                  createTask.mutate({ path: { list_id: list.id }, body: { title } })
+                }
+              />
+            ) : null}
           </section>
         );
       })}
-      <InlineAdd
-        className="w-[160px] shrink-0"
-        label="Add list"
-        placeholder="List name"
-        onSubmit={(name) => createList.mutate({ path: { project_id: projectId }, body: { name } })}
+      {canWrite ? (
+        <InlineAdd
+          className="w-[160px] shrink-0"
+          label="Add list"
+          placeholder="List name"
+          onSubmit={(name) =>
+            createList.mutate({ path: { project_id: projectId }, body: { name } })
+          }
+        />
+      ) : null}
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Delete "${deleting?.name ?? ""}"?`}
+        description={deleteDescription}
+        confirmLabel="Delete list"
+        onConfirm={() => deleting && deleteList.mutate({ path: { id: deleting.id } })}
       />
     </div>
   );
@@ -88,19 +149,24 @@ function TaskCard({
   task,
   workspaceId,
   projectId,
+  draggable,
 }: {
   task: TaskResponse;
   workspaceId: string;
   projectId: string;
+  draggable: boolean;
 }) {
   return (
     <Link
       to="/w/$workspaceId/p/$projectId/t/$taskId"
       params={{ workspaceId, projectId, taskId: task.id }}
       search={(prev) => prev}
-      draggable
+      draggable={draggable}
       onDragStart={(e) => e.dataTransfer.setData("text/plain", task.id)}
-      className="flex cursor-grab flex-col gap-2 border border-border bg-card p-3 hover:border-foreground"
+      className={cn(
+        "flex flex-col gap-2 border border-border bg-card p-3 hover:border-foreground",
+        draggable && "cursor-grab",
+      )}
     >
       <div className="flex items-center justify-between gap-2">
         <h3
