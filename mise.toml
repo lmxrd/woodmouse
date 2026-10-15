@@ -4,6 +4,7 @@
 node = "26"      # frontend (react-csr / astro-site)
 pnpm = "12"      # frontend package manager (jsr: prefix needs >= 12)
 rust = "1.99.0"  # backend (rust-api); toasty requires >= 1.95
+watchexec = "2.8.0"  # backend hot reload (dev:backend)
 
 [tasks.dev]
 description = "Run dev mode"
@@ -12,9 +13,9 @@ depends = ["dev:backend", "dev:frontend"]
 # Convenience tasks: `mise run <task>` (`mise r <task>`).
 # Prune tasks whose directory was not scaffolded.
 [tasks."dev:backend"]
-description = "Run the backend API server"
+description = "Run the backend API server, restarting on source changes"
 dir = "backend"
-run = "cargo run"
+run = "watchexec --restart --stop-signal SIGINT --watch src --watch Cargo.toml --watch Cargo.lock --exts rs,toml -- cargo run"
 
 [tasks."dev:frontend"]
 description = "Run the frontend dev server"

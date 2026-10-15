@@ -43,7 +43,7 @@ spec by `mise run gen:client`.
 | Command                  | What it does                                        |
 | ------------------------ | --------------------------------------------------- |
 | `mise install`           | Install the pinned tools (mise.toml)                |
-| `mise run dev:backend`   | API server (http://localhost:8000)                  |
+| `mise run dev:backend`   | API server (http://localhost:8000), restarts on code changes |
 | `mise run dev:frontend`  | Frontend dev server (http://localhost:5173)         |
 | `mise run build`         | Generate client from spec, build frontend, then backend with the bundle embedded|
 | `mise run check`         | Each stack's checks (clippy/fmt, lint/types)       |
