@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { getProjectOptions } from "woodmouse-client/react-query";
 
@@ -9,7 +9,7 @@ export const Route = createFileRoute("/w/$workspaceId/p/$projectId")({
 });
 
 function ProjectPage() {
-  const { projectId } = Route.useParams();
+  const { workspaceId, projectId } = Route.useParams();
   const { data: project } = useQuery(getProjectOptions({ path: { id: projectId } }));
 
   return (
@@ -20,7 +20,8 @@ function ProjectPage() {
           <h1 className="font-display text-2xl font-bold">{project?.name ?? " "}</h1>
         </div>
       </header>
-      <Board projectId={projectId} />
+      <Board projectId={projectId} workspaceId={workspaceId} />
+      <Outlet />
     </>
   );
 }

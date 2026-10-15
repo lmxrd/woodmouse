@@ -14,6 +14,8 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
+import { Route as WWorkspaceIdTTaskIdRouteImport } from './routes/w.$workspaceId.t.$taskId'
+import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from './routes/w.$workspaceId.p.$projectId.t.$taskId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,19 +42,34 @@ const WWorkspaceIdPProjectIdRoute = WWorkspaceIdPProjectIdRouteImport.update({
   path: '/p/$projectId',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
+const WWorkspaceIdTTaskIdRoute = WWorkspaceIdTTaskIdRouteImport.update({
+  id: '/t/$taskId',
+  path: '/t/$taskId',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdPProjectIdTTaskIdRoute =
+  WWorkspaceIdPProjectIdTTaskIdRouteImport.update({
+    id: '/t/$taskId',
+    path: '/t/$taskId',
+    getParentRoute: () => WWorkspaceIdPProjectIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
-  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRoute
+  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
+  '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
+  '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
-  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRoute
+  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
+  '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
+  '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -60,7 +77,9 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
-  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRoute
+  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
+  '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
+  '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -70,8 +89,16 @@ export interface FileRouteTypes {
     | '/w/$workspaceId'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
+    | '/w/$workspaceId/t/$taskId'
+    | '/w/$workspaceId/p/$projectId/t/$taskId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/w/$workspaceId' | '/w/$workspaceId/p/$projectId'
+  to:
+    | '/'
+    | '/login'
+    | '/w/$workspaceId'
+    | '/w/$workspaceId/p/$projectId'
+    | '/w/$workspaceId/t/$taskId'
+    | '/w/$workspaceId/p/$projectId/t/$taskId'
   id:
     | '__root__'
     | '/'
@@ -79,6 +106,8 @@ export interface FileRouteTypes {
     | '/w/$workspaceId'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
+    | '/w/$workspaceId/t/$taskId'
+    | '/w/$workspaceId/p/$projectId/t/$taskId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -124,17 +153,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdPProjectIdRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
+    '/w/$workspaceId/t/$taskId': {
+      id: '/w/$workspaceId/t/$taskId'
+      path: '/t/$taskId'
+      fullPath: '/w/$workspaceId/t/$taskId'
+      preLoaderRoute: typeof WWorkspaceIdTTaskIdRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/p/$projectId/t/$taskId': {
+      id: '/w/$workspaceId/p/$projectId/t/$taskId'
+      path: '/t/$taskId'
+      fullPath: '/w/$workspaceId/p/$projectId/t/$taskId'
+      preLoaderRoute: typeof WWorkspaceIdPProjectIdTTaskIdRouteImport
+      parentRoute: typeof WWorkspaceIdPProjectIdRoute
+    }
   }
 }
 
+interface WWorkspaceIdPProjectIdRouteChildren {
+  WWorkspaceIdPProjectIdTTaskIdRoute: typeof WWorkspaceIdPProjectIdTTaskIdRoute
+}
+
+const WWorkspaceIdPProjectIdRouteChildren: WWorkspaceIdPProjectIdRouteChildren =
+  {
+    WWorkspaceIdPProjectIdTTaskIdRoute: WWorkspaceIdPProjectIdTTaskIdRoute,
+  }
+
+const WWorkspaceIdPProjectIdRouteWithChildren =
+  WWorkspaceIdPProjectIdRoute._addFileChildren(
+    WWorkspaceIdPProjectIdRouteChildren,
+  )
+
 interface WWorkspaceIdRouteChildren {
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
-  WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRoute
+  WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren
+  WWorkspaceIdTTaskIdRoute: typeof WWorkspaceIdTTaskIdRoute
 }
 
 const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,
-  WWorkspaceIdPProjectIdRoute: WWorkspaceIdPProjectIdRoute,
+  WWorkspaceIdPProjectIdRoute: WWorkspaceIdPProjectIdRouteWithChildren,
+  WWorkspaceIdTTaskIdRoute: WWorkspaceIdTTaskIdRoute,
 }
 
 const WWorkspaceIdRouteWithChildren = WWorkspaceIdRoute._addFileChildren(

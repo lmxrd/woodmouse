@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Priority, TaskResponse } from "woodmouse-client";
+import { Link } from "@tanstack/react-router";
+import type { TaskResponse } from "woodmouse-client";
 import {
   createListMutation,
   createTaskMutation,
@@ -10,19 +11,14 @@ import {
 } from "woodmouse-client/react-query";
 
 import { formatDay, isDueNow } from "../lib/dates";
+import { PRIORITY_BADGE, isHotPriority } from "../lib/priority";
 import { cn } from "../lib/utils";
 import { InlineAdd } from "./InlineAdd";
-import { initials } from "./Sidebar";
-
-const PRIORITY_LABEL: Record<Priority, string> = {
-  low: "P1",
-  medium: "P2",
-  high: "P3",
-  urgent: "P4",
-};
+import { LabelTag } from "./LabelTag";
+import { AvatarStack } from "./UserAvatar";
 
 /** One column per list of the project; dragging a card onto another column moves the task. */
-export function Board({ projectId }: { projectId: string }) {
+export function Board({ projectId, workspaceId }: { projectId: string; workspaceId: string }) {
   const queryClient = useQueryClient();
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
   const taskQueries = useQueries({
@@ -36,7 +32,7 @@ export function Board({ projectId }: { projectId: string }) {
   const [dragOver, setDragOver] = useState<string | null>(null);
 
   return (
-    <div className="flex items-start gap-4 p-6">
+    <div className="flex snap-x snap-mandatory scroll-px-4 items-start gap-4 overflow-x-auto p-4 sm:snap-none sm:p-6">
       {lists?.map((list, index) => {
         const tasks = taskQueries[index]?.data ?? [];
         return (
@@ -44,7 +40,7 @@ export function Board({ projectId }: { projectId: string }) {
             key={list.id}
             aria-label={list.name}
             className={cn(
-              "flex w-[232px] shrink-0 flex-col gap-2.5 pb-2",
+              "flex w-[78vw] shrink-0 snap-start flex-col gap-2.5 pb-2 sm:w-[232px]",
               dragOver === list.id && "bg-accent/50",
             )}
             onDragOver={(e) => {
@@ -68,7 +64,7 @@ export function Board({ projectId }: { projectId: string }) {
               <span className="text-muted-foreground">{tasks.length}</span>
             </h2>
             {tasks.map((task) => (
-              <TaskCard key={task.id} task={task} />
+              <TaskCard key={task.id} task={task} workspaceId={workspaceId} projectId={projectId} />
             ))}
             <InlineAdd
               label="Add task"
@@ -90,15 +86,24 @@ export function Board({ projectId }: { projectId: string }) {
   );
 }
 
-function TaskCard({ task }: { task: TaskResponse }) {
-  const hot = task.priority === "high" || task.priority === "urgent";
+function TaskCard({
+  task,
+  workspaceId,
+  projectId,
+}: {
+  task: TaskResponse;
+  workspaceId: string;
+  projectId: string;
+}) {
   return (
-    <article
+    <Link
+      to="/w/$workspaceId/p/$projectId/t/$taskId"
+      params={{ workspaceId, projectId, taskId: task.id }}
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/plain", task.id)}
       className="flex cursor-grab flex-col gap-2 border border-border bg-card p-3 hover:border-foreground"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h3
           className={cn(
             "text-sm leading-snug font-medium",
@@ -109,21 +114,19 @@ function TaskCard({ task }: { task: TaskResponse }) {
         </h3>
         {task.priority !== "medium" ? (
           <span
-            className={cn("font-mono text-[10px]", hot ? "text-signal" : "text-muted-foreground")}
+            className={cn(
+              "font-mono text-[10px]",
+              isHotPriority(task.priority) ? "text-signal" : "text-muted-foreground",
+            )}
           >
-            {PRIORITY_LABEL[task.priority]}
+            {PRIORITY_BADGE[task.priority]}
           </span>
         ) : null}
       </div>
       {task.labels.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {task.labels.map((label) => (
-            <span
-              key={label.id}
-              className="bg-accent px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-accent-foreground uppercase"
-            >
-              {label.name}
-            </span>
+            <LabelTag key={label.id} name={label.name} />
           ))}
         </div>
       ) : null}
@@ -133,18 +136,10 @@ function TaskCard({ task }: { task: TaskResponse }) {
             {formatDay(task.due_date)}
           </span>
         ) : null}
-        <span className="ml-auto flex pl-1">
-          {task.assignees.map((user) => (
-            <span
-              key={user.id}
-              title={user.name}
-              className="-ml-1 grid size-5 place-items-center rounded-full bg-secondary text-[9px] font-medium text-secondary-foreground ring-2 ring-card first:ml-0"
-            >
-              {initials(user.name)}
-            </span>
-          ))}
+        <span className="ml-auto">
+          <AvatarStack names={task.assignees.map((u) => u.name)} />
         </span>
       </div>
-    </article>
+    </Link>
   );
 }

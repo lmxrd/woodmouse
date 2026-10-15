@@ -612,7 +612,7 @@ async fn hydrate_tasks(
                 position: task.position,
                 priority: task.priority,
                 start_date: task.start_date,
-        due_date: task.due_date,
+                due_date: task.due_date,
                 assignees,
                 labels: task_labels,
             }

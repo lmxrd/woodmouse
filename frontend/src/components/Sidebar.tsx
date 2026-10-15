@@ -8,7 +8,9 @@ import {
   meOptions,
 } from "woodmouse-client/react-query";
 
+import { cn } from "../lib/utils";
 import { InlineAdd } from "./InlineAdd";
+import { UserAvatar } from "./UserAvatar";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -18,16 +20,16 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
-export function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join("");
-}
-
-export function Sidebar({ workspaceId }: { workspaceId: string }) {
+export function Sidebar({
+  workspaceId,
+  className,
+  onNavigate,
+}: {
+  workspaceId: string;
+  className?: string;
+  /** Called after the user picks a project or workspace (lets the mobile drawer close). */
+  onNavigate?: () => void;
+}) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: me } = useQuery(meOptions());
@@ -54,7 +56,9 @@ export function Sidebar({ workspaceId }: { workspaceId: string }) {
   });
 
   return (
-    <aside className="flex min-w-0 flex-col gap-5 border-r border-border bg-card p-4">
+    <aside
+      className={cn("flex min-w-0 flex-col gap-5 border-r border-border bg-card p-4", className)}
+    >
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span className="grid size-8 place-items-center bg-primary font-display font-bold text-primary-foreground">
@@ -91,6 +95,7 @@ export function Sidebar({ workspaceId }: { workspaceId: string }) {
             key={project.id}
             to="/w/$workspaceId/p/$projectId"
             params={{ workspaceId, projectId: project.id }}
+            onClick={onNavigate}
             className="truncate px-2 py-1 text-muted-foreground hover:text-foreground"
             activeProps={{ className: "bg-accent font-medium !text-foreground" }}
           >
@@ -108,9 +113,7 @@ export function Sidebar({ workspaceId }: { workspaceId: string }) {
       </nav>
 
       <div className="mt-auto flex items-center gap-2 text-sm text-muted-foreground">
-        <span className="grid size-6 place-items-center rounded-full bg-secondary text-[10px] font-medium text-secondary-foreground">
-          {me ? initials(me.name) : ""}
-        </span>
+        <UserAvatar name={me?.name ?? ""} size="md" />
         <span className="min-w-0 flex-1 truncate">{me?.name}</span>
         <Button variant="ghost" size="xs" onClick={() => logout.mutate({})}>
           Log out

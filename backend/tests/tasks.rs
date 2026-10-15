@@ -742,3 +742,75 @@ async fn move_between_lists_and_start_date() {
     .await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn workspace_members_listing() {
+    let (app, db) = app_with_db().await;
+    let cookie = bootstrap_admin(&app).await;
+    let workspace_id = create_workspace(&app, &cookie, "Home").await;
+
+    let other = toasty::create!(woodmouse::models::User {
+        email: "other@home.io".to_string(),
+        name: "Alice".to_string(),
+        password_hash: "not-a-login-hash".to_string(),
+        super_admin: false,
+    })
+    .exec(&mut db.clone())
+    .await
+    .expect("seed user");
+    toasty::create!(woodmouse::models::WorkspaceMember {
+        user_id: other.id,
+        workspace_id,
+        role: woodmouse::models::Role::Write,
+    })
+    .exec(&mut db.clone())
+    .await
+    .expect("seed membership");
+
+    let res = request(
+        &app,
+        get(
+            &format!("/api/workspaces/{workspace_id}/members"),
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let members: Vec<Value> =
+        serde_json::from_str(&body_string(res.into_body()).await).expect("json");
+    assert_eq!(members.len(), 2);
+    assert_eq!(members[0]["user"]["name"], "Admin", "sorted by name");
+    assert_eq!(members[0]["role"], "admin");
+    assert_eq!(members[1]["user"]["name"], "Alice");
+    assert_eq!(members[1]["role"], "write");
+    assert!(members[0]["user"].get("password_hash").is_none());
+
+    // A user with no membership sees a 404, like the workspace itself.
+    let token = uuid::Uuid::new_v4().to_string();
+    let stranger = toasty::create!(woodmouse::models::User {
+        email: "stranger@x.io".to_string(),
+        name: "Stranger".to_string(),
+        password_hash: "not-a-login-hash".to_string(),
+        super_admin: false,
+    })
+    .exec(&mut db.clone())
+    .await
+    .expect("seed user");
+    toasty::create!(woodmouse::models::Session {
+        token: token.clone(),
+        user_id: stranger.id,
+        expires_at: 4_102_444_800,
+    })
+    .exec(&mut db.clone())
+    .await
+    .expect("seed session");
+    let res = request(
+        &app,
+        get(
+            &format!("/api/workspaces/{workspace_id}/members"),
+            Some(&format!("woodmouse_session={token}")),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
