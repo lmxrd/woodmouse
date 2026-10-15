@@ -175,3 +175,27 @@ async fn changing_the_password_signs_out_other_sessions() {
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn week_start_preference() {
+    let app = app().await;
+    let cookie = bootstrap_admin(&app).await;
+    let me = json(request(&app, get("/api/auth/me", Some(&cookie))).await).await;
+    assert_eq!(me["week_start"], "monday");
+    let res = request(
+        &app,
+        patch_json("/api/auth/me", r#"{"week_start":"sunday"}"#, Some(&cookie)),
+    )
+    .await;
+    assert_eq!(json(res).await["week_start"], "sunday");
+    assert_eq!(
+        json(request(&app, get("/api/auth/me", Some(&cookie))).await).await["week_start"],
+        "sunday"
+    );
+    let res = request(
+        &app,
+        patch_json("/api/auth/me", r#"{"week_start":"friday"}"#, Some(&cookie)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}

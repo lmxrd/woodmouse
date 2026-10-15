@@ -45,6 +45,9 @@ pub struct User {
     /// Preferred clock, `24h` or `12h`; `None` means the default (`24h`).
     pub time_format: Option<String>,
 
+    /// First day of the week in calendars, `monday` or `sunday`; `None` means the default (`monday`).
+    pub week_start: Option<String>,
+
     /// Argon2id hash (PHC string format).
     pub password_hash: String,
 
@@ -171,6 +174,10 @@ pub struct List {
     pub project_id: uuid::Uuid,
 
     pub name: String,
+
+    /// The project's inbox: an unorganized dump list every project starts with. New quick-added
+    /// tasks land here, and it cannot be deleted.
+    pub is_inbox: bool,
 
     /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
     #[serde(skip)]

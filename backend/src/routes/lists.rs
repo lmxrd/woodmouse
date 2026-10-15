@@ -52,12 +52,14 @@ pub async fn list_lists(
 ) -> Result<Json<Vec<List>>, ApiError> {
     let db = &mut *state.db.lock().await;
     access::require_project_access(db, &user, project_id, Role::Read).await?;
-    let lists = List::filter_by_project_id(project_id)
+    // Ids are time-ordered, so sorting by id is creation order, which puts the inbox first.
+    let mut lists: Vec<List> = List::filter_by_project_id(project_id)
         .exec(db)
         .await?
         .into_iter()
         .filter(|l| l.deleted_at.is_none())
         .collect();
+    lists.sort_by_key(|l| l.id);
     Ok(Json(lists))
 }
 
@@ -93,6 +95,7 @@ pub async fn create_list(
     let list = toasty::create!(List {
         project_id,
         name: name.to_string(),
+        is_inbox: false,
     })
     .exec(db)
     .await?;
@@ -170,7 +173,8 @@ pub async fn update_list(
     responses(
         (status = 204, description = "List deleted"),
         (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access")
+        (status = 404, description = "No list with that id, or no access"),
+        (status = 409, description = "The inbox cannot be deleted")
     )
 )]
 pub async fn delete_list(
@@ -180,6 +184,9 @@ pub async fn delete_list(
 ) -> Result<StatusCode, ApiError> {
     let db = &mut *state.db.lock().await;
     access::require_list_access(db, &user, id, Role::Write).await?;
+    if List::get_by_id(db, &id).await?.is_inbox {
+        return Err(ApiError::conflict("the inbox cannot be deleted"));
+    }
 
     // Soft delete: the list and its tasks move to Trash together.
     let mut tx = db.transaction().await?;

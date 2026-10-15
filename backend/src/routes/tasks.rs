@@ -126,6 +126,13 @@ pub struct TaskFilters {
     pub assignee_id: Option<uuid::Uuid>,
     /// Only tasks carrying this label.
     pub label_id: Option<uuid::Uuid>,
+    /// Only tasks scheduled on or after this day (Unix epoch seconds). A task is scheduled from its
+    /// start date (or due date, if it has no start) to its due date (or start date).
+    pub from: Option<i64>,
+    /// Only tasks scheduled on or before this day (Unix epoch seconds).
+    pub to: Option<i64>,
+    /// Only tasks with neither a start nor a due date.
+    pub unscheduled: Option<bool>,
     /// Sort field: `position` (default), `title`, or `due_date`.
     pub sort: Option<String>,
     /// Sort direction: `asc` (default) or `desc`.
@@ -247,7 +254,19 @@ pub async fn list_tasks(
         (_, true) => Task::fields().position().desc(),
         (_, false) => Task::fields().position().asc(),
     };
-    let tasks = query.order_by(order_by).exec(db).await?;
+    let mut tasks = query.order_by(order_by).exec(db).await?;
+    if filters.unscheduled == Some(true) {
+        tasks.retain(|t| t.start_date.is_none() && t.due_date.is_none());
+    } else if filters.from.is_some() || filters.to.is_some() {
+        tasks.retain(|t| {
+            let (Some(first), Some(last)) =
+                (t.start_date.or(t.due_date), t.due_date.or(t.start_date))
+            else {
+                return false;
+            };
+            filters.from.is_none_or(|from| last >= from) && filters.to.is_none_or(|to| first <= to)
+        });
+    }
 
     Ok(Json(hydrate_tasks(db, tasks).await?))
 }

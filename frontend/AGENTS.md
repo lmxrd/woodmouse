@@ -53,3 +53,8 @@
   resolve its targets. After `pnpm dlx shadcn@latest add <name>`, rewrite the
   generated `@/lib/utils` and `@/components/ui/*` imports to relative paths
   (`../../lib/utils`, `./button`); `pnpm check` fails if one is left behind.
+
+- **View state belongs in the URL.** Anything that changes what a list, board, calendar, timeline or page shows
+  (filters, sort, dates, zoom, search) is a validated search param (`validateSearch`; project views share
+  `lib/projectSearch.ts` and `ProjectFilters`), never local state, so a link always reproduces the view.
+  Write explicit values (not "today" or a default that can change); update with `replace: true`.

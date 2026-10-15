@@ -21,12 +21,14 @@ import {
 const VIEWS: { value: ProjectView; label: string }[] = [
   { value: "board", label: "Board" },
   { value: "list", label: "List" },
+  { value: "calendar", label: "Calendar" },
+  { value: "timeline", label: "Timeline" },
 ];
 
-/** The settings a saved view keeps: only what is actually set in the URL. */
+/** The settings a saved view keeps: what is set in the URL, except the date a calendar is showing. */
 function paramsOf(search: ProjectSearch): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(search).filter(([, v]) => typeof v === "string" && v !== ""),
+    Object.entries(search).filter(([k, v]) => k !== "date" && typeof v === "string" && v !== ""),
   ) as Record<string, string>;
 }
 

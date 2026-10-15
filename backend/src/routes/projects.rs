@@ -8,7 +8,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::{Project, Role};
+use crate::models::{List, Project, Role};
 use crate::state::AppState;
 use crate::trash;
 
@@ -90,12 +90,22 @@ pub async fn create_project(
     let db = &mut *state.db.lock().await;
     access::require_access(db, &user, workspace_id, Role::Write).await?;
 
+    // Every project starts with an inbox list.
+    let mut tx = db.transaction().await?;
     let project = toasty::create!(Project {
         workspace_id,
         name: name.to_string(),
     })
-    .exec(db)
+    .exec(&mut tx)
     .await?;
+    toasty::create!(List {
+        project_id: project.id,
+        name: "Inbox".to_string(),
+        is_inbox: true,
+    })
+    .exec(&mut tx)
+    .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, Json(project)))
 }
 

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, getRouteApi } from "@tanstack/react-router";
 import { toast } from "sonner";
 import type { FileView } from "woodmouse-client";
 import {
@@ -21,13 +21,20 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useUploader } from "./useUploader";
 
+const route = getRouteApi("/w/$workspaceId/files");
+
 /** The workspace's file library: everything uploaded, where it is used, and admin cleanup. */
 export function FilesPage({ workspaceId }: { workspaceId: string }) {
   const queryClient = useQueryClient();
   const { when } = useFormatters();
   const { canWrite, isAdmin } = useWorkspaceRole(workspaceId);
-  const [query, setQuery] = useState("");
-  const [onlyUnused, setOnlyUnused] = useState(false);
+  // The search and the unused-only filter live in the URL, so a link shows the same files.
+  const search = route.useSearch();
+  const navigate = route.useNavigate();
+  const query = search.q ?? "";
+  const onlyUnused = search.unused === true;
+  const setSearch = (patch: { q?: string; unused?: boolean }) =>
+    void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [over, setOver] = useState(false);
@@ -115,14 +122,14 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
           placeholder="Search files…"
           className="h-8 max-w-56"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => setSearch({ q: e.target.value || undefined })}
         />
         <Button
           type="button"
           variant={onlyUnused ? "secondary" : "outline"}
           size="sm"
           aria-pressed={onlyUnused}
-          onClick={() => setOnlyUnused((v) => !v)}
+          onClick={() => setSearch({ unused: onlyUnused ? undefined : true })}
         >
           Unused only
         </Button>

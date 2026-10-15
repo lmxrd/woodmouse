@@ -13,9 +13,16 @@ file server is needed in production.
 Woodmouse is a self-hosted task manager for a household or small team.
 
 - **Workspaces** hold projects, files and members. Roles are admin, write and read.
-- **Projects** contain lists. Each project has a **board** (one column per list plus a Done column) and a
-  **list view** with filters and sorting. The view, filters and sort live in the URL, and can be saved as
-  named **views**, private to you or shared with the workspace.
+- **Projects** contain lists, and start with an **Inbox** list for unorganized tasks (it can't be deleted; move
+  tasks out of it when you've sorted them). A project has four views: a **board** (one column per list plus a
+  Done column), a **list view** with filters and sorting, a **calendar** (month or week; drag tasks to
+  reschedule, quick-add on a day, an unscheduled panel, an agenda on phones) and a **timeline** (Gantt: bars
+  from start to due date, subtasks nested, parents derived from their subtasks, dependency arrows from
+  "blocks" links with violations marked, drag to move or resize). Everything about what you see lives in the
+  URL, so a copied link shows the same thing: the view, the assignee, label, list and status filters (shared by
+  every view), the sort, the calendar's day and zoom, and the timeline's zoom and position (the date at the
+  centre of the screen). The Files page keeps its search there too. A view can be saved as a named **view**,
+  private to you or shared with the workspace.
 - **Tasks** have a markdown description, priority, start and due dates, assignees, labels and a completed
   state. Completing a task is a state, not a list: completed tasks appear in the board's Done column wherever
   they came from, and reopening one returns it to its list. Drag cards between columns and within a column
@@ -32,7 +39,8 @@ Woodmouse is a self-hosted task manager for a household or small team.
   (with what it contains) to the trash, where members with write access can restore it. The only permanent
   deletion is the admin's unused-files cleanup.
 - **Settings** (per workspace) manage members and labels. **Account** (per user) edits your display name,
-  email and password, and how dates and times are shown (date format and 12 or 24 hour clock). Items from the
+  email and password, and how dates and times are shown (date format, 12 or 24 hour clock, and the first day
+  of the week). Items from the
   last seven days show relative times ("2 h ago"); older ones show the date and time in your format.
 - Works on phones: the sidebar becomes a drawer, dialogs go full-screen, and cards drag by long press.
 

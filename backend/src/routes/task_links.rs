@@ -1,7 +1,7 @@
 //! Links between tasks: blocks / blocked by, relates to, duplicates / duplicated by.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use toasty::stmt::in_list;
@@ -12,13 +12,14 @@ use crate::access;
 use crate::activity::{self, Event};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{LinkKind, List, Role, Task, TaskLink};
+use crate::models::{LinkKind, List, Project, Role, Task, TaskLink};
 use crate::state::AppState;
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list_links, add_link))
         .routes(routes!(remove_link))
+        .routes(routes!(list_workspace_links))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
@@ -247,4 +248,98 @@ pub async fn remove_link(
     }
     link.delete().exec(db).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// One link between two tasks, as a plain edge (for drawing dependency arrows).
+#[derive(Serialize, ToSchema)]
+pub struct LinkEdge {
+    pub id: uuid::Uuid,
+    /// The owning task ("this task blocks ...").
+    pub task_id: uuid::Uuid,
+    pub related_task_id: uuid::Uuid,
+    pub kind: LinkKind,
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct LinkFilters {
+    /// Only links between tasks of this project.
+    pub project_id: Option<uuid::Uuid>,
+}
+
+/// Every link between live tasks of a workspace (or one project), as edges.
+#[utoipa::path(
+    get,
+    path = "/workspaces/{id}/task-links",
+    tag = "tasks",
+    security(("session_cookie" = [])),
+    params(("id" = uuid::Uuid, Path, description = "Workspace id"), LinkFilters),
+    responses(
+        (status = 200, description = "The links", body = [LinkEdge]),
+        (status = 401, description = "Not logged in"),
+        (status = 404, description = "No workspace with that id, or no access")
+    )
+)]
+pub async fn list_workspace_links(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Path(id): Path<uuid::Uuid>,
+    Query(filters): Query<LinkFilters>,
+) -> Result<Json<Vec<LinkEdge>>, ApiError> {
+    let db = &mut *state.db.lock().await;
+    access::require_access(db, &user, id, Role::Read).await?;
+
+    let projects: Vec<Project> = Project::filter_by_workspace_id(id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|p| p.deleted_at.is_none() && filters.project_id.is_none_or(|f| f == p.id))
+        .collect();
+    if projects.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let list_ids: Vec<uuid::Uuid> = List::all()
+        .filter(in_list(
+            List::fields().project_id(),
+            projects.iter().map(|p| p.id).collect::<Vec<_>>(),
+        ))
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|l| l.deleted_at.is_none())
+        .map(|l| l.id)
+        .collect();
+    if list_ids.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let live: std::collections::HashSet<uuid::Uuid> = Task::all()
+        .filter(in_list(Task::fields().list_id(), list_ids))
+        .filter(Task::fields().deleted_at().is_none())
+        .exec(db)
+        .await?
+        .into_iter()
+        .map(|t| t.id)
+        .collect();
+    if live.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let links = TaskLink::all()
+        .filter(in_list(
+            TaskLink::fields().task_id(),
+            live.iter().copied().collect::<Vec<_>>(),
+        ))
+        .exec(db)
+        .await?;
+    Ok(Json(
+        links
+            .into_iter()
+            .filter(|l| live.contains(&l.related_task_id))
+            .map(|l| LinkEdge {
+                id: l.id,
+                task_id: l.task_id,
+                related_task_id: l.related_task_id,
+                kind: l.kind,
+            })
+            .collect(),
+    ))
 }

@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 import type { List, TaskResponse, UpdateTaskRequest } from "woodmouse-client";
 import {
   createListMutation,
@@ -29,14 +30,18 @@ import {
 } from "woodmouse-client/react-query";
 
 import { positionBetween } from "../lib/position";
+import { taskFilterQuery } from "../lib/projectSearch";
 import { useWorkspaceRole } from "../lib/useWorkspaceRole";
 import { ActionMenu } from "./ActionMenu";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { InlineAdd } from "./InlineAdd";
+import { ProjectFilters } from "./ProjectFilters";
 import { RenameInput } from "./RenameInput";
 import { BoardColumn } from "./board/BoardColumn";
 import { SortableTaskCard, TaskCardOverlay } from "./board/TaskCard";
 import { Button } from "./ui/button";
+
+const projectRoute = getRouteApi("/w/$workspaceId/p/$projectId");
 
 /** How many completed tasks the Done column shows before "Show all". */
 const DONE_LIMIT = 20;
@@ -50,9 +55,12 @@ const DONE_LIMIT = 20;
 export function Board({ projectId, workspaceId }: { projectId: string; workspaceId: string }) {
   const queryClient = useQueryClient();
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
+  // The board shows every list and the Done column, so only the assignee and label filters apply.
+  const search = projectRoute.useSearch();
+  const { assignee_id, label_id } = taskFilterQuery(search, "board");
   const tasksQuery = listTasksOptions({
     path: { workspace_id: workspaceId },
-    query: { project_id: projectId },
+    query: { project_id: projectId, assignee_id, label_id },
   });
   const { data: allTasks } = useQuery(tasksQuery);
 
@@ -188,6 +196,12 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
       onDragEnd={onDragEnd}
       onDragCancel={() => setDragging(null)}
     >
+      <ProjectFilters
+        workspaceId={workspaceId}
+        projectId={projectId}
+        view="board"
+        fields={["assignee", "label"]}
+      />
       <div className="flex snap-x snap-mandatory scroll-px-4 items-start gap-4 overflow-x-auto p-4 sm:snap-none sm:p-6">
         {lists?.map((list) => {
           const open = openIn(list.id);
@@ -221,11 +235,15 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
                       label={`Actions for ${list.name}`}
                       items={[
                         { label: "Rename list", onSelect: () => setRenaming(list.id) },
-                        {
-                          label: "Delete list…",
-                          destructive: true,
-                          onSelect: () => setDeleting(list),
-                        },
+                        ...(list.is_inbox
+                          ? []
+                          : [
+                              {
+                                label: "Delete list…",
+                                destructive: true,
+                                onSelect: () => setDeleting(list),
+                              },
+                            ]),
                       ]}
                     />
                   ) : null}

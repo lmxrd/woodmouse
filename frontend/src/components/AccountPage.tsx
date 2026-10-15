@@ -109,7 +109,7 @@ function DisplaySection({ me }: { me: PublicUser }) {
   const preview = formatDateTime(now, me);
 
   return (
-    <Section title="Date and time">
+    <Section title="Date, time and calendar">
       <div className="flex flex-wrap gap-4">
         <Field label="Date format">
           <Select
@@ -146,6 +146,20 @@ function DisplaySection({ me }: { me: PublicUser }) {
           </Select>
         </Field>
       </div>
+      <Field label="Week starts on">
+        <Select
+          value={me.week_start}
+          onValueChange={(week_start) => update.mutate({ body: { week_start } })}
+        >
+          <SelectTrigger aria-label="Week starts on" className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="monday">Monday</SelectItem>
+            <SelectItem value="sunday">Sunday</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
       <p className="border border-border bg-background px-3 py-2 text-sm">
         <span className="label-mono mr-2 text-muted-foreground">Preview</span>
         {preview}

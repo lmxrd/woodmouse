@@ -53,3 +53,7 @@
 - **Display name is optional** (`User.name` may be empty); the frontend falls back to the email. Display
   preferences (`date_format`, `time_format`) are stored on the user.
 - Subtasks live in their parent's list; `trash::subtree` finds a task's descendants among a list's tasks.
+- **Inbox.** Every project is created with an `is_inbox` list (first, since list order is id order); it cannot be
+  deleted. New list-less quick adds should target it.
+- Task listing supports `from`/`to` (a task is scheduled from its start, or due, date to its due, or start,
+  date; overlap counts) and `unscheduled`, which the calendar and timeline use.

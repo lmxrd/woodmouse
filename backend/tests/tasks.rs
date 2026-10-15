@@ -983,3 +983,177 @@ async fn completion_timestamp_and_project_id() {
     assert!(reopened["completed_at"].is_null());
     assert_eq!(reopened["list_id"], other.to_string());
 }
+
+#[tokio::test]
+async fn new_projects_start_with_an_undeletable_inbox() {
+    let app = app().await;
+    let cookie = bootstrap_admin(&app).await;
+    let ws = create_workspace(&app, &cookie, "Home").await;
+    let project = {
+        let res = request(
+            &app,
+            post_json(
+                &format!("/api/workspaces/{ws}/projects"),
+                r#"{"name":"P"}"#,
+                Some(&cookie),
+            ),
+        )
+        .await;
+        json_id(res).await
+    };
+
+    // The inbox exists from the start and stays first, even as lists are added.
+    request(
+        &app,
+        post_json(
+            &format!("/api/projects/{project}/lists"),
+            r#"{"name":"Later"}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    let res = request(
+        &app,
+        get(&format!("/api/projects/{project}/lists"), Some(&cookie)),
+    )
+    .await;
+    let lists: Vec<Value> = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    assert_eq!(lists.len(), 2);
+    assert_eq!(lists[0]["name"], "Inbox");
+    assert_eq!(lists[0]["is_inbox"], true);
+    assert_eq!(lists[1]["is_inbox"], false);
+
+    // It cannot be deleted; other lists can.
+    let inbox = lists[0]["id"].as_str().unwrap();
+    let res = request(&app, delete(&format!("/api/lists/{inbox}"), Some(&cookie))).await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let other = lists[1]["id"].as_str().unwrap();
+    let res = request(&app, delete(&format!("/api/lists/{other}"), Some(&cookie))).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn scheduling_filters_and_project_links() {
+    let fx = fixture().await;
+    let day = 86_400;
+    let base = 1_800_000_000;
+    let mk = |title: &'static str, extra: String| {
+        let (app, cookie, list) = (fx.app.clone(), fx.cookie.clone(), fx.list_id);
+        async move {
+            let res = request(
+                &app,
+                post_json(
+                    &format!("/api/lists/{list}/tasks"),
+                    &format!(r#"{{"title":"{title}"{extra}}}"#),
+                    Some(&cookie),
+                ),
+            )
+            .await;
+            json_id(res).await
+        }
+    };
+    let due_only = mk("Due only", format!(r#","due_date":{}"#, base + 5 * day)).await;
+    let span = mk(
+        "Span",
+        format!(r#","start_date":{},"due_date":{}"#, base, base + 3 * day),
+    )
+    .await;
+    let _start_only = mk(
+        "Start only",
+        format!(r#","start_date":{}"#, base + 10 * day),
+    )
+    .await;
+    let _none = mk("Unscheduled", String::new()).await;
+
+    let titles = |query: String| {
+        let (app, cookie, ws) = (fx.app.clone(), fx.cookie.clone(), fx.workspace_id);
+        async move {
+            let res = request(
+                &app,
+                get(
+                    &format!("/api/workspaces/{ws}/tasks?{query}"),
+                    Some(&cookie),
+                ),
+            )
+            .await;
+            let mut t: Vec<String> =
+                serde_json::from_str::<Vec<Value>>(&body_string(res.into_body()).await)
+                    .unwrap()
+                    .iter()
+                    .map(|t| t["title"].as_str().unwrap().to_string())
+                    .collect();
+            t.sort();
+            t
+        }
+    };
+    // Overlap, not containment: the span shows up in any window touching it.
+    assert_eq!(
+        titles(format!("from={}&to={}", base + 2 * day, base + 4 * day)).await,
+        ["Span"]
+    );
+    assert_eq!(
+        titles(format!("from={}&to={}", base + 3 * day, base + 5 * day)).await,
+        ["Due only", "Span"]
+    );
+    assert_eq!(
+        titles(format!("from={}", base + 6 * day)).await,
+        ["Start only"]
+    );
+    assert_eq!(
+        titles(format!("to={}", base - day)).await,
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        titles("unscheduled=true".to_string()).await,
+        ["Unscheduled"]
+    );
+    assert_eq!(titles(String::new()).await.len(), 4);
+
+    // Links between project tasks, as edges; links to deleted tasks drop out.
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/tasks/{span}/links"),
+            &format!(r#"{{"related_task_id":"{due_only}","kind":"blocks"}}"#),
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let edges = |project: String| {
+        let (app, cookie, ws) = (fx.app.clone(), fx.cookie.clone(), fx.workspace_id);
+        async move {
+            let res = request(
+                &app,
+                get(
+                    &format!("/api/workspaces/{ws}/task-links{project}"),
+                    Some(&cookie),
+                ),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::OK);
+            serde_json::from_str::<Vec<Value>>(&body_string(res.into_body()).await).unwrap()
+        }
+    };
+    let all = edges(String::new()).await;
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0]["task_id"], span.to_string());
+    assert_eq!(all[0]["related_task_id"], due_only.to_string());
+    assert_eq!(all[0]["kind"], "blocks");
+    assert_eq!(
+        edges(format!("?project_id={}", fx.project_id)).await.len(),
+        1
+    );
+    assert_eq!(
+        edges(format!("?project_id={}", uuid::Uuid::new_v4()))
+            .await
+            .len(),
+        0
+    );
+    request(
+        &fx.app,
+        delete(&format!("/api/tasks/{due_only}"), Some(&fx.cookie)),
+    )
+    .await;
+    assert!(edges(String::new()).await.is_empty());
+}

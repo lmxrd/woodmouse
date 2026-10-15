@@ -10,7 +10,9 @@ import {
 
 import { ActionMenu } from "../components/ActionMenu";
 import { Board } from "../components/Board";
+import { CalendarView } from "../components/calendar/CalendarView";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { TimelineView } from "../components/timeline/TimelineView";
 import { ProjectViewMenu } from "../components/ProjectViewMenu";
 import { RenameInput } from "../components/RenameInput";
 import { TaskListView } from "../components/TaskListView";
@@ -119,6 +121,10 @@ function ProjectPage() {
       </header>
       {view === "list" ? (
         <TaskListView workspaceId={workspaceId} projectId={projectId} />
+      ) : view === "calendar" ? (
+        <CalendarView workspaceId={workspaceId} projectId={projectId} />
+      ) : view === "timeline" ? (
+        <TimelineView workspaceId={workspaceId} projectId={projectId} />
       ) : (
         <Board projectId={projectId} workspaceId={workspaceId} />
       )}

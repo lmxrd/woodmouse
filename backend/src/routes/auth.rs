@@ -30,6 +30,7 @@ pub fn protected_router() -> OpenApiRouter<AppState> {
 
 pub const DATE_FORMATS: [&str; 4] = ["YYYY-MM-DD", "DD.MM.YYYY", "MM/DD/YYYY", "D MMM YYYY"];
 pub const TIME_FORMATS: [&str; 2] = ["24h", "12h"];
+pub const WEEK_STARTS: [&str; 2] = ["monday", "sunday"];
 
 /// User as exposed over the API — never includes the password hash.
 #[derive(Clone, Serialize, ToSchema)]
@@ -43,6 +44,8 @@ pub struct PublicUser {
     pub date_format: String,
     /// `24h` or `12h`.
     pub time_format: String,
+    /// `monday` or `sunday`.
+    pub week_start: String,
 }
 
 impl From<&User> for PublicUser {
@@ -60,6 +63,10 @@ impl From<&User> for PublicUser {
                 .time_format
                 .clone()
                 .unwrap_or_else(|| TIME_FORMATS[0].to_string()),
+            week_start: user
+                .week_start
+                .clone()
+                .unwrap_or_else(|| WEEK_STARTS[0].to_string()),
         }
     }
 }
@@ -235,6 +242,8 @@ pub struct UpdateMe {
     pub date_format: Option<String>,
     /// `24h` or `12h`.
     pub time_format: Option<String>,
+    /// `monday` or `sunday`.
+    pub week_start: Option<String>,
 }
 
 /// Edit your own profile and display preferences.
@@ -267,6 +276,12 @@ pub async fn update_me(
         return Err(ApiError::bad_request("unknown time format"));
     }
 
+    if let Some(week_start) = &input.week_start
+        && !WEEK_STARTS.contains(&week_start.as_str())
+    {
+        return Err(ApiError::bad_request("unknown week start"));
+    }
+
     let db = &mut *state.db.lock().await;
     let email = match &input.email {
         Some(email) => {
@@ -288,6 +303,7 @@ pub async fn update_me(
         || email.is_some()
         || input.date_format.is_some()
         || input.time_format.is_some()
+        || input.week_start.is_some()
     {
         let mut update = current.update();
         if let Some(name) = &input.name {
@@ -301,6 +317,9 @@ pub async fn update_me(
         }
         if let Some(format) = input.time_format {
             update = update.time_format(Some(format));
+        }
+        if let Some(week_start) = input.week_start {
+            update = update.week_start(Some(week_start));
         }
         update.exec(db).await?;
     }
