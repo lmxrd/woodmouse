@@ -1,5 +1,9 @@
 pub mod auth;
 pub mod health;
+pub mod labels;
+pub mod lists;
+pub mod projects;
+pub mod tasks;
 pub mod workspaces;
 
 use axum::middleware;
@@ -31,6 +35,10 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
     // Session required — enforced by the layer for every route below.
     let protected = auth::protected_router()
         .merge(workspaces::router())
+        .merge(projects::router())
+        .merge(lists::router())
+        .merge(tasks::router())
+        .merge(labels::router())
         .route_layer(middleware::from_extractor_with_state::<CurrentUser, _>(
             state,
         ));

@@ -21,6 +21,11 @@ description = "Run the frontend dev server"
 dir = "frontend"
 run = "pnpm dev"
 
+[tasks.clean]
+description = "Delete the local dev database (recreated on next backend start, so schema changes need no migration)"
+dir = "backend"
+run = "rm -f woodmouse.db woodmouse.db-shm woodmouse.db-wal"
+
 [tasks."check:backend"]
 description = "Run backend checks (rustfmt, clippy)"
 dir = "backend"

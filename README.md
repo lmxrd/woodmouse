@@ -18,6 +18,7 @@ file server is needed in production.
 | `mise run build`         | Generate client from spec, build frontend, then backend with the bundle embedded|
 | `mise run check`         | Each stack's checks (clippy/fmt, lint/types)       |
 | `mise run fix`           | Each stack's auto-fixes                             |
+| `mise run clean`         | Delete the local dev database (schema is recreated on next start) |
 
 For development, run both dev servers: vite on :5173 with the API on :8000
 (vite proxies `/api` to the backend, so cookies stay same-origin). `cargo build` in `backend/` requires `frontend/dist`

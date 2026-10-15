@@ -1,10 +1,10 @@
 //! The single workspace access check. Every handler that touches a
-//! workspace-scoped resource must go through [`require_access`] (or
-//! [`role_in`] when a plain lookup is needed) — workspace membership is the
+//! workspace-scoped resource must go through [`require_access`] (or one of
+//! the `require_*_access` resolvers below) — workspace membership is the
 //! only v1 access mechanism.
 
 use crate::error::ApiError;
-use crate::models::{Role, User, WorkspaceMember};
+use crate::models::{List, Project, Task, User, WorkspaceMember};
 
 /// The user's role in the workspace: `None` when not a member. Super admins
 /// act as admin everywhere.
@@ -12,9 +12,9 @@ pub async fn role_in(
     db: &mut toasty::Db,
     user: &User,
     workspace_id: uuid::Uuid,
-) -> Result<Option<Role>, ApiError> {
+) -> Result<Option<crate::models::Role>, ApiError> {
     if user.super_admin {
-        return Ok(Some(Role::Admin));
+        return Ok(Some(crate::models::Role::Admin));
     }
     // The composite primary key guarantees at most one membership row.
     let membership = WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, workspace_id)
@@ -22,6 +22,22 @@ pub async fn role_in(
         .exec(db)
         .await?;
     Ok(membership.map(|m| m.role))
+}
+
+/// Whether the user is a workspace member with any role. Used to validate
+/// task assignees, who must be able to see the workspace.
+pub async fn is_workspace_member(
+    db: &mut toasty::Db,
+    user_id: uuid::Uuid,
+    workspace_id: uuid::Uuid,
+) -> Result<bool, ApiError> {
+    Ok(
+        WorkspaceMember::filter_by_user_id_and_workspace_id(user_id, workspace_id)
+            .first()
+            .exec(db)
+            .await?
+            .is_some(),
+    )
 }
 
 /// Require at least `min_role` in the workspace.
@@ -33,10 +49,46 @@ pub async fn require_access(
     db: &mut toasty::Db,
     user: &User,
     workspace_id: uuid::Uuid,
-    min_role: Role,
-) -> Result<Role, ApiError> {
+    min_role: crate::models::Role,
+) -> Result<crate::models::Role, ApiError> {
     match role_in(db, user, workspace_id).await? {
         Some(role) if role >= min_role => Ok(role),
         _ => Err(ApiError::not_found()),
     }
+}
+
+/// Resolve a project to its workspace and require access. Returns the
+/// workspace id.
+pub async fn require_project_access(
+    db: &mut toasty::Db,
+    user: &User,
+    project_id: uuid::Uuid,
+    min_role: crate::models::Role,
+) -> Result<uuid::Uuid, ApiError> {
+    let project = Project::get_by_id(db, &project_id).await?;
+    require_access(db, user, project.workspace_id, min_role).await?;
+    Ok(project.workspace_id)
+}
+
+/// Resolve a list to its workspace (via the project) and require access.
+pub async fn require_list_access(
+    db: &mut toasty::Db,
+    user: &User,
+    list_id: uuid::Uuid,
+    min_role: crate::models::Role,
+) -> Result<uuid::Uuid, ApiError> {
+    let list = List::get_by_id(db, &list_id).await?;
+    require_project_access(db, user, list.project_id, min_role).await
+}
+
+/// Resolve a task to its workspace (via list and project) and require
+/// access.
+pub async fn require_task_access(
+    db: &mut toasty::Db,
+    user: &User,
+    task_id: uuid::Uuid,
+    min_role: crate::models::Role,
+) -> Result<uuid::Uuid, ApiError> {
+    let task = Task::get_by_id(db, &task_id).await?;
+    require_list_access(db, user, task.list_id, min_role).await
 }

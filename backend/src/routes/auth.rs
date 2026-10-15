@@ -28,7 +28,7 @@ pub fn protected_router() -> OpenApiRouter<AppState> {
 }
 
 /// User as exposed over the API — never includes the password hash.
-#[derive(Serialize, ToSchema)]
+#[derive(Clone, Serialize, ToSchema)]
 pub struct PublicUser {
     pub id: uuid::Uuid,
     pub email: String,

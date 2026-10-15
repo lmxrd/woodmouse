@@ -1,78 +1,11 @@
 //! Integration tests: auth flow against the real router and an in-memory
 //! SQLite database.
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use http_body_util::BodyExt;
-use tower::ServiceExt;
+mod common;
 
-use woodmouse::{routes, state::AppState};
+use axum::http::StatusCode;
 
-async fn app() -> axum::Router {
-    app_with_db().await.0
-}
-
-async fn app_with_db() -> (axum::Router, toasty::Db) {
-    let db = toasty::Db::builder()
-        .models(toasty::models!(woodmouse::*))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory db");
-    db.push_schema().await.expect("create schema");
-
-    // The clone shares the pool, so it sees the same in-memory database the
-    // router uses — the tests can seed users and sessions directly.
-    let state = AppState::new(db.clone());
-    let router = routes::api(state.clone())
-        .with_state(AppState::new(db.clone()))
-        .split_for_parts()
-        .0;
-    (router, db)
-}
-
-async fn body_string(body: Body) -> String {
-    let bytes = body.collect().await.expect("read body").to_bytes();
-    String::from_utf8(bytes.to_vec()).expect("utf-8 body")
-}
-
-fn cookie_of(res: &axum::http::Response<Body>) -> String {
-    let set_cookie = res
-        .headers()
-        .get("set-cookie")
-        .expect("session cookie in response")
-        .to_str()
-        .expect("ascii cookie header");
-    set_cookie
-        .split(';')
-        .next()
-        .expect("cookie value")
-        .to_string()
-}
-
-async fn request(app: &axum::Router, req: Request<Body>) -> axum::http::Response<Body> {
-    app.clone().oneshot(req).await.expect("request succeeds")
-}
-
-fn post_json(uri: &str, json: &str, cookie: Option<&str>) -> Request<Body> {
-    let mut builder = Request::builder()
-        .method("POST")
-        .uri(uri)
-        .header("content-type", "application/json");
-    if let Some(cookie) = cookie {
-        builder = builder.header("cookie", cookie);
-    }
-    builder.body(Body::from(json.to_string())).unwrap()
-}
-
-fn get(uri: &str, cookie: Option<&str>) -> Request<Body> {
-    let mut builder = Request::builder().uri(uri);
-    if let Some(cookie) = cookie {
-        builder = builder.header("cookie", cookie);
-    }
-    builder.body(Body::empty()).unwrap()
-}
-
-const BOOTSTRAP: &str = r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#;
+use common::*;
 
 #[tokio::test]
 async fn health_probes() {
@@ -95,7 +28,15 @@ async fn bootstrap_login_logout_flow() {
     assert!(body.contains("\"bootstrap_required\":true"), "body: {body}");
 
     // Bootstrap creates the super admin and logs in.
-    let res = request(&app, post_json("/api/auth/bootstrap", BOOTSTRAP, None)).await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/bootstrap",
+            r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#,
+            None,
+        ),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::CREATED);
     let cookie = cookie_of(&res);
     let body = body_string(res.into_body()).await;
@@ -208,7 +149,15 @@ async fn workspaces_access_is_enforced() {
     let (app, db) = app_with_db().await;
 
     // First user: bootstrap super admin.
-    let res = request(&app, post_json("/api/auth/bootstrap", BOOTSTRAP, None)).await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/bootstrap",
+            r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#,
+            None,
+        ),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::CREATED);
     let admin_cookie = cookie_of(&res);
 
