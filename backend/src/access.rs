@@ -57,8 +57,8 @@ pub async fn require_access(
     }
 }
 
-/// Resolve a project to its workspace and require access. Returns the
-/// workspace id.
+/// Resolve a project to its workspace and require access. Deleted projects look nonexistent.
+/// Returns the workspace id.
 pub async fn require_project_access(
     db: &mut toasty::Db,
     user: &User,
@@ -66,11 +66,15 @@ pub async fn require_project_access(
     min_role: crate::models::Role,
 ) -> Result<uuid::Uuid, ApiError> {
     let project = Project::get_by_id(db, &project_id).await?;
+    if project.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
     require_access(db, user, project.workspace_id, min_role).await?;
     Ok(project.workspace_id)
 }
 
-/// Resolve a list to its workspace (via the project) and require access.
+/// Resolve a list to its workspace (via the project) and require access. Deleted lists, and lists
+/// of deleted projects, look nonexistent.
 pub async fn require_list_access(
     db: &mut toasty::Db,
     user: &User,
@@ -78,11 +82,14 @@ pub async fn require_list_access(
     min_role: crate::models::Role,
 ) -> Result<uuid::Uuid, ApiError> {
     let list = List::get_by_id(db, &list_id).await?;
+    if list.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
     require_project_access(db, user, list.project_id, min_role).await
 }
 
-/// Resolve a task to its workspace (via list and project) and require
-/// access.
+/// Resolve a task to its workspace (via list and project) and require access. Deleted tasks look
+/// nonexistent.
 pub async fn require_task_access(
     db: &mut toasty::Db,
     user: &User,
@@ -90,5 +97,34 @@ pub async fn require_task_access(
     min_role: crate::models::Role,
 ) -> Result<uuid::Uuid, ApiError> {
     let task = Task::get_by_id(db, &task_id).await?;
+    if task.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
     require_list_access(db, user, task.list_id, min_role).await
+}
+
+/// The workspace a project belongs to, deleted or not (for Trash, which must see deleted items).
+pub async fn project_workspace(
+    db: &mut toasty::Db,
+    project_id: uuid::Uuid,
+) -> Result<uuid::Uuid, ApiError> {
+    Ok(Project::get_by_id(db, &project_id).await?.workspace_id)
+}
+
+/// The workspace a list belongs to, deleted or not.
+pub async fn list_workspace(
+    db: &mut toasty::Db,
+    list_id: uuid::Uuid,
+) -> Result<uuid::Uuid, ApiError> {
+    let list = List::get_by_id(db, &list_id).await?;
+    project_workspace(db, list.project_id).await
+}
+
+/// The workspace a task belongs to, deleted or not.
+pub async fn task_workspace(
+    db: &mut toasty::Db,
+    task_id: uuid::Uuid,
+) -> Result<uuid::Uuid, ApiError> {
+    let task = Task::get_by_id(db, &task_id).await?;
+    list_workspace(db, task.list_id).await
 }

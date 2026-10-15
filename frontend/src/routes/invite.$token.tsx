@@ -48,7 +48,7 @@ function InvitePage() {
   return (
     <AuthSheet
       tag="Invite"
-      title={`Welcome, ${invite.name}`}
+      title={`Welcome, ${invite.name || invite.email}`}
       description={`Choose a password for ${invite.email} to join Woodmouse.`}
     >
       <SetPasswordForm token={token} />

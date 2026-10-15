@@ -10,6 +10,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { PRIORITIES } from "../lib/priority";
+import { userLabel } from "../lib/user";
 import type { ProjectSearch, TaskStatus } from "../lib/projectSearch";
 import { FilterSelect } from "./FilterSelect";
 import { InlineAdd } from "./InlineAdd";
@@ -87,7 +88,7 @@ export function TaskListView({
           label="Assignee"
           anyLabel="Anyone"
           value={search.assignee}
-          options={(members ?? []).map((m) => ({ value: m.user.id, label: m.user.name }))}
+          options={(members ?? []).map((m) => ({ value: m.user.id, label: userLabel(m.user) }))}
           onChange={(assignee) => setSearch({ assignee })}
         />
         <FilterSelect

@@ -9,7 +9,8 @@ import {
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
-import { dueBucket, formatDay, type DueBucket } from "../lib/dates";
+import { dueBucket, type DueBucket } from "../lib/dates";
+import { useFormatters } from "../lib/useFormatters";
 import type { TaskStatus } from "../lib/projectSearch";
 import { cn } from "../lib/utils";
 import { FilterSelect } from "./FilterSelect";
@@ -33,6 +34,7 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
   const setSearch = (patch: { status?: TaskStatus; project?: string }) =>
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
 
+  const { date } = useFormatters();
   const queryClient = useQueryClient();
   const { data: me } = useQuery(meOptions());
   const { data: projects } = useQuery(listProjectsOptions({ path: { workspace_id: workspaceId } }));
@@ -42,6 +44,7 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
       query: {
         assignee_id: me?.id,
         project_id: search.project,
+        include_subtasks: true,
         is_completed: status === "all" ? undefined : status === "done",
       },
     }),
@@ -148,13 +151,13 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
                     {task.due_date != null ? (
                       <span
                         className={cn(
-                          "w-12 text-right text-xs",
+                          "w-24 text-right text-xs",
                           bucket === "overdue" || bucket === "today"
                             ? "font-medium text-signal"
                             : "text-muted-foreground",
                         )}
                       >
-                        {formatDay(task.due_date)}
+                        {date(task.due_date)}
                       </span>
                     ) : null}
                   </li>

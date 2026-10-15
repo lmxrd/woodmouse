@@ -89,3 +89,88 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+
+/* Rendered markdown (task descriptions, comments). Kept deliberately plain. */
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown blockquote,
+.markdown table {
+  margin: 0.6em 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 1em 0 0.4em;
+}
+.markdown h1 {
+  font-size: 1.25rem;
+}
+.markdown h2 {
+  font-size: 1.1rem;
+}
+.markdown h3,
+.markdown h4 {
+  font-size: 1rem;
+}
+.markdown ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.markdown ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.markdown li > input[type="checkbox"] {
+  margin-right: 0.4em;
+}
+.markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown code {
+  background: var(--muted);
+  padding: 0.05em 0.3em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.markdown pre {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--signal);
+  background: var(--muted);
+  padding: 0.25rem 0.75rem;
+}
+.markdown table {
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+.markdown img {
+  max-width: 100%;
+}

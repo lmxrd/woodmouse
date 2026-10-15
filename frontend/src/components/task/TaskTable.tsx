@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import type { List, TaskResponse } from "woodmouse-client";
 
-import { formatDay, isDueNow } from "../../lib/dates";
+import { isDueNow } from "../../lib/dates";
+import { useFormatters } from "../../lib/useFormatters";
+import { userLabel } from "../../lib/user";
 import type { TaskSort } from "../../lib/projectSearch";
 import { PRIORITY_BADGE, isHotPriority } from "../../lib/priority";
 import { cn } from "../../lib/utils";
@@ -39,12 +41,13 @@ function TaskLink({
 }
 
 function Due({ task }: { task: TaskResponse }) {
+  const { date } = useFormatters();
   if (task.due_date == null) return <span className="text-muted-foreground">—</span>;
   return (
     <span
       className={cn(isDueNow(task.due_date) && !task.is_completed && "font-medium text-signal")}
     >
-      {formatDay(task.due_date)}
+      {date(task.due_date)}
     </span>
   );
 }
@@ -123,7 +126,7 @@ export function TaskTable(props: Props) {
                 <Due task={task} />
               </td>
               <td className="px-2 pr-4">
-                <AvatarStack names={task.assignees.map((u) => u.name)} />
+                <AvatarStack names={task.assignees.map(userLabel)} />
               </td>
             </tr>
           ))}
@@ -154,7 +157,7 @@ export function TaskTable(props: Props) {
                 ) : null}
               </p>
             </div>
-            <AvatarStack names={task.assignees.map((u) => u.name)} />
+            <AvatarStack names={task.assignees.map(userLabel)} />
           </li>
         ))}
       </ul>

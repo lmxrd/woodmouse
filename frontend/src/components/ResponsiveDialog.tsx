@@ -22,7 +22,7 @@ export function ResponsiveDialog({
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}
-        className="inset-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 gap-0 overflow-y-auto rounded-none border-foreground bg-card p-0 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[90dvh] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%]"
+        className="inset-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 gap-0 overflow-y-auto rounded-none border-foreground bg-card p-0 sm:inset-auto sm:top-[50%] sm:left-[50%] sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:translate-x-[-50%] sm:translate-y-[-50%]"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{title}</DialogDescription>

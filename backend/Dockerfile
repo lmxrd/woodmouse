@@ -53,9 +53,10 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=build /app/backend/target/release/woodmouse /usr/local/bin/app
 
-# The SQLite database lives on a mounted volume.
+# The SQLite database and uploaded files live on a mounted volume.
 ENV PORT=8000
 ENV DATABASE_URL=sqlite:/data/woodmouse.db
+ENV DATA_DIR=/data
 VOLUME /data
 
 EXPOSE 8000

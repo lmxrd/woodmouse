@@ -23,9 +23,9 @@ dir = "frontend"
 run = "pnpm dev"
 
 [tasks.clean]
-description = "Delete the local dev database (recreated on next backend start, so schema changes need no migration)"
+description = "Delete the local dev database and uploaded files (recreated on next backend start, so schema changes need no migration)"
 dir = "backend"
-run = "rm -f woodmouse.db woodmouse.db-shm woodmouse.db-wal"
+run = "rm -rf woodmouse.db woodmouse.db-shm woodmouse.db-wal data"
 
 [tasks."check:backend"]
 description = "Run backend checks (rustfmt, clippy)"

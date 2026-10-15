@@ -9,8 +9,9 @@
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
 - `mise run fix` — each stack's auto-fixes
-- `mise run clean` — delete the local dev database; the schema is recreated
-  on next backend start (use after schema changes; no migrations yet)
+- `mise run clean` — delete the local dev database and uploaded files; the
+  schema is recreated on next backend start (use after schema changes; no
+  migrations yet)
 
 ## Structure
 

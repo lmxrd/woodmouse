@@ -6,12 +6,11 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::CurrentUser;
+use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
 use crate::models::{List, Role};
 use crate::state::AppState;
-
-use super::tasks;
+use crate::trash;
 
 /// All list routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -53,7 +52,12 @@ pub async fn list_lists(
 ) -> Result<Json<Vec<List>>, ApiError> {
     let db = &mut *state.db.lock().await;
     access::require_project_access(db, &user, project_id, Role::Read).await?;
-    let lists = List::filter_by_project_id(project_id).exec(db).await?;
+    let lists = List::filter_by_project_id(project_id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|l| l.deleted_at.is_none())
+        .collect();
     Ok(Json(lists))
 }
 
@@ -177,14 +181,9 @@ pub async fn delete_list(
     let db = &mut *state.db.lock().await;
     access::require_list_access(db, &user, id, Role::Write).await?;
 
-    // No database-level cascades: delete children explicitly, atomically.
+    // Soft delete: the list and its tasks move to Trash together.
     let mut tx = db.transaction().await?;
-    tasks::delete_list_tasks(&mut tx, id).await?;
-    List::get_by_id(&mut tx, &id)
-        .await?
-        .delete()
-        .exec(&mut tx)
-        .await?;
+    trash::delete_list(&mut tx, id, user.id, auth::now_secs()).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

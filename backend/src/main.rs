@@ -46,7 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(url = %db_url, journal_mode = ?mode, "database ready");
     }
 
-    let state = AppState::new(db);
+    let files = woodmouse::storage::FileStores::from_env()?;
+    tracing::info!(
+        max_upload_bytes = files.max_upload_bytes,
+        "file storage ready"
+    );
+    let state = AppState::with_files(db, files);
 
     let (router, openapi) = routes::api(state.clone())
         .with_state(state)

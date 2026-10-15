@@ -1,5 +1,6 @@
 import type { Member, PublicUser } from "woodmouse-client";
 
+import { userLabel } from "../../lib/user";
 import { UserAvatar } from "../UserAvatar";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -22,7 +23,7 @@ export function MemberPicker({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {selected.map((user) => (
-        <UserAvatar key={user.id} name={user.name} size="md" />
+        <UserAvatar key={user.id} name={userLabel(user)} size="md" />
       ))}
       <Popover>
         <PopoverTrigger asChild>
@@ -40,7 +41,7 @@ export function MemberPicker({
                 checked={selectedIds.has(user.id)}
                 onCheckedChange={() => toggle(user.id)}
               />
-              <span className="min-w-0 flex-1 truncate">{user.name}</span>
+              <span className="min-w-0 flex-1 truncate">{userLabel(user)}</span>
             </label>
           ))}
         </PopoverContent>

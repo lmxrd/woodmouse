@@ -14,6 +14,27 @@ pub async fn app() -> axum::Router {
     app_with_db().await.0
 }
 
+/// The router with a small upload limit, for testing size checks.
+pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db) {
+    let db = toasty::Db::builder()
+        .models(toasty::models!(woodmouse::*))
+        .connect("sqlite::memory:")
+        .await
+        .expect("connect in-memory db");
+    db.push_schema().await.expect("create schema");
+    let root = std::env::temp_dir().join(format!("woodmouse-test-{}", uuid::Uuid::new_v4()));
+    let files = woodmouse::storage::FileStores::new(
+        std::sync::Arc::new(woodmouse::storage::LocalDisk::new(root)),
+        max_bytes,
+    );
+    let state = AppState::with_files(db.clone(), files);
+    let router = woodmouse::routes::api(state.clone())
+        .with_state(state)
+        .split_for_parts()
+        .0;
+    (router, db)
+}
+
 pub async fn app_with_db() -> (axum::Router, toasty::Db) {
     let db = toasty::Db::builder()
         .models(toasty::models!(woodmouse::*))
@@ -137,4 +158,42 @@ pub async fn create_workspace(app: &axum::Router, cookie: &str, name: &str) -> u
         .expect("id as string")
         .parse()
         .expect("valid uuid")
+}
+
+/// A multipart upload with one `file` part and optionally a `task_id` text part.
+pub fn upload(
+    uri: &str,
+    filename: &str,
+    content_type: &str,
+    bytes: &[u8],
+    task_id: Option<&str>,
+    cookie: Option<&str>,
+) -> Request<Body> {
+    let boundary = "woodmouse-test-boundary";
+    let mut body: Vec<u8> = Vec::new();
+    if let Some(task_id) = task_id {
+        body.extend(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"task_id\"\r\n\r\n{task_id}\r\n"
+            )
+            .as_bytes(),
+        );
+    }
+    body.extend(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend(bytes);
+    body.extend(format!("\r\n--{boundary}--\r\n").as_bytes());
+    with_cookie(
+        Request::builder().method("POST").uri(uri).header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        ),
+        cookie,
+    )
+    .body(Body::from(body))
+    .unwrap()
 }

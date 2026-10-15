@@ -37,3 +37,19 @@
   found maps to 404, everything else to 500.
 - Schema: `push_schema` creates tables on startup (quick path). Switch to
   toasty migrations before the schema needs to evolve.
+
+## Phase 2 conventions
+
+- **Soft deletes only.** Projects, lists, tasks, labels, comments and saved views are never destroyed: they get
+  `deleted_at`/`deleted_by` (see `src/trash.rs`) and every read path must hide them. The `access::require_*`
+  helpers already treat deleted items as not found; use `access::*_workspace` only where Trash needs to see
+  them. Cascades stamp children with the parent's `deleted_at`, and restore matches on that timestamp. New
+  models that users can delete need the same two columns, a Trash kind in `routes/trash.rs`, and filters.
+- **Activity.** After a change succeeds, record it with `activity::record` (best effort; a failure only logs).
+  Snapshot titles into `data`, so entries stay readable after renames and deletes.
+- **Files** go through `AppState::files` (`storage::FileStores`), never straight to the disk. A file row records
+  its `storage_backend` and `storage_key`; reads use the backend that wrote it. Uploads are deduplicated per
+  workspace by SHA-256. Files are only hard-deleted by the admin cleanup.
+- **Display name is optional** (`User.name` may be empty); the frontend falls back to the email. Display
+  preferences (`date_format`, `time_format`) are stored on the user.
+- Subtasks live in their parent's list; `trash::subtree` finds a task's descendants among a list's tasks.

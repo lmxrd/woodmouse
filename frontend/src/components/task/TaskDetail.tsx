@@ -5,40 +5,54 @@ import {
   createLabelMutation,
   deleteTaskMutation,
   getListOptions,
+  getTaskOptions,
+  listCommentsOptions,
   listLabelsOptions,
   listListsOptions,
   listMembersOptions,
-  getTaskOptions,
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Field } from "../Field";
+import { MarkdownEditor } from "../MarkdownEditor";
 import { SaveStatus } from "../SaveStatus";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Textarea } from "../ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { Attachments } from "./Attachments";
+import { Comments } from "./Comments";
 import { DateField } from "./DateField";
 import { LabelPicker } from "./LabelPicker";
 import { MemberPicker } from "./MemberPicker";
 import { PrioritySelect } from "./PrioritySelect";
+import { SubtaskTree } from "./SubtaskTree";
+import { TaskActivity } from "./TaskActivity";
+import { TaskLinks } from "./TaskLinks";
 
 /**
  * Everything about one task, with autosave. Container-agnostic: the dialog route and the full-page
- * route both render it, passing their own `header` (breadcrumb, open-as-page, close) and `onDeleted`.
+ * route both render it, passing their own `header` (breadcrumb, open-as-page, close), `onDeleted`
+ * and `onOpenTask` (how to navigate to a related task or subtask).
  */
 export function TaskDetail({
   taskId,
   workspaceId,
   header,
   onDeleted,
+  onOpenTask,
 }: {
   taskId: string;
   workspaceId: string;
   header: (context: { projectId: string | undefined; listName: string | undefined }) => ReactNode;
   onDeleted: () => void;
+  onOpenTask: (taskId: string) => void;
 }) {
-  const { data: task, isError } = useQuery(getTaskOptions({ path: { id: taskId } }));
+  const { data: task, isError } = useQuery({
+    ...getTaskOptions({ path: { id: taskId } }),
+    retry: false,
+  });
   const { data: list } = useQuery({
     ...getListOptions({ path: { id: task?.list_id ?? "" } }),
     enabled: !!task,
@@ -56,6 +70,7 @@ export function TaskDetail({
         workspaceId={workspaceId}
         projectId={list?.project_id}
         onDeleted={onDeleted}
+        onOpenTask={onOpenTask}
       />
     </>
   );
@@ -66,14 +81,17 @@ function TaskForm({
   workspaceId,
   projectId,
   onDeleted,
+  onOpenTask,
 }: {
   task: TaskResponse;
   workspaceId: string;
   projectId: string | undefined;
   onDeleted: () => void;
+  onOpenTask: (taskId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const refresh = () => queryClient.invalidateQueries();
+  const { canWrite, isAdmin } = useWorkspaceRole(workspaceId);
 
   const { data: lists } = useQuery({
     ...listListsOptions({ path: { project_id: projectId ?? "" } }),
@@ -81,6 +99,11 @@ function TaskForm({
   });
   const { data: members } = useQuery(listMembersOptions({ path: { id: workspaceId } }));
   const { data: labels } = useQuery(listLabelsOptions({ path: { workspace_id: workspaceId } }));
+  const { data: comments } = useQuery(listCommentsOptions({ path: { id: task.id } }));
+  const { data: parent } = useQuery({
+    ...getTaskOptions({ path: { id: task.parent_id ?? "" } }),
+    enabled: !!task.parent_id,
+  });
 
   const update = useMutation({
     ...updateTaskMutation(),
@@ -105,18 +128,29 @@ function TaskForm({
 
   return (
     <div className="grid sm:grid-cols-[minmax(0,1fr)_200px]">
-      <div className="flex flex-col gap-4 p-5 sm:border-r sm:border-border">
+      <div className="flex flex-col gap-5 p-5 sm:border-r sm:border-border">
+        {parent ? (
+          <button
+            type="button"
+            onClick={() => onOpenTask(parent.id)}
+            className="label-mono self-start text-muted-foreground hover:text-foreground"
+          >
+            ← Subtask of {parent.title}
+          </button>
+        ) : null}
         <div className="flex items-start gap-3">
           <Checkbox
             className="mt-2.5 size-[18px]"
-            aria-label="Done"
+            aria-label="Completed"
             checked={task.is_completed}
-            onCheckedChange={(done) => save({ is_completed: done === true })}
+            disabled={!canWrite}
+            onCheckedChange={(checked) => save({ is_completed: checked === true })}
           />
           <textarea
             aria-label="Title"
             rows={1}
             value={title}
+            readOnly={!canWrite}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -132,52 +166,85 @@ function TaskForm({
             className={`min-w-0 flex-1 resize-none border-b border-dashed border-transparent bg-transparent font-display text-2xl leading-tight font-medium field-sizing-content outline-none hover:border-border focus:border-ring ${task.is_completed ? "text-muted-foreground line-through" : ""}`}
           />
         </div>
+
         <Field label="Description" htmlFor="task-description">
-          <Textarea
+          <MarkdownEditor
             id="task-description"
-            rows={6}
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            readOnly={!canWrite}
+            initialMode={task.description.trim() ? "preview" : "write"}
+            onChange={setDescription}
             onBlur={() => description !== task.description && save({ description })}
           />
         </Field>
-        <div className="mt-auto flex items-center justify-between gap-3">
-          {confirmDelete ? (
-            <span className="flex items-center gap-2 text-sm">
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate({ path: { id: task.id } })}
-              >
-                Delete task
-              </Button>
+
+        <SubtaskTree task={task} editable={canWrite} onOpenTask={onOpenTask} />
+        <TaskLinks
+          taskId={task.id}
+          workspaceId={workspaceId}
+          editable={canWrite}
+          onOpenTask={onOpenTask}
+        />
+        <Attachments taskId={task.id} workspaceId={workspaceId} editable={canWrite} />
+
+        <Tabs defaultValue="comments">
+          <TabsList>
+            <TabsTrigger value="comments">Comments · {comments?.length ?? 0}</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
+          </TabsList>
+          <TabsContent value="comments" className="pt-2">
+            <Comments taskId={task.id} editable={canWrite} isAdmin={isAdmin} />
+          </TabsContent>
+          <TabsContent value="activity" className="pt-2">
+            <TaskActivity taskId={task.id} workspaceId={workspaceId} />
+          </TabsContent>
+        </Tabs>
+
+        {canWrite ? (
+          <div className="mt-auto flex items-center justify-between gap-3">
+            {confirmDelete ? (
+              <span className="flex items-center gap-2 text-sm">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate({ path: { id: task.id } })}
+                >
+                  Delete task
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  Keep
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  It can be restored from the trash.
+                </span>
+              </span>
+            ) : (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setConfirmDelete(false)}
+                className="text-destructive"
+                onClick={() => setConfirmDelete(true)}
               >
-                Keep
+                Delete task…
               </Button>
-            </span>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-destructive"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete task…
-            </Button>
-          )}
-          <SaveStatus status={update.status} />
-        </div>
+            )}
+            <SaveStatus status={update.status} />
+          </div>
+        ) : null}
       </div>
 
-      <div className="flex flex-col gap-4 border-t border-border bg-muted/40 p-5 sm:border-t-0">
+      <fieldset
+        disabled={!canWrite}
+        className="m-0 flex min-w-0 flex-col gap-4 border-0 border-t border-border bg-muted/40 p-5 sm:border-t-0"
+      >
         <Field label="List">
           <Select value={task.list_id} onValueChange={(listId) => save({ list_id: listId })}>
             <SelectTrigger aria-label="List" className="w-full">
@@ -222,7 +289,7 @@ function TaskForm({
             }
           />
         </Field>
-      </div>
+      </fieldset>
     </div>
   );
 }

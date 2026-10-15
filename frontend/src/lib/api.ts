@@ -23,12 +23,24 @@ export function setSessionExpiredHandler(handler: () => void) {
   onSessionExpired = handler;
 }
 
-// A 401 anywhere outside /api/auth/* means the session expired or was revoked. The auth calls are
-// excluded because there a 401 is an answer ("wrong password", "not logged in"), not a lost session.
-client.interceptors.response.use((response) => {
+/**
+ * A 401 anywhere outside /api/auth/* means the session expired or was revoked. The auth calls are
+ * excluded because there a 401 is an answer ("wrong password", "not logged in"), not a lost session.
+ * Used by the API client below and by plain `fetch` calls (uploads).
+ */
+export function reportResponse(response: Response) {
   if (response.status === 401 && !new URL(response.url).pathname.startsWith("/api/auth/")) {
     lastUnauthorizedAt = Date.now();
     onSessionExpired();
   }
+}
+
+client.interceptors.response.use((response) => {
+  reportResponse(response);
   return response;
 });
+
+/** The URL of a stored file's bytes (images can be used directly as `<img src>`). */
+export function fileContentUrl(fileId: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ""}/api/files/${fileId}/content`;
+}

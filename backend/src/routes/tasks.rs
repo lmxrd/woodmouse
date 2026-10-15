@@ -9,11 +9,15 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::activity::{self, Event};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::{Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel, User};
+use crate::models::{
+    Comment, FileRef, Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel, User,
+};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
+use crate::trash;
 
 /// All task routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -25,48 +29,14 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(delete_task))
 }
 
-/// Delete a task and its join rows, atomically. Shared with the project and
-/// list delete cascades.
-pub async fn delete_list_tasks(
-    tx: &mut toasty::Transaction<'_>,
-    list_id: uuid::Uuid,
-) -> Result<(), ApiError> {
-    let tasks = Task::filter_by_list_id(list_id).exec(tx).await?;
-    let task_ids: Vec<uuid::Uuid> = tasks.iter().map(|t| t.id).collect();
-    delete_tasks_by_ids(tx, task_ids).await
-}
-
-async fn delete_tasks_by_ids(
-    tx: &mut toasty::Transaction<'_>,
-    task_ids: Vec<uuid::Uuid>,
-) -> Result<(), ApiError> {
-    if task_ids.is_empty() {
-        return Ok(());
-    }
-    TaskAssignee::all()
-        .filter(in_list(TaskAssignee::fields().task_id(), task_ids.clone()))
-        .delete()
-        .exec(tx)
-        .await?;
-    TaskLabel::all()
-        .filter(in_list(TaskLabel::fields().task_id(), task_ids.clone()))
-        .delete()
-        .exec(tx)
-        .await?;
-    Task::all()
-        .filter(in_list(Task::fields().id(), task_ids))
-        .delete()
-        .exec(tx)
-        .await?;
-    Ok(())
-}
-
 /// A task with its assignees and labels hydrated.
 #[derive(Serialize, ToSchema)]
 pub struct TaskResponse {
     pub id: uuid::Uuid,
     pub list_id: uuid::Uuid,
     pub project_id: uuid::Uuid,
+    /// The parent task, when this is a subtask.
+    pub parent_id: Option<uuid::Uuid>,
     pub title: String,
     pub description: String,
     pub is_completed: bool,
@@ -80,6 +50,14 @@ pub struct TaskResponse {
     pub due_date: Option<i64>,
     pub assignees: Vec<PublicUser>,
     pub labels: Vec<Label>,
+    /// All subtasks below this task, at any depth.
+    pub subtask_total: usize,
+    /// How many of them are completed.
+    pub subtask_completed: usize,
+    /// Live comments on the task.
+    pub comment_count: usize,
+    /// Files attached to the task.
+    pub attachment_count: usize,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -112,6 +90,10 @@ pub struct UpdateTaskRequest {
     /// Move the task to another list in the same workspace. Unless
     /// `position` is also given, the task is appended to the target list.
     pub list_id: Option<uuid::Uuid>,
+    /// Make this a subtask of another task (it then moves to that task's list); `null` makes it
+    /// a top-level task again. A task cannot go below itself or one of its own subtasks.
+    #[serde(default, deserialize_with = "double_option")]
+    pub parent_id: Option<Option<uuid::Uuid>>,
     /// When provided, replaces the assignee set.
     pub assignee_ids: Option<Vec<uuid::Uuid>>,
     /// When provided, replaces the label set.
@@ -134,6 +116,10 @@ pub struct TaskFilters {
     pub project_id: Option<uuid::Uuid>,
     /// Only tasks in this list.
     pub list_id: Option<uuid::Uuid>,
+    /// Only the direct subtasks of this task.
+    pub parent_id: Option<uuid::Uuid>,
+    /// Include subtasks (any depth) among the results; by default only top-level tasks are listed.
+    pub include_subtasks: Option<bool>,
     /// Only completed (true) or open (false) tasks.
     pub is_completed: Option<bool>,
     /// Only tasks assigned to this user.
@@ -175,6 +161,8 @@ pub async fn list_tasks(
         let list = List::get_by_id(db, &list_id).await?;
         let project = Project::get_by_id(db, &list.project_id).await?;
         if project.workspace_id != workspace_id
+            || list.deleted_at.is_some()
+            || project.deleted_at.is_some()
             || filters.project_id.is_some_and(|p| p != project.id)
         {
             return Err(ApiError::not_found());
@@ -183,7 +171,7 @@ pub async fn list_tasks(
     } else {
         let project_ids: Vec<uuid::Uuid> = if let Some(project_id) = filters.project_id {
             let project = Project::get_by_id(db, &project_id).await?;
-            if project.workspace_id != workspace_id {
+            if project.workspace_id != workspace_id || project.deleted_at.is_some() {
                 return Err(ApiError::not_found());
             }
             vec![project_id]
@@ -192,6 +180,7 @@ pub async fn list_tasks(
                 .exec(db)
                 .await?
                 .into_iter()
+                .filter(|p| p.deleted_at.is_none())
                 .map(|p| p.id)
                 .collect()
         };
@@ -203,6 +192,7 @@ pub async fn list_tasks(
             .exec(db)
             .await?
             .into_iter()
+            .filter(|l| l.deleted_at.is_none())
             .map(|l| l.id)
             .collect()
     };
@@ -210,7 +200,14 @@ pub async fn list_tasks(
         return Ok(Json(vec![]));
     }
 
-    let mut query = Task::all().filter(in_list(Task::fields().list_id(), list_ids));
+    let mut query = Task::all()
+        .filter(in_list(Task::fields().list_id(), list_ids))
+        .filter(Task::fields().deleted_at().is_none());
+    if let Some(parent_id) = filters.parent_id {
+        query = query.filter(Task::fields().parent_id().eq(parent_id));
+    } else if filters.include_subtasks != Some(true) {
+        query = query.filter(Task::fields().parent_id().is_none());
+    }
     if let Some(is_completed) = filters.is_completed {
         query = query.filter(Task::fields().is_completed().eq(is_completed));
     }
@@ -276,26 +273,28 @@ pub async fn create_task(
     Path(list_id): Path<uuid::Uuid>,
     Json(input): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
+    let db = &mut *state.db.lock().await;
+    let workspace_id = access::require_list_access(db, &user, list_id, Role::Write).await?;
+    let response = create_task_in(db, workspace_id, list_id, None, user.id, input).await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// Create a task (or, with `parent_id`, a subtask) at the end of the list. Access to the list must
+/// already be checked.
+pub(crate) async fn create_task_in(
+    db: &mut toasty::Db,
+    workspace_id: uuid::Uuid,
+    list_id: uuid::Uuid,
+    parent_id: Option<uuid::Uuid>,
+    actor: uuid::Uuid,
+    input: CreateTaskRequest,
+) -> Result<TaskResponse, ApiError> {
     let title = input.title.trim();
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
     }
-
-    let db = &mut *state.db.lock().await;
-    let workspace_id = access::require_list_access(db, &user, list_id, Role::Write).await?;
     validate_assignees(db, &input.assignee_ids, workspace_id).await?;
-    let labels = validate_labels(db, &input.label_ids, workspace_id).await?;
-    let assignees: Vec<PublicUser> = if input.assignee_ids.is_empty() {
-        vec![]
-    } else {
-        User::all()
-            .filter(in_list(User::fields().id(), input.assignee_ids.clone()))
-            .exec(db)
-            .await?
-            .iter()
-            .map(PublicUser::from)
-            .collect()
-    };
+    validate_labels(db, &input.label_ids, workspace_id).await?;
 
     let mut tx = db.transaction().await?;
 
@@ -317,7 +316,7 @@ pub async fn create_task(
         priority: input.priority.unwrap_or(Priority::Medium),
         start_date: input.start_date,
         due_date: input.due_date,
-        parent_id: None,
+        parent_id,
     })
     .exec(&mut tx)
     .await?;
@@ -340,23 +339,31 @@ pub async fn create_task(
     }
     tx.commit().await?;
 
-    let project_id = List::get_by_id(db, &list_id).await?.project_id;
-    let response = TaskResponse {
-        id: task.id,
-        list_id: task.list_id,
-        project_id,
-        title: task.title,
-        description: task.description,
-        is_completed: task.is_completed,
-        completed_at: task.completed_at,
-        position: task.position,
-        priority: task.priority,
-        start_date: task.start_date,
-        due_date: task.due_date,
-        assignees,
-        labels,
+    let mut responses = hydrate_tasks(db, vec![task]).await?;
+    let created = responses.swap_remove(0);
+
+    let parent_title = match parent_id {
+        Some(pid) => Some(Task::get_by_id(db, &pid).await?.title),
+        None => None,
     };
-    Ok((StatusCode::CREATED, Json(response)))
+    activity::record(
+        db,
+        Event {
+            workspace_id,
+            project_id: Some(created.project_id),
+            // A new subtask shows up in its parent's feed, where people look for it.
+            task_id: Some(parent_id.unwrap_or(created.id)),
+            actor_id: actor,
+            kind: if parent_title.is_some() {
+                "subtask_added"
+            } else {
+                "task_created"
+            },
+            data: serde_json::json!({ "title": created.title, "parent_title": parent_title }),
+        },
+    )
+    .await;
+    Ok(created)
 }
 
 /// Fetch one task with assignees and labels.
@@ -429,10 +436,48 @@ pub async fn update_task(
         }
     }
 
+    // Where the task ends up: under a new parent (in the parent's list) or in the requested list.
+    let current = Task::get_by_id(db, &id).await?;
+    let mut new_list = input.list_id.filter(|l| *l != current.list_id);
+    if let Some(Some(parent_id)) = input.parent_id {
+        let parent = Task::get_by_id(db, &parent_id).await?;
+        if parent.deleted_at.is_some()
+            || access::task_workspace(db, parent_id).await? != workspace_id
+        {
+            return Err(ApiError::not_found());
+        }
+        let in_current_list = Task::filter_by_list_id(current.list_id).exec(db).await?;
+        if parent_id == id || trash::subtree(&in_current_list, id).contains(&parent_id) {
+            return Err(ApiError::bad_request("a task cannot go below itself"));
+        }
+        new_list = Some(parent.list_id).filter(|l| *l != current.list_id);
+    } else if current.parent_id.is_some() && new_list.is_some() && input.parent_id.is_none() {
+        return Err(ApiError::bad_request(
+            "a subtask stays in its parent's list; move the parent instead",
+        ));
+    }
+
+    // Snapshot what the activity feed compares against after the update.
+    let old_assignees: Option<std::collections::HashSet<uuid::Uuid>> =
+        if input.assignee_ids.is_some() {
+            Some(
+                TaskAssignee::filter_by_task_id(id)
+                    .exec(db)
+                    .await?
+                    .into_iter()
+                    .map(|a| a.user_id)
+                    .collect(),
+            )
+        } else {
+            None
+        };
+    let new_assignees = input.assignee_ids.clone();
+
     let mut tx = db.transaction().await?;
     let mut task = Task::get_by_id(&mut tx, &id).await?;
 
     let was_completed = task.is_completed;
+    let old_list = task.list_id;
     let mut update = task.update();
     let has_field_changes = input.title.is_some()
         || input.description.is_some()
@@ -441,7 +486,8 @@ pub async fn update_task(
         || input.due_date.is_some()
         || input.position.is_some()
         || input.start_date.is_some()
-        || input.list_id.is_some();
+        || new_list.is_some()
+        || input.parent_id.is_some();
     if let Some(title) = input.title {
         update = update.title(title.trim().to_string());
     }
@@ -467,7 +513,10 @@ pub async fn update_task(
     if let Some(start_date) = input.start_date {
         update = update.start_date(start_date);
     }
-    if let Some(target) = input.list_id {
+    if let Some(parent_id) = input.parent_id {
+        update = update.parent_id(parent_id);
+    }
+    if let Some(target) = new_list {
         update = update.list_id(target);
         if input.position.is_none() {
             let last = Task::filter_by_list_id(target)
@@ -483,6 +532,23 @@ pub async fn update_task(
         update.exec(&mut tx).await?;
     }
     drop(task);
+
+    // Subtasks follow their parent to the new list.
+    if let Some(target) = new_list {
+        let old_list_tasks = Task::filter_by_list_id(old_list).exec(&mut tx).await?;
+        let below: Vec<uuid::Uuid> = trash::subtree(&old_list_tasks, id)
+            .into_iter()
+            .filter(|t| *t != id)
+            .collect();
+        if !below.is_empty() {
+            Task::all()
+                .filter(in_list(Task::fields().id(), below))
+                .update()
+                .list_id(target)
+                .exec(&mut tx)
+                .await?;
+        }
+    }
 
     if let Some(assignee_ids) = input.assignee_ids {
         TaskAssignee::filter_by_task_id(id)
@@ -515,8 +581,109 @@ pub async fn update_task(
     tx.commit().await?;
 
     let task = Task::get_by_id(db, &id).await?;
+    record_changes(
+        db,
+        workspace_id,
+        user.id,
+        &current,
+        &task,
+        old_assignees,
+        new_assignees,
+    )
+    .await?;
     let mut responses = hydrate_tasks(db, vec![task]).await?;
     Ok(Json(responses.swap_remove(0)))
+}
+
+/// Write an activity entry for each thing that changed between `before` and `after`.
+async fn record_changes(
+    db: &mut toasty::Db,
+    workspace_id: uuid::Uuid,
+    actor: uuid::Uuid,
+    before: &Task,
+    after: &Task,
+    old_assignees: Option<HashSet<uuid::Uuid>>,
+    new_assignees: Option<Vec<uuid::Uuid>>,
+) -> Result<(), ApiError> {
+    let project_id = List::get_by_id(db, &after.list_id).await?.project_id;
+    let mut events: Vec<(&'static str, serde_json::Value)> = vec![];
+    if before.title != after.title {
+        events.push((
+            "task_renamed",
+            serde_json::json!({ "from": before.title, "to": after.title }),
+        ));
+    }
+    if before.is_completed != after.is_completed {
+        let kind = if after.is_completed {
+            "task_completed"
+        } else {
+            "task_reopened"
+        };
+        events.push((kind, serde_json::json!({ "title": after.title })));
+    }
+    if before.list_id != after.list_id {
+        let from = List::get_by_id(db, &before.list_id).await?.name;
+        let to = List::get_by_id(db, &after.list_id).await?.name;
+        events.push((
+            "task_moved",
+            serde_json::json!({ "title": after.title, "from": from, "to": to }),
+        ));
+    }
+    if before.due_date != after.due_date {
+        events.push((
+            "due_changed",
+            serde_json::json!({ "title": after.title, "from": before.due_date, "to": after.due_date }),
+        ));
+    }
+    if before.priority != after.priority {
+        events.push((
+            "priority_changed",
+            serde_json::json!({ "title": after.title, "from": before.priority, "to": after.priority }),
+        ));
+    }
+    if let (Some(old), Some(new)) = (old_assignees, new_assignees) {
+        let new: HashSet<uuid::Uuid> = new.into_iter().collect();
+        for (kind, ids) in [
+            (
+                "assigned",
+                new.difference(&old).copied().collect::<Vec<_>>(),
+            ),
+            (
+                "unassigned",
+                old.difference(&new).copied().collect::<Vec<_>>(),
+            ),
+        ] {
+            if ids.is_empty() {
+                continue;
+            }
+            let names: Vec<String> = User::all()
+                .filter(in_list(User::fields().id(), ids))
+                .exec(db)
+                .await?
+                .into_iter()
+                .map(|u| if u.name.is_empty() { u.email } else { u.name })
+                .collect();
+            events.push((
+                kind,
+                serde_json::json!({ "title": after.title, "who": names }),
+            ));
+        }
+    }
+    for (kind, data) in events {
+        activity::record(
+            db,
+            Event {
+                workspace_id,
+                project_id: Some(project_id),
+                task_id: Some(after.id),
+                actor_id: actor,
+                kind,
+                data,
+            },
+        )
+        .await;
+    }
+    Ok(())
 }
 
 /// Delete a task.
@@ -538,11 +705,26 @@ pub async fn delete_task(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
     let db = &mut *state.db.lock().await;
-    access::require_task_access(db, &user, id, Role::Write).await?;
+    let workspace_id = access::require_task_access(db, &user, id, Role::Write).await?;
 
     let mut tx = db.transaction().await?;
-    delete_tasks_by_ids(&mut tx, vec![id]).await?;
+    let task = Task::get_by_id(&mut tx, &id).await?;
+    trash::delete_task(&mut tx, &task, user.id, auth::now_secs()).await?;
     tx.commit().await?;
+
+    let project_id = List::get_by_id(db, &task.list_id).await?.project_id;
+    activity::record(
+        db,
+        Event {
+            workspace_id,
+            project_id: Some(project_id),
+            task_id: Some(id),
+            actor_id: user.id,
+            kind: "task_deleted",
+            data: serde_json::json!({ "title": task.title }),
+        },
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -575,7 +757,11 @@ async fn validate_labels(
         .filter(in_list(Label::fields().id(), label_ids.to_vec()))
         .exec(db)
         .await?;
-    if labels.len() != label_ids.len() || labels.iter().any(|l| l.workspace_id != workspace_id) {
+    if labels.len() != label_ids.len()
+        || labels
+            .iter()
+            .any(|l| l.workspace_id != workspace_id || l.deleted_at.is_some())
+    {
         return Err(ApiError::bad_request(
             "labels must belong to the same workspace",
         ));
@@ -584,7 +770,7 @@ async fn validate_labels(
 }
 
 /// Bulk-load assignees and labels for a set of tasks (no per-task queries).
-async fn hydrate_tasks(
+pub(crate) async fn hydrate_tasks(
     db: &mut toasty::Db,
     tasks: Vec<Task>,
 ) -> Result<Vec<TaskResponse>, ApiError> {
@@ -611,13 +797,37 @@ async fn hydrate_tasks(
     let project_by_list: HashMap<uuid::Uuid, uuid::Uuid> = List::all()
         .filter(in_list(
             List::fields().id(),
-            list_ids.into_iter().collect::<Vec<_>>(),
+            list_ids.iter().copied().collect::<Vec<_>>(),
         ))
         .exec(db)
         .await?
         .into_iter()
         .map(|l| (l.id, l.project_id))
         .collect();
+
+    // Every live task in those lists, to count each task's subtasks (any depth).
+    let live_in_lists: Vec<Task> = Task::all()
+        .filter(in_list(
+            Task::fields().list_id(),
+            list_ids.iter().copied().collect::<Vec<_>>(),
+        ))
+        .filter(Task::fields().deleted_at().is_none())
+        .exec(db)
+        .await?;
+    let completed_by_id: HashMap<uuid::Uuid, bool> = live_in_lists
+        .iter()
+        .map(|t| (t.id, t.is_completed))
+        .collect();
+
+    let task_ids: Vec<uuid::Uuid> = tasks.iter().map(|t| t.id).collect();
+    let comment_rows = Comment::all()
+        .filter(in_list(Comment::fields().task_id(), task_ids.clone()))
+        .exec(db)
+        .await?;
+    let file_rows = FileRef::all()
+        .filter(in_list(FileRef::fields().task_id(), task_ids))
+        .exec(db)
+        .await?;
 
     let user_ids: HashSet<uuid::Uuid> = assignee_rows.iter().map(|a| a.user_id).collect();
     let users: Vec<User> = if user_ids.is_empty() {
@@ -646,7 +856,11 @@ async fn hydrate_tasks(
 
     let users_by_id: HashMap<uuid::Uuid, PublicUser> =
         users.iter().map(|u| (u.id, PublicUser::from(u))).collect();
-    let labels_by_id: HashMap<uuid::Uuid, Label> = labels.into_iter().map(|l| (l.id, l)).collect();
+    let labels_by_id: HashMap<uuid::Uuid, Label> = labels
+        .into_iter()
+        .filter(|l| l.deleted_at.is_none())
+        .map(|l| (l.id, l))
+        .collect();
 
     let mut assignees_by_task: HashMap<uuid::Uuid, Vec<PublicUser>> = HashMap::new();
     for row in assignee_rows {
@@ -672,6 +886,14 @@ async fn hydrate_tasks(
         .map(|task| {
             let assignees = assignees_by_task.remove(&task.id).unwrap_or_default();
             let task_labels = labels_by_task.remove(&task.id).unwrap_or_default();
+            let below: Vec<uuid::Uuid> = trash::subtree(&live_in_lists, task.id)
+                .into_iter()
+                .filter(|id| *id != task.id)
+                .collect();
+            let subtask_completed = below
+                .iter()
+                .filter(|id| completed_by_id.get(id).copied().unwrap_or(false))
+                .count();
             TaskResponse {
                 id: task.id,
                 list_id: task.list_id,
@@ -679,6 +901,7 @@ async fn hydrate_tasks(
                     .get(&task.list_id)
                     .copied()
                     .unwrap_or_default(),
+                parent_id: task.parent_id,
                 title: task.title,
                 description: task.description,
                 is_completed: task.is_completed,
@@ -689,6 +912,13 @@ async fn hydrate_tasks(
                 due_date: task.due_date,
                 assignees,
                 labels: task_labels,
+                subtask_total: below.len(),
+                subtask_completed,
+                comment_count: comment_rows
+                    .iter()
+                    .filter(|c| c.task_id == task.id && c.deleted_at.is_none())
+                    .count(),
+                attachment_count: file_rows.iter().filter(|r| r.task_id == task.id).count(),
             }
         })
         .collect())

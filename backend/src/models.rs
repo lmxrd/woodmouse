@@ -36,7 +36,14 @@ pub struct User {
     #[unique]
     pub email: String,
 
+    /// Display name; may be empty (the UI then shows the email).
     pub name: String,
+
+    /// Preferred date format; `None` means the default (`YYYY-MM-DD`).
+    pub date_format: Option<String>,
+
+    /// Preferred clock, `24h` or `12h`; `None` means the default (`24h`).
+    pub time_format: Option<String>,
 
     /// Argon2id hash (PHC string format).
     pub password_hash: String,
@@ -143,6 +150,14 @@ pub struct Project {
     pub workspace_id: uuid::Uuid,
 
     pub name: String,
+
+    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
+    #[serde(skip)]
+    pub deleted_at: Option<i64>,
+
+    /// Who deleted it.
+    #[serde(skip)]
+    pub deleted_by: Option<uuid::Uuid>,
 }
 
 /// A list of tasks inside a project.
@@ -156,10 +171,18 @@ pub struct List {
     pub project_id: uuid::Uuid,
 
     pub name: String,
+
+    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
+    #[serde(skip)]
+    pub deleted_at: Option<i64>,
+
+    /// Who deleted it.
+    #[serde(skip)]
+    pub deleted_by: Option<uuid::Uuid>,
 }
 
 /// A task. `position` is a float for fractional reordering; `parent_id` is
-/// reserved for Phase 2 subtasks (nullable now so no migration is needed).
+/// used for subtasks (any depth).
 #[derive(Debug, Serialize, ToSchema, toasty::Model)]
 pub struct Task {
     #[key]
@@ -192,8 +215,16 @@ pub struct Task {
     /// Due date as Unix epoch seconds, if set.
     pub due_date: Option<i64>,
 
-    /// Reserved for Phase 2 subtasks.
+    /// The parent task when this is a subtask (any depth). A subtask lives in its parent's list.
     pub parent_id: Option<uuid::Uuid>,
+
+    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
+    #[serde(skip)]
+    pub deleted_at: Option<i64>,
+
+    /// Who deleted it.
+    #[serde(skip)]
+    pub deleted_by: Option<uuid::Uuid>,
 }
 
 /// A workspace-scoped label that tasks can carry.
@@ -210,6 +241,14 @@ pub struct Label {
 
     /// Hex color like `#71717a`.
     pub color: String,
+
+    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
+    #[serde(skip)]
+    pub deleted_at: Option<i64>,
+
+    /// Who deleted it.
+    #[serde(skip)]
+    pub deleted_by: Option<uuid::Uuid>,
 }
 
 /// Task assignee. Composite key: a user is assigned to a task at most once.
@@ -234,4 +273,162 @@ pub struct TaskLabel {
 
     #[key]
     pub label_id: uuid::Uuid,
+}
+
+/// How two tasks relate. `Blocks` and `Duplicates` read from the owning task to the related one
+/// ("A blocks B"); `RelatesTo` is symmetric.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, toasty::Embed)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkKind {
+    Blocks,
+    RelatesTo,
+    Duplicates,
+}
+
+/// A link between two tasks of the same workspace.
+#[derive(Debug, toasty::Model)]
+pub struct TaskLink {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    /// The task that owns the link ("this task blocks ...").
+    #[index]
+    pub task_id: uuid::Uuid,
+
+    #[index]
+    pub related_task_id: uuid::Uuid,
+
+    pub kind: LinkKind,
+}
+
+/// A comment on a task. The body is markdown.
+#[derive(Debug, toasty::Model)]
+pub struct Comment {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub task_id: uuid::Uuid,
+
+    pub author_id: uuid::Uuid,
+
+    pub body: String,
+
+    /// Unix epoch seconds.
+    pub created_at: i64,
+
+    /// Unix epoch seconds of the last edit, if any.
+    pub edited_at: Option<i64>,
+
+    pub deleted_at: Option<i64>,
+
+    pub deleted_by: Option<uuid::Uuid>,
+}
+
+/// A file in a workspace's library. The bytes live in the storage backend named by
+/// `storage_backend` under `storage_key`. Files are never deleted along with whatever references
+/// them; only an admin's cleanup of unreferenced files (or deleting the workspace) removes them.
+#[derive(Debug, toasty::Model)]
+pub struct File {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub workspace_id: uuid::Uuid,
+
+    pub name: String,
+
+    pub mime: String,
+
+    /// Size in bytes.
+    pub size: i64,
+
+    /// Hex SHA-256 of the content; identical content in a workspace is stored once.
+    #[index]
+    pub sha256: String,
+
+    pub storage_backend: String,
+
+    pub storage_key: String,
+
+    pub uploaded_by: uuid::Uuid,
+
+    /// Unix epoch seconds.
+    pub created_at: i64,
+}
+
+/// A file attached to a task. Composite key: attached at most once.
+#[derive(Debug, toasty::Model)]
+#[index(file_id)]
+#[index(task_id)]
+pub struct FileRef {
+    #[key]
+    pub file_id: uuid::Uuid,
+
+    #[key]
+    pub task_id: uuid::Uuid,
+}
+
+/// One entry of the activity feed: who did what, to which task, when. `kind` is a short snake_case
+/// name (`task_created`, `comment_added`, ...) and `data` a JSON object with what the UI needs to
+/// phrase it (titles are snapshotted, so entries stay readable after renames and deletes).
+#[derive(Debug, toasty::Model)]
+pub struct Activity {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub workspace_id: uuid::Uuid,
+
+    #[index]
+    pub project_id: Option<uuid::Uuid>,
+
+    #[index]
+    pub task_id: Option<uuid::Uuid>,
+
+    pub actor_id: uuid::Uuid,
+
+    pub kind: String,
+
+    /// JSON text.
+    pub data: String,
+
+    /// Unix epoch seconds.
+    pub created_at: i64,
+}
+
+/// A named set of view settings (view, filters, sort) for a project, private to its owner or shared
+/// with the workspace. `params` is a JSON object the frontend interprets (the same keys as the
+/// project URL's search params).
+#[derive(Debug, toasty::Model)]
+pub struct SavedView {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub workspace_id: uuid::Uuid,
+
+    #[index]
+    pub project_id: uuid::Uuid,
+
+    pub owner_id: uuid::Uuid,
+
+    pub name: String,
+
+    /// JSON object text.
+    pub params: String,
+
+    pub is_shared: bool,
+
+    /// Unix epoch seconds.
+    pub created_at: i64,
+
+    pub deleted_at: Option<i64>,
+
+    pub deleted_by: Option<uuid::Uuid>,
 }

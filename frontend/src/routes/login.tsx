@@ -115,10 +115,9 @@ function BootstrapForm() {
       {bootstrapAccount.isError ? (
         <ErrorNote message="Could not create the account. Check the details and try again." />
       ) : null}
-      <Field id="name" label="Your name">
+      <Field id="name" label="Your name (optional)">
         <Input
           id="name"
-          required
           autoComplete="name"
           value={name}
           onChange={(e) => setName(e.target.value)}

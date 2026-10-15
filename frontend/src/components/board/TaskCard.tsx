@@ -1,40 +1,39 @@
+import type { KeyboardEventHandler } from "react";
 import { Link } from "@tanstack/react-router";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { TaskResponse } from "woodmouse-client";
 
-import { formatDay, isDueNow } from "../../lib/dates";
+import { isDueNow } from "../../lib/dates";
 import { PRIORITY_BADGE, isHotPriority } from "../../lib/priority";
+import { useFormatters } from "../../lib/useFormatters";
+import { userLabel } from "../../lib/user";
 import { cn } from "../../lib/utils";
 import { LabelTag } from "../LabelTag";
 import { AvatarStack } from "../UserAvatar";
 import { Checkbox } from "../ui/checkbox";
 
-/**
- * A task card: the checkbox completes it, the title link (stretched over the whole card) opens it,
- * and the card can be dragged between columns when `editable`.
- */
-export function TaskCard({
-  task,
-  workspaceId,
-  projectId,
-  editable,
-  onToggleCompleted,
-}: {
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+interface CardProps {
   task: TaskResponse;
   workspaceId: string;
   projectId: string;
   editable: boolean;
   onToggleCompleted: (task: TaskResponse, isCompleted: boolean) => void;
-}) {
+}
+
+/** The card's look. The checkbox completes the task; the title link, stretched over the card, opens it. */
+export function TaskCardBody({
+  task,
+  workspaceId,
+  projectId,
+  editable,
+  onToggleCompleted,
+}: CardProps) {
+  const { dateShort } = useFormatters();
   return (
-    <div
-      draggable={editable}
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", task.id)}
-      className={cn(
-        "relative flex gap-2.5 border border-border bg-card p-3 hover:border-foreground",
-        editable && "cursor-grab",
-        task.is_completed && "bg-muted",
-      )}
-    >
+    <>
       <Checkbox
         className="relative z-10 mt-0.5"
         aria-label={`Completed: ${task.title}`}
@@ -78,21 +77,102 @@ export function TaskCard({
             ))}
           </div>
         ) : null}
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        {task.subtask_total > 0 ? (
+          <div
+            className="h-[3px] bg-border"
+            role="progressbar"
+            aria-label="Subtasks completed"
+            aria-valuenow={task.subtask_completed}
+            aria-valuemax={task.subtask_total}
+          >
+            <div
+              className="h-full bg-primary"
+              style={{ width: `${(task.subtask_completed / task.subtask_total) * 100}%` }}
+            />
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {task.due_date != null ? (
             <span
               className={cn(
                 isDueNow(task.due_date) && !task.is_completed && "font-medium text-signal",
               )}
             >
-              {formatDay(task.due_date)}
+              {dateShort(task.due_date)}
             </span>
           ) : null}
+          {task.subtask_total > 0 ? (
+            <span className="font-mono">
+              {task.subtask_completed}/{task.subtask_total}
+            </span>
+          ) : null}
+          {task.comment_count > 0 ? (
+            <span className="font-mono">{plural(task.comment_count, "comment", "comments")}</span>
+          ) : null}
+          {task.attachment_count > 0 ? (
+            <span className="font-mono">{plural(task.attachment_count, "file", "files")}</span>
+          ) : null}
           <span className="ml-auto">
-            <AvatarStack names={task.assignees.map((u) => u.name)} />
+            <AvatarStack names={task.assignees.map(userLabel)} />
           </span>
         </div>
       </div>
+    </>
+  );
+}
+
+const cardClass = "relative flex gap-2.5 border border-border bg-card p-3 hover:border-foreground";
+
+/** A card that can be dragged: by pointer or touch anywhere on it, by keyboard from its grip. */
+export function SortableTaskCard(props: CardProps & { columnId: string }) {
+  const { task, editable, columnId } = props;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+    data: { columnId },
+    disabled: !editable,
+  });
+  // Space and Enter must keep working on the checkbox and the link, so only the grip handles keys.
+  const { onKeyDown, ...pointerListeners } = listeners ?? {};
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn(
+        cardClass,
+        editable && "cursor-grab touch-manipulation",
+        task.is_completed && "bg-muted",
+        isDragging && "opacity-40",
+      )}
+      {...pointerListeners}
+    >
+      <TaskCardBody {...props} />
+      {editable ? (
+        <button
+          type="button"
+          aria-label={`Move ${task.title}`}
+          className="relative z-10 -mr-1 shrink-0 self-start px-0.5 text-muted-foreground opacity-40 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
+          {...attributes}
+          onKeyDown={onKeyDown as KeyboardEventHandler<HTMLButtonElement> | undefined}
+        >
+          ⠿
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The card as it floats under the pointer while dragging. */
+export function TaskCardOverlay(props: CardProps) {
+  return (
+    <div
+      className={cn(
+        cardClass,
+        "cursor-grabbing border-foreground shadow-md",
+        props.task.is_completed && "bg-muted",
+      )}
+    >
+      <TaskCardBody {...props} />
     </div>
   );
 }

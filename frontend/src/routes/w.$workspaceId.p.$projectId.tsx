@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,8 +24,10 @@ export const Route = createFileRoute("/w/$workspaceId/p/$projectId")({
 
 function ProjectPage() {
   const { workspaceId, projectId } = Route.useParams();
-  const { view = "board" } = Route.useSearch();
+  const search = Route.useSearch();
+  const { view = "board" } = search;
   const navigate = Route.useNavigate();
+  const routerNavigate = useNavigate();
   const { data: project, isError } = useQuery({
     ...getProjectOptions({ path: { id: projectId } }),
     retry: false, // a missing project will not appear on retry
@@ -85,13 +87,26 @@ function ProjectPage() {
         <div className="flex items-center gap-1">
           <ProjectViewMenu
             value={view}
+            projectId={projectId}
+            workspaceId={workspaceId}
+            search={search}
             onChange={(next) => void navigate({ search: (prev) => ({ ...prev, view: next }) })}
+            onApply={(params) => void navigate({ search: validateProjectSearch(params) })}
           />
           {canWrite ? (
             <ActionMenu
               label="Project actions"
               items={[
                 { label: "Rename project", onSelect: () => setRenaming(true) },
+                {
+                  label: "Activity",
+                  onSelect: () =>
+                    void routerNavigate({
+                      to: "/w/$workspaceId/activity",
+                      params: { workspaceId },
+                      search: { project: projectId },
+                    }),
+                },
                 {
                   label: "Delete project…",
                   destructive: true,

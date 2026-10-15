@@ -6,12 +6,11 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::CurrentUser;
+use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::{List, Project, Role};
+use crate::models::{Project, Role};
 use crate::state::AppState;
-
-use super::tasks;
+use crate::trash;
 
 /// All project routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -55,7 +54,10 @@ pub async fn list_projects(
     access::require_access(db, &user, workspace_id, Role::Read).await?;
     let projects = Project::filter_by_workspace_id(workspace_id)
         .exec(db)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|p| p.deleted_at.is_none())
+        .collect();
     Ok(Json(projects))
 }
 
@@ -158,7 +160,7 @@ pub async fn update_project(
     Ok(Json(project))
 }
 
-/// Delete a project and everything in it (lists, tasks, assignments, labels).
+/// Delete a project with its lists and tasks (soft delete: it moves to Trash).
 #[utoipa::path(
     delete,
     path = "/projects/{id}",
@@ -179,18 +181,9 @@ pub async fn delete_project(
     let db = &mut *state.db.lock().await;
     access::require_project_access(db, &user, id, Role::Write).await?;
 
-    // No database-level cascades: delete children explicitly, atomically.
+    // Soft delete: the project, its lists and its tasks move to Trash together.
     let mut tx = db.transaction().await?;
-    let lists = List::filter_by_project_id(id).exec(&mut tx).await?;
-    for list in lists {
-        tasks::delete_list_tasks(&mut tx, list.id).await?;
-        list.delete().exec(&mut tx).await?;
-    }
-    Project::get_by_id(&mut tx, &id)
-        .await?
-        .delete()
-        .exec(&mut tx)
-        .await?;
+    trash::delete_project(&mut tx, id, user.id, auth::now_secs()).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -10,6 +10,7 @@ import {
 import { listMembersOptions, meOptions } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
+import { userLabel } from "../../lib/user";
 import { Field } from "../Field";
 import { UserAvatar } from "../UserAvatar";
 import { Button } from "../ui/button";
@@ -62,9 +63,11 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
     meta: { inline: true },
     onSuccess: (result) => {
       void refresh();
-      setNotice(result.invite_token ? null : `${result.member.user.name} was added.`);
+      setNotice(result.invite_token ? null : `${userLabel(result.member.user)} was added.`);
       setInvite(
-        result.invite_token ? { name: result.member.user.name, token: result.invite_token } : null,
+        result.invite_token
+          ? { name: userLabel(result.member.user), token: result.invite_token }
+          : null,
       );
     },
   });
@@ -86,7 +89,7 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
     onSuccess: (result, vars) => {
       const member = members?.find((m) => m.user.id === vars.path.user_id);
       setNotice(null);
-      setInvite({ name: member?.user.name ?? "them", token: result.invite_token });
+      setInvite({ name: member ? userLabel(member.user) : "them", token: result.invite_token });
     },
   });
 
@@ -101,10 +104,10 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
         key={member.user.id}
         className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3"
       >
-        <UserAvatar name={member.user.name} size="md" />
+        <UserAvatar name={userLabel(member.user)} size="md" />
         <div className="min-w-0 flex-1 basis-40">
           <p className="truncate text-sm font-medium">
-            {member.user.name}
+            {userLabel(member.user)}
             {self ? <span className="label-mono ml-2 text-muted-foreground">you</span> : null}
             {member.pending ? <span className="label-mono ml-2 text-signal">Invited</span> : null}
           </p>
@@ -112,7 +115,7 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
         </div>
         {isAdmin ? (
           <RoleSelect
-            label={`Role of ${member.user.name}`}
+            label={`Role of ${userLabel(member.user)}`}
             value={member.role}
             onChange={(next) =>
               changeRole.mutate({
@@ -214,13 +217,8 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
             setEmail("");
           }}
         >
-          <Field label="Name" htmlFor="member-name">
-            <Input
-              id="member-name"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+          <Field label="Name (optional)" htmlFor="member-name">
+            <Input id="member-name" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Email" htmlFor="member-email">
             <Input

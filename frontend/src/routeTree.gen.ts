@@ -10,12 +10,16 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccountRouteImport } from './routes/account'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
+import { Route as WWorkspaceIdActivityRouteImport } from './routes/w.$workspaceId.activity'
+import { Route as WWorkspaceIdFilesRouteImport } from './routes/w.$workspaceId.files'
 import { Route as WWorkspaceIdMyTasksRouteImport } from './routes/w.$workspaceId.my-tasks'
 import { Route as WWorkspaceIdSettingsRouteImport } from './routes/w.$workspaceId.settings'
+import { Route as WWorkspaceIdTrashRouteImport } from './routes/w.$workspaceId.trash'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
 import { Route as WWorkspaceIdTTaskIdRouteImport } from './routes/w.$workspaceId.t.$taskId'
 import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from './routes/w.$workspaceId.p.$projectId.t.$taskId'
@@ -23,6 +27,11 @@ import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from './routes/w.$w
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountRoute = AccountRouteImport.update({
+  id: '/account',
+  path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -45,6 +54,16 @@ const WWorkspaceIdIndexRoute = WWorkspaceIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
+const WWorkspaceIdActivityRoute = WWorkspaceIdActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdFilesRoute = WWorkspaceIdFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
 const WWorkspaceIdMyTasksRoute = WWorkspaceIdMyTasksRouteImport.update({
   id: '/my-tasks',
   path: '/my-tasks',
@@ -53,6 +72,11 @@ const WWorkspaceIdMyTasksRoute = WWorkspaceIdMyTasksRouteImport.update({
 const WWorkspaceIdSettingsRoute = WWorkspaceIdSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdTrashRoute = WWorkspaceIdTrashRouteImport.update({
+  id: '/trash',
+  path: '/trash',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
 const WWorkspaceIdPProjectIdRoute = WWorkspaceIdPProjectIdRouteImport.update({
@@ -74,11 +98,15 @@ const WWorkspaceIdPProjectIdTTaskIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
+  '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
+  '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
   '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
   '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
+  '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
@@ -86,10 +114,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
+  '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
   '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
   '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
+  '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
@@ -98,11 +130,15 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
+  '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
+  '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
   '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
   '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
+  '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
@@ -112,11 +148,15 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/account'
     | '/login'
     | '/invite/$token'
     | '/w/$workspaceId'
+    | '/w/$workspaceId/activity'
+    | '/w/$workspaceId/files'
     | '/w/$workspaceId/my-tasks'
     | '/w/$workspaceId/settings'
+    | '/w/$workspaceId/trash'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
@@ -124,10 +164,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/account'
     | '/login'
     | '/invite/$token'
+    | '/w/$workspaceId/activity'
+    | '/w/$workspaceId/files'
     | '/w/$workspaceId/my-tasks'
     | '/w/$workspaceId/settings'
+    | '/w/$workspaceId/trash'
     | '/w/$workspaceId'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
@@ -135,11 +179,15 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/account'
     | '/login'
     | '/invite/$token'
     | '/w/$workspaceId'
+    | '/w/$workspaceId/activity'
+    | '/w/$workspaceId/files'
     | '/w/$workspaceId/my-tasks'
     | '/w/$workspaceId/settings'
+    | '/w/$workspaceId/trash'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
@@ -148,6 +196,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccountRoute: typeof AccountRoute
   LoginRoute: typeof LoginRoute
   InviteTokenRoute: typeof InviteTokenRoute
   WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren
@@ -160,6 +209,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account': {
+      id: '/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -190,6 +246,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdIndexRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
+    '/w/$workspaceId/activity': {
+      id: '/w/$workspaceId/activity'
+      path: '/activity'
+      fullPath: '/w/$workspaceId/activity'
+      preLoaderRoute: typeof WWorkspaceIdActivityRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/files': {
+      id: '/w/$workspaceId/files'
+      path: '/files'
+      fullPath: '/w/$workspaceId/files'
+      preLoaderRoute: typeof WWorkspaceIdFilesRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
     '/w/$workspaceId/my-tasks': {
       id: '/w/$workspaceId/my-tasks'
       path: '/my-tasks'
@@ -202,6 +272,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/w/$workspaceId/settings'
       preLoaderRoute: typeof WWorkspaceIdSettingsRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/trash': {
+      id: '/w/$workspaceId/trash'
+      path: '/trash'
+      fullPath: '/w/$workspaceId/trash'
+      preLoaderRoute: typeof WWorkspaceIdTrashRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
     '/w/$workspaceId/p/$projectId': {
@@ -243,16 +320,22 @@ const WWorkspaceIdPProjectIdRouteWithChildren =
   )
 
 interface WWorkspaceIdRouteChildren {
+  WWorkspaceIdActivityRoute: typeof WWorkspaceIdActivityRoute
+  WWorkspaceIdFilesRoute: typeof WWorkspaceIdFilesRoute
   WWorkspaceIdMyTasksRoute: typeof WWorkspaceIdMyTasksRoute
   WWorkspaceIdSettingsRoute: typeof WWorkspaceIdSettingsRoute
+  WWorkspaceIdTrashRoute: typeof WWorkspaceIdTrashRoute
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
   WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren
   WWorkspaceIdTTaskIdRoute: typeof WWorkspaceIdTTaskIdRoute
 }
 
 const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
+  WWorkspaceIdActivityRoute: WWorkspaceIdActivityRoute,
+  WWorkspaceIdFilesRoute: WWorkspaceIdFilesRoute,
   WWorkspaceIdMyTasksRoute: WWorkspaceIdMyTasksRoute,
   WWorkspaceIdSettingsRoute: WWorkspaceIdSettingsRoute,
+  WWorkspaceIdTrashRoute: WWorkspaceIdTrashRoute,
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,
   WWorkspaceIdPProjectIdRoute: WWorkspaceIdPProjectIdRouteWithChildren,
   WWorkspaceIdTTaskIdRoute: WWorkspaceIdTTaskIdRoute,
@@ -264,6 +347,7 @@ const WWorkspaceIdRouteWithChildren = WWorkspaceIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccountRoute: AccountRoute,
   LoginRoute: LoginRoute,
   InviteTokenRoute: InviteTokenRoute,
   WWorkspaceIdRoute: WWorkspaceIdRouteWithChildren,

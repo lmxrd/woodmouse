@@ -60,3 +60,10 @@ impl IntoResponse for ApiError {
         (self.status, body).into_response()
     }
 }
+
+impl ApiError {
+    /// The request body (an upload) exceeds the configured limit.
+    pub fn payload_too_large(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, message)
+    }
+}

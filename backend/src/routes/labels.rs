@@ -7,10 +7,11 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::CurrentUser;
+use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::{Label, Role, TaskLabel};
+use crate::models::{Label, Role, Task, TaskLabel};
 use crate::state::AppState;
+use crate::trash;
 
 /// All label routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -65,7 +66,12 @@ pub async fn list_labels(
 ) -> Result<Json<Vec<LabelWithCount>>, ApiError> {
     let db = &mut *state.db.lock().await;
     access::require_access(db, &user, workspace_id, Role::Read).await?;
-    let mut labels = Label::filter_by_workspace_id(workspace_id).exec(db).await?;
+    let mut labels: Vec<Label> = Label::filter_by_workspace_id(workspace_id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|l| l.deleted_at.is_none())
+        .collect();
     labels.sort_by_key(|l| l.name.to_lowercase());
     if labels.is_empty() {
         return Ok(Json(vec![]));
@@ -76,11 +82,30 @@ pub async fn list_labels(
         .filter(in_list(TaskLabel::fields().label_id(), label_ids))
         .exec(db)
         .await?;
+    // Only count tasks that are not in the trash.
+    let live_tasks: std::collections::HashSet<uuid::Uuid> = if uses.is_empty() {
+        Default::default()
+    } else {
+        Task::all()
+            .filter(in_list(
+                Task::fields().id(),
+                uses.iter().map(|u| u.task_id).collect::<Vec<_>>(),
+            ))
+            .exec(db)
+            .await?
+            .into_iter()
+            .filter(|t| t.deleted_at.is_none())
+            .map(|t| t.id)
+            .collect()
+    };
     Ok(Json(
         labels
             .into_iter()
             .map(|l| LabelWithCount {
-                task_count: uses.iter().filter(|u| u.label_id == l.id).count(),
+                task_count: uses
+                    .iter()
+                    .filter(|u| u.label_id == l.id && live_tasks.contains(&u.task_id))
+                    .count(),
                 id: l.id,
                 workspace_id: l.workspace_id,
                 name: l.name,
@@ -153,6 +178,9 @@ pub async fn update_label(
     let db = &mut *state.db.lock().await;
     let mut label = Label::get_by_id(db, &id).await?;
     access::require_access(db, &user, label.workspace_id, Role::Write).await?;
+    if label.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
 
     let mut update = label.update();
     if let Some(name) = input.name {
@@ -190,14 +218,13 @@ pub async fn delete_label(
     let db = &mut *state.db.lock().await;
     let label = Label::get_by_id(db, &id).await?;
     access::require_access(db, &user, label.workspace_id, Role::Write).await?;
+    if label.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
 
-    // No database-level cascades: detach the label explicitly, atomically.
+    // Soft delete: tasks keep the association, which reappears on restore.
     let mut tx = db.transaction().await?;
-    TaskLabel::filter_by_label_id(id)
-        .delete()
-        .exec(&mut tx)
-        .await?;
-    label.delete().exec(&mut tx).await?;
+    trash::delete_label(&mut tx, label.id, user.id, auth::now_secs()).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,7 +1,10 @@
 pub mod access;
+pub mod activity;
 pub mod auth;
 pub mod error;
 pub mod models;
 pub mod openapi;
 pub mod routes;
 pub mod state;
+pub mod storage;
+pub mod trash;

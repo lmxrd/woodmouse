@@ -8,7 +8,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::User;
+use crate::models::{Session, User};
 use crate::state::AppState;
 
 /// Routes reachable without a session.
@@ -24,16 +24,25 @@ pub fn public_router() -> OpenApiRouter<AppState> {
 pub fn protected_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(logout))
-        .routes(routes!(me))
+        .routes(routes!(me, update_me))
+        .routes(routes!(change_password))
 }
+
+pub const DATE_FORMATS: [&str; 4] = ["YYYY-MM-DD", "DD.MM.YYYY", "MM/DD/YYYY", "D MMM YYYY"];
+pub const TIME_FORMATS: [&str; 2] = ["24h", "12h"];
 
 /// User as exposed over the API — never includes the password hash.
 #[derive(Clone, Serialize, ToSchema)]
 pub struct PublicUser {
     pub id: uuid::Uuid,
     pub email: String,
+    /// Display name; may be empty.
     pub name: String,
     pub super_admin: bool,
+    /// One of `YYYY-MM-DD`, `DD.MM.YYYY`, `MM/DD/YYYY`, `D MMM YYYY`.
+    pub date_format: String,
+    /// `24h` or `12h`.
+    pub time_format: String,
 }
 
 impl From<&User> for PublicUser {
@@ -43,6 +52,14 @@ impl From<&User> for PublicUser {
             email: user.email.clone(),
             name: user.name.clone(),
             super_admin: user.super_admin,
+            date_format: user
+                .date_format
+                .clone()
+                .unwrap_or_else(|| DATE_FORMATS[0].to_string()),
+            time_format: user
+                .time_format
+                .clone()
+                .unwrap_or_else(|| TIME_FORMATS[0].to_string()),
         }
     }
 }
@@ -56,6 +73,8 @@ pub struct AuthStatus {
 #[derive(Deserialize, ToSchema)]
 pub struct BootstrapRequest {
     pub email: String,
+    /// Optional display name.
+    #[serde(default)]
     pub name: String,
     pub password: String,
 }
@@ -66,12 +85,10 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-pub(crate) fn validate_identity(email: &str, name: &str) -> Result<(), ApiError> {
+/// The display name is optional; only the email must be valid.
+pub(crate) fn validate_identity(email: &str) -> Result<(), ApiError> {
     if email.trim().is_empty() || !email.contains('@') {
         return Err(ApiError::bad_request("email is invalid"));
-    }
-    if name.trim().is_empty() {
-        return Err(ApiError::bad_request("name is required"));
     }
     Ok(())
 }
@@ -85,8 +102,8 @@ pub(crate) fn validate_password(password: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_credentials(email: &str, name: &str, password: &str) -> Result<(), ApiError> {
-    validate_identity(email, name)?;
+fn validate_credentials(email: &str, password: &str) -> Result<(), ApiError> {
+    validate_identity(email)?;
     validate_password(password)
 }
 
@@ -123,7 +140,7 @@ pub async fn bootstrap(
     State(state): State<AppState>,
     Json(input): Json<BootstrapRequest>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
-    validate_credentials(&input.email, &input.name, &input.password)?;
+    validate_credentials(&input.email, &input.password)?;
 
     let db = &mut *state.db.lock().await;
     if !User::all().exec(db).await?.is_empty() {
@@ -207,4 +224,133 @@ pub async fn logout(
 )]
 pub async fn me(CurrentUser { user, .. }: CurrentUser) -> Json<PublicUser> {
     Json(PublicUser::from(&user))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateMe {
+    /// Display name; an empty string clears it.
+    pub name: Option<String>,
+    pub email: Option<String>,
+    /// One of `YYYY-MM-DD`, `DD.MM.YYYY`, `MM/DD/YYYY`, `D MMM YYYY`.
+    pub date_format: Option<String>,
+    /// `24h` or `12h`.
+    pub time_format: Option<String>,
+}
+
+/// Edit your own profile and display preferences.
+#[utoipa::path(
+    patch,
+    path = "/auth/me",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = UpdateMe,
+    responses(
+        (status = 200, description = "The updated user", body = PublicUser),
+        (status = 400, description = "Invalid input"),
+        (status = 401, description = "Not logged in"),
+        (status = 409, description = "That email is already taken")
+    )
+)]
+pub async fn update_me(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<UpdateMe>,
+) -> Result<Json<PublicUser>, ApiError> {
+    if let Some(format) = &input.date_format
+        && !DATE_FORMATS.contains(&format.as_str())
+    {
+        return Err(ApiError::bad_request("unknown date format"));
+    }
+    if let Some(format) = &input.time_format
+        && !TIME_FORMATS.contains(&format.as_str())
+    {
+        return Err(ApiError::bad_request("unknown time format"));
+    }
+
+    let db = &mut *state.db.lock().await;
+    let email = match &input.email {
+        Some(email) => {
+            validate_identity(email)?;
+            let email = email.trim().to_lowercase();
+            if email != user.email
+                && let Ok(other) = User::get_by_email(db, &email).await
+                && other.id != user.id
+            {
+                return Err(ApiError::conflict("that email is already taken"));
+            }
+            Some(email)
+        }
+        None => None,
+    };
+
+    let mut current = User::get_by_id(db, &user.id).await?;
+    if input.name.is_some()
+        || email.is_some()
+        || input.date_format.is_some()
+        || input.time_format.is_some()
+    {
+        let mut update = current.update();
+        if let Some(name) = &input.name {
+            update = update.name(name.trim().to_string());
+        }
+        if let Some(email) = email {
+            update = update.email(email);
+        }
+        if let Some(format) = input.date_format {
+            update = update.date_format(Some(format));
+        }
+        if let Some(format) = input.time_format {
+            update = update.time_format(Some(format));
+        }
+        update.exec(db).await?;
+    }
+    Ok(Json(PublicUser::from(&current)))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ChangePassword {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+/// Change your password. Other sessions of yours are signed out.
+#[utoipa::path(
+    post,
+    path = "/auth/password",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = ChangePassword,
+    responses(
+        (status = 204, description = "Password changed"),
+        (status = 400, description = "The new password is too short"),
+        (status = 401, description = "Not logged in, or the current password is wrong")
+    )
+)]
+pub async fn change_password(
+    State(state): State<AppState>,
+    CurrentUser {
+        user,
+        session_token,
+        ..
+    }: CurrentUser,
+    Json(input): Json<ChangePassword>,
+) -> Result<StatusCode, ApiError> {
+    if !auth::verify_password(&input.current_password, &user.password_hash) {
+        return Err(ApiError::unauthorized());
+    }
+    validate_password(&input.new_password)?;
+
+    let db = &mut *state.db.lock().await;
+    let mut current = User::get_by_id(db, &user.id).await?;
+    current
+        .update()
+        .password_hash(auth::hash_password(&input.new_password)?)
+        .exec(db)
+        .await?;
+    for session in Session::filter_by_user_id(user.id).exec(db).await? {
+        if session.token != session_token {
+            session.delete().exec(db).await?;
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
 }

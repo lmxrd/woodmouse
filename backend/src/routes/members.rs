@@ -37,7 +37,8 @@ pub struct Member {
 
 #[derive(Deserialize, ToSchema)]
 pub struct AddMember {
-    /// Used only when no account with this email exists yet.
+    /// Optional display name; used only when no account with this email exists yet.
+    #[serde(default)]
     pub name: String,
     pub email: String,
     pub role: Role,
@@ -172,7 +173,7 @@ pub async fn add_member(
 ) -> Result<(StatusCode, Json<AddMemberResponse>), ApiError> {
     let db = &mut *state.db.lock().await;
     access::require_access(db, &user, id, Role::Admin).await?;
-    validate_identity(&input.email, &input.name)?;
+    validate_identity(&input.email)?;
     let email = input.email.trim().to_lowercase();
 
     let invitee = match User::get_by_email(db, &email).await {

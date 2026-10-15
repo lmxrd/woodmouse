@@ -1,11 +1,18 @@
+pub mod activity;
 pub mod auth;
+pub mod comments;
+pub mod files;
 pub mod health;
 pub mod invites;
 pub mod labels;
 pub mod lists;
 pub mod members;
 pub mod projects;
+pub mod saved_views;
+pub mod subtasks;
+pub mod task_links;
 pub mod tasks;
+pub mod trash;
 pub mod workspaces;
 
 use axum::middleware;
@@ -31,6 +38,7 @@ use crate::{openapi::ApiDoc, state::AppState};
 /// Everything nests under `/api`, which keeps the API cleanly separable from
 /// the SPA fallback and lets the dev frontend proxy a single prefix.
 pub fn api(state: AppState) -> OpenApiRouter<AppState> {
+    let max_upload_bytes = state.files.max_upload_bytes;
     // No session required.
     let public = health::router()
         .merge(auth::public_router())
@@ -43,7 +51,14 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(projects::router())
         .merge(lists::router())
         .merge(tasks::router())
+        .merge(subtasks::router())
+        .merge(comments::router())
+        .merge(activity::router())
+        .merge(saved_views::router())
+        .merge(files::router(max_upload_bytes))
+        .merge(task_links::router())
         .merge(labels::router())
+        .merge(trash::router())
         .route_layer(middleware::from_extractor_with_state::<CurrentUser, _>(
             state,
         ));

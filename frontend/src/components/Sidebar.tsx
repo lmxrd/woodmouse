@@ -8,6 +8,8 @@ import {
   meOptions,
 } from "woodmouse-client/react-query";
 
+import { userLabel } from "../lib/user";
+import { useWorkspaceRole } from "../lib/useWorkspaceRole";
 import { cn } from "../lib/utils";
 import { InlineAdd } from "./InlineAdd";
 import { UserAvatar } from "./UserAvatar";
@@ -36,6 +38,7 @@ export function Sidebar({
   const { data: workspaces } = useQuery(listWorkspacesOptions());
   const { data: projects } = useQuery(listProjectsOptions({ path: { workspace_id: workspaceId } }));
   const workspace = workspaces?.find((w) => w.id === workspaceId);
+  const { canWrite } = useWorkspaceRole(workspaceId);
 
   const createProject = useMutation({
     ...createProjectMutation(),
@@ -88,15 +91,24 @@ export function Sidebar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Link
-        to="/w/$workspaceId/my-tasks"
-        params={{ workspaceId }}
-        onClick={onNavigate}
-        className="px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
-        activeProps={{ className: "bg-accent font-medium !text-foreground" }}
-      >
-        My tasks
-      </Link>
+      <nav className="flex flex-col text-sm" aria-label="Workspace">
+        {[
+          { to: "/w/$workspaceId/my-tasks", label: "My tasks" },
+          { to: "/w/$workspaceId/activity", label: "Activity" },
+          { to: "/w/$workspaceId/files", label: "Files" },
+        ].map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            params={{ workspaceId }}
+            onClick={onNavigate}
+            className="px-2 py-1 text-muted-foreground hover:text-foreground"
+            activeProps={{ className: "bg-accent font-medium !text-foreground" }}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
 
       <nav className="flex flex-col text-sm" aria-label="Projects">
         <p className="label-mono mb-1.5 text-muted-foreground">Projects</p>
@@ -122,6 +134,17 @@ export function Sidebar({
         />
       </nav>
 
+      {canWrite ? (
+        <Link
+          to="/w/$workspaceId/trash"
+          params={{ workspaceId }}
+          onClick={onNavigate}
+          className="px-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+          activeProps={{ className: "bg-accent font-medium !text-foreground" }}
+        >
+          Trash
+        </Link>
+      ) : null}
       <Link
         to="/w/$workspaceId/settings"
         params={{ workspaceId }}
@@ -133,8 +156,15 @@ export function Sidebar({
       </Link>
 
       <div className="mt-auto flex items-center gap-2 text-sm text-muted-foreground">
-        <UserAvatar name={me?.name ?? ""} size="md" />
-        <span className="min-w-0 flex-1 truncate">{me?.name}</span>
+        <Link
+          to="/account"
+          onClick={onNavigate}
+          aria-label="Your account"
+          className="flex min-w-0 flex-1 items-center gap-2 hover:text-foreground"
+        >
+          <UserAvatar name={me ? userLabel(me) : ""} size="md" />
+          <span className="min-w-0 flex-1 truncate">{me ? userLabel(me) : ""}</span>
+        </Link>
         <Button variant="ghost" size="xs" onClick={() => logout.mutate({})}>
           Log out
         </Button>

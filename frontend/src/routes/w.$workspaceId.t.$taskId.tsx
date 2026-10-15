@@ -17,6 +17,9 @@ function TaskPage() {
         taskId={taskId}
         workspaceId={workspaceId}
         onDeleted={() => void navigate({ to: "/w/$workspaceId", params: { workspaceId } })}
+        onOpenTask={(id) =>
+          void navigate({ to: "/w/$workspaceId/t/$taskId", params: { workspaceId, taskId: id } })
+        }
         header={({ projectId, listName }) => (
           <nav
             aria-label="Breadcrumb"

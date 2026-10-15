@@ -25,6 +25,14 @@ function TaskDialog() {
         taskId={taskId}
         workspaceId={workspaceId}
         onDeleted={close}
+        onOpenTask={(id) =>
+          void navigate({
+            to: "/w/$workspaceId/p/$projectId/t/$taskId",
+            params: { workspaceId, projectId, taskId: id },
+            search: (prev) => prev,
+            replace: true,
+          })
+        }
         header={({ listName }) => (
           <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-2">
             <span className="label-mono truncate text-muted-foreground">{listName}</span>
