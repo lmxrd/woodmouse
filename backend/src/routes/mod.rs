@@ -1,8 +1,10 @@
 pub mod activity;
 pub mod auth;
 pub mod comments;
+pub mod export;
 pub mod files;
 pub mod health;
+pub mod history;
 pub mod invites;
 pub mod labels;
 pub mod lists;
@@ -58,6 +60,8 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(activity::router())
         .merge(saved_views::router())
         .merge(pages::router())
+        .merge(history::router())
+        .merge(export::router())
         .merge(search::router())
         .merge(files::router(max_upload_bytes))
         .merge(task_links::router())

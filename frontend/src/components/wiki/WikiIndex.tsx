@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { listPagesOptions } from "woodmouse-client/react-query";
 
+import { wikiExportUrl } from "../../lib/api";
 import { useFormatters } from "../../lib/useFormatters";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Button } from "../ui/button";
@@ -20,7 +21,17 @@ export function WikiIndex({ workspaceId }: { workspaceId: string }) {
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4 sm:p-8">
       <header className="flex items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold">Wiki</h1>
-        {canWrite ? <Button onClick={() => createPage()}>New page</Button> : null}
+        <div className="flex gap-2">
+          {pages.length > 0 ? (
+            <Button
+              variant="outline"
+              onClick={() => window.location.assign(wikiExportUrl(workspaceId))}
+            >
+              Export all
+            </Button>
+          ) : null}
+          {canWrite ? <Button onClick={() => createPage()}>New page</Button> : null}
+        </div>
       </header>
 
       {!isPending && pages.length === 0 ? (

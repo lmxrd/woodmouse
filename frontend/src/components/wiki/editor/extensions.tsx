@@ -122,10 +122,16 @@ function hitLabel(hit: SearchHit) {
 export interface EditorContext {
   workspaceId: string;
   queryClient: QueryClient;
+  /** Only the block types and rendering, without the pickers (for showing content, not editing it). */
+  readOnly?: boolean;
 }
 
 /** The extensions of the page editor: the stored block types, markdown shortcuts and the pickers. */
-export function editorExtensions({ workspaceId, queryClient }: EditorContext): Extensions {
+export function editorExtensions({
+  workspaceId,
+  queryClient,
+  readOnly = false,
+}: EditorContext): Extensions {
   const find = (q: string, kind: "page" | "task") =>
     queryClient.fetchQuery({
       ...searchOptions({ path: { id: workspaceId }, query: { q, kind, limit: 5 } }),
@@ -166,55 +172,61 @@ export function editorExtensions({ workspaceId, queryClient }: EditorContext): E
     Numbering,
     TaskMention,
     PageLink,
-    suggestionExtension<SlashItem>({
-      name: "slashMenu",
-      char: "/",
-      empty: "No matching block",
-      items: (query) => {
-        const q = query.toLowerCase();
-        return SLASH_ITEMS.filter((i) => `${i.title} ${i.keywords}`.toLowerCase().includes(q));
-      },
-      onPick: (editor, range, item) => item.run(editor, range),
-      render: (item) => (
-        <span className="flex min-w-0 flex-col leading-tight">
-          <span>{item.title}</span>
-          <span className="text-xs text-muted-foreground">{item.hint}</span>
-        </span>
-      ),
-    }),
-    suggestionExtension<SearchHit>({
-      name: "taskPicker",
-      char: "@",
-      allowSpaces: true,
-      empty: "No matching task",
-      items: (query) => find(query, "task"),
-      onPick: (editor, range, hit) =>
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(range, [
-            { type: "taskMention", attrs: { id: hit.id, label: hit.title } },
-            { type: "text", text: " " },
-          ])
-          .run(),
-      render: hitLabel,
-    }),
-    suggestionExtension<SearchHit>({
-      name: "pagePicker",
-      char: "[[",
-      allowSpaces: true,
-      empty: "No matching page",
-      items: (query) => find(query, "page"),
-      onPick: (editor, range, hit) =>
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(range, [
-            { type: "pageLink", attrs: { id: hit.id, label: hit.title } },
-            { type: "text", text: " " },
-          ])
-          .run(),
-      render: hitLabel,
-    }),
+    ...(readOnly ? [] : pickers()),
   ];
+
+  function pickers(): Extensions {
+    return [
+      suggestionExtension<SlashItem>({
+        name: "slashMenu",
+        char: "/",
+        empty: "No matching block",
+        items: (query) => {
+          const q = query.toLowerCase();
+          return SLASH_ITEMS.filter((i) => `${i.title} ${i.keywords}`.toLowerCase().includes(q));
+        },
+        onPick: (editor, range, item) => item.run(editor, range),
+        render: (item) => (
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span>{item.title}</span>
+            <span className="text-xs text-muted-foreground">{item.hint}</span>
+          </span>
+        ),
+      }),
+      suggestionExtension<SearchHit>({
+        name: "taskPicker",
+        char: "@",
+        allowSpaces: true,
+        empty: "No matching task",
+        items: (query) => find(query, "task"),
+        onPick: (editor, range, hit) =>
+          editor
+            .chain()
+            .focus()
+            .insertContentAt(range, [
+              { type: "taskMention", attrs: { id: hit.id, label: hit.title } },
+              { type: "text", text: " " },
+            ])
+            .run(),
+        render: hitLabel,
+      }),
+      suggestionExtension<SearchHit>({
+        name: "pagePicker",
+        char: "[[",
+        allowSpaces: true,
+        empty: "No matching page",
+        items: (query) => find(query, "page"),
+        onPick: (editor, range, hit) =>
+          editor
+            .chain()
+            .focus()
+            .insertContentAt(range, [
+              { type: "pageLink", attrs: { id: hit.id, label: hit.title } },
+              { type: "text", text: " " },
+            ])
+            .run(),
+        render: hitLabel,
+      }),
+    ];
+  }
 }

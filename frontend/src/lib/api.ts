@@ -44,3 +44,13 @@ client.interceptors.response.use((response) => {
 export function fileContentUrl(fileId: string): string {
   return `${import.meta.env.VITE_API_URL ?? ""}/api/files/${fileId}/content`;
 }
+
+/** Where a page downloads as a Markdown file. */
+export function pageExportUrl(pageId: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ""}/api/pages/${pageId}/export`;
+}
+
+/** Where a workspace's whole wiki downloads as a zip of Markdown files. */
+export function wikiExportUrl(workspaceId: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ""}/api/workspaces/${workspaceId}/wiki/export`;
+}

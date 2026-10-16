@@ -40,6 +40,11 @@ Woodmouse is a self-hosted task manager for a household or small team.
   a page; external links can use any URL format. Edits save automatically. If someone else is editing the
   same page you are told, and a save based on an outdated version is refused so nothing is silently
   overwritten (keep yours or load theirs). Deleted pages go to the trash with their subpages.
+- **History and export**: a page keeps earlier versions (a version is saved when someone else edits, after a
+  ten-minute pause, or once an hour in a long session). The page menu's Version history shows them with a
+  preview and restores one; the content being replaced is kept first, so a restore can be undone. A task's
+  title and description have the same history. Pages export as Markdown (one page from its menu, the whole
+  wiki as a zip from the Wiki overview, with folders following the tree and links between pages kept).
 - **Search**: ⌘K (or Ctrl+K) searches page and task titles and text with SQLite full-text search (words match
   as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
   items are never found. The `@` and `[[` pickers use the same search.

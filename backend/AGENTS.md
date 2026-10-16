@@ -64,3 +64,7 @@
   `search_docs` + `search_fts`, created by `ensure_index` at startup and in test setup, kept current by triggers
   on `tasks` and page titles plus `index_page_body` on block saves. Visibility (workspace, soft delete) is
   decided at query time by joins, so deleting or restoring never touches the index.
+- Version history (`src/revisions.rs`, `routes/history.rs`): a version is a full copy of what was there before
+  an edit that starts a new session (different editor, 10-minute pause, hourly in long sessions); restores force
+  a version of the current content first. Never deleted. Markdown export is `src/markdown.rs` plus
+  `routes/export.rs` (zip via the `zip` crate).

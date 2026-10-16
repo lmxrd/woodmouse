@@ -1,14 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { getPageOptions } from "woodmouse-client/react-query";
+import { getPageOptions, getPageQueryKey } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { PageEditor } from "./PageEditor";
+import { PageHistory } from "./PageHistory";
 import { PageMenu } from "./PageMenu";
 
 /** One wiki page: breadcrumb, actions, and the editor (read-only for members who cannot write). */
 export function WikiPage({ workspaceId, pageId }: { workspaceId: string; pageId: string }) {
   const { canWrite } = useWorkspaceRole(workspaceId);
+  const queryClient = useQueryClient();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Bumped after a restore so the editor opens again with the restored content.
+  const [reloads, setReloads] = useState(0);
+  const saveRef = useRef<(() => Promise<void>) | null>(null);
   // Fetched fresh on every visit and never refetched underneath the editor.
   const { data: page, isError } = useQuery({
     ...getPageOptions({ path: { id: pageId } }),
@@ -57,9 +64,35 @@ export function WikiPage({ workspaceId, pageId }: { workspaceId: string; pageId:
             </span>
           ))}
         </nav>
-        {canWrite ? <PageMenu page={page} workspaceId={workspaceId} leaveOnDelete /> : null}
+        <PageMenu
+          page={page}
+          workspaceId={workspaceId}
+          leaveOnDelete
+          canWrite={canWrite}
+          onHistory={() => {
+            // Save what was just typed so it shows up as the current version.
+            void (saveRef.current?.() ?? Promise.resolve()).then(() => setHistoryOpen(true));
+          }}
+        />
       </div>
-      <PageEditor key={page.id} page={page} workspaceId={workspaceId} editable={canWrite} />
+      <PageEditor
+        key={`${page.id}:${reloads}`}
+        page={page}
+        workspaceId={workspaceId}
+        editable={canWrite}
+        saveRef={saveRef}
+      />
+      <PageHistory
+        pageId={page.id}
+        workspaceId={workspaceId}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        canRestore={canWrite}
+        onRestored={(restored) => {
+          queryClient.setQueryData(getPageQueryKey({ path: { id: page.id } }), restored);
+          setReloads((n) => n + 1);
+        }}
+      />
     </div>
   );
 }

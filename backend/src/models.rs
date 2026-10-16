@@ -225,6 +225,11 @@ pub struct Task {
     /// The parent task when this is a subtask (any depth). A subtask lives in its parent's list.
     pub parent_id: Option<uuid::Uuid>,
 
+    /// When the title or description last changed (unset for tasks never edited since they were created).
+    pub text_edited_at: Option<i64>,
+
+    pub text_edited_by: Option<uuid::Uuid>,
+
     /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
     #[serde(skip)]
     pub deleted_at: Option<i64>,
@@ -496,4 +501,53 @@ pub struct Block {
     pub attrs: String,
 
     pub spans: String,
+}
+
+/// An earlier state of a page's content, kept when an editing session by someone else (or after a pause)
+/// begins. See `revisions.rs` for when versions are taken.
+#[derive(Debug, toasty::Model)]
+pub struct PageRevision {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub page_id: uuid::Uuid,
+
+    /// Unix epoch seconds when this content was saved.
+    pub saved_at: i64,
+
+    pub saved_by: uuid::Uuid,
+
+    /// The page's title at that time.
+    pub title: String,
+
+    /// The blocks, as JSON (`Vec<BlockData>`).
+    pub blocks: String,
+
+    /// Unix epoch seconds when this version was recorded.
+    pub created_at: i64,
+}
+
+/// An earlier title and description of a task.
+#[derive(Debug, toasty::Model)]
+pub struct TaskRevision {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub task_id: uuid::Uuid,
+
+    /// When this text was saved; unset for the text the task was created with.
+    pub saved_at: Option<i64>,
+
+    pub saved_by: Option<uuid::Uuid>,
+
+    pub title: String,
+
+    pub description: String,
+
+    /// Unix epoch seconds when this version was recorded.
+    pub created_at: i64,
 }

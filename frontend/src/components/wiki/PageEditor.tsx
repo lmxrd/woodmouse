@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -30,10 +30,13 @@ export function PageEditor({
   page,
   workspaceId,
   editable,
+  saveRef,
 }: {
   page: PageDetail;
   workspaceId: string;
   editable: boolean;
+  /** Filled with a function that saves pending edits now (so the owner can do so before, say, a restore). */
+  saveRef?: RefObject<(() => Promise<void>) | null>;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -94,6 +97,14 @@ export function PageEditor({
     },
     [doSave],
   );
+
+  useEffect(() => {
+    if (!saveRef) return;
+    saveRef.current = () => flush();
+    return () => {
+      saveRef.current = null;
+    };
+  }, [saveRef, flush]);
 
   const editor = useEditor({
     extensions,

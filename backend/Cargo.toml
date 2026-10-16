@@ -32,6 +32,7 @@ time = "0.3"
 # Embedded CSR frontend (frontend/dist baked into the binary)
 rust-embed = "8"
 mime_guess = "2"
+zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 http-body-util = "0.1"

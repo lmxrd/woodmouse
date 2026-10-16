@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import type { PageSummary } from "woodmouse-client";
 import { listPagesOptions } from "woodmouse-client/react-query";
 
+import { pageExportUrl } from "../../lib/api";
 import { positionBetween } from "../../lib/position";
 import { subtreeIds } from "../../lib/pageTree";
 import { ActionMenu } from "../ActionMenu";
@@ -16,11 +17,17 @@ export function PageMenu({
   page,
   workspaceId,
   leaveOnDelete = false,
+  canWrite = true,
+  onHistory,
 }: {
   page: PageSummary;
   workspaceId: string;
   /** Go back to the wiki overview after deleting (when the page itself is open). */
   leaveOnDelete?: boolean;
+  /** Adds "Version history" to the menu (only where the page's editor is open). */
+  onHistory?: () => void;
+  /** Without write access the menu only offers history and export. */
+  canWrite?: boolean;
 }) {
   const navigate = useNavigate();
   const { data: pages = [] } = useQuery(listPagesOptions({ path: { id: workspaceId } }));
@@ -41,13 +48,25 @@ export function PageMenu({
       <ActionMenu
         label={`Actions for ${page.title}`}
         items={[
-          { label: "Add subpage", onSelect: () => createPage(page.id) },
-          ...(index > 0 ? [{ label: "Move up", onSelect: () => reorder(index - 1) }] : []),
-          ...(index >= 0 && index < siblings.length - 1
-            ? [{ label: "Move down", onSelect: () => reorder(index + 1) }]
+          ...(canWrite
+            ? [
+                { label: "Add subpage", onSelect: () => createPage(page.id) },
+                ...(index > 0 ? [{ label: "Move up", onSelect: () => reorder(index - 1) }] : []),
+                ...(index >= 0 && index < siblings.length - 1
+                  ? [{ label: "Move down", onSelect: () => reorder(index + 1) }]
+                  : []),
+                { label: "Move to…", onSelect: () => setMoving(true) },
+              ]
             : []),
-          { label: "Move to…", onSelect: () => setMoving(true) },
-          { label: "Delete…", destructive: true, onSelect: () => setDeleting(true) },
+          ...(onHistory ? [{ label: "Version history", onSelect: onHistory }] : []),
+          {
+            label: "Export as Markdown",
+            // The server answers with a file attachment, so this downloads without leaving the page.
+            onSelect: () => window.location.assign(pageExportUrl(page.id)),
+          },
+          ...(canWrite
+            ? [{ label: "Delete…", destructive: true, onSelect: () => setDeleting(true) }]
+            : []),
         ]}
       />
       <MovePageDialog

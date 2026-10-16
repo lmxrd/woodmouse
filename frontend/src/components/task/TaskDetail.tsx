@@ -17,6 +17,7 @@ import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Field } from "../Field";
 import { MarkdownEditor } from "../MarkdownEditor";
 import { SaveStatus } from "../SaveStatus";
+import { TaskHistory } from "./TaskHistory";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -125,6 +126,7 @@ function TaskForm({
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <div className="grid sm:grid-cols-[minmax(0,1fr)_200px]">
@@ -166,6 +168,26 @@ function TaskForm({
             className={`min-w-0 flex-1 resize-none border-b border-dashed border-transparent bg-transparent font-display text-2xl leading-tight font-medium field-sizing-content outline-none hover:border-border focus:border-ring ${task.is_completed ? "text-muted-foreground line-through" : ""}`}
           />
         </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="-mb-3 self-start font-normal text-muted-foreground"
+          onClick={() => setHistoryOpen(true)}
+        >
+          History of title and description
+        </Button>
+        <TaskHistory
+          taskId={task.id}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          canRestore={canWrite}
+          onRestored={(restored) => {
+            setTitle(restored.title);
+            setDescription(restored.description);
+          }}
+        />
 
         <Field label="Description" htmlFor="task-description">
           <MarkdownEditor

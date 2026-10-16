@@ -682,3 +682,231 @@ async fn search_finds_tasks_and_respects_workspaces() {
     let all = find(other, "birch", "&all_workspaces=true").await;
     assert_eq!(all[0]["workspace_name"], "Home");
 }
+
+impl Fx {
+    /// A second member with write access, as a session cookie.
+    async fn teammate(&self, email: &str) -> String {
+        let db = &mut self.db.clone();
+        let user = toasty::create!(woodmouse::models::User {
+            email: email.to_string(),
+            name: "".to_string(),
+            password_hash: "x".to_string(),
+            super_admin: false,
+        })
+        .exec(db)
+        .await
+        .unwrap();
+        toasty::create!(woodmouse::models::WorkspaceMember {
+            user_id: user.id,
+            workspace_id: self.ws,
+            role: woodmouse::models::Role::Write
+        })
+        .exec(db)
+        .await
+        .unwrap();
+        let token = uuid::Uuid::new_v4().to_string();
+        toasty::create!(woodmouse::models::Session {
+            token: token.clone(),
+            user_id: user.id,
+            expires_at: 4_102_444_800
+        })
+        .exec(db)
+        .await
+        .unwrap();
+        format!("woodmouse_session={token}")
+    }
+    async fn save_as(&self, cookie: &str, page: &str, text_: &str) {
+        let body = json!({ "blocks": [{ "type": "paragraph", "spans": [text(text_)] }] });
+        let res = request(
+            &self.app,
+            put_json(
+                &format!("/api/pages/{page}/blocks"),
+                &body.to_string(),
+                Some(cookie),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+    async fn json_get(&self, uri: &str) -> Value {
+        json_of(request(&self.app, get(uri, Some(&self.cookie))).await).await
+    }
+}
+
+#[tokio::test]
+async fn page_versions_start_with_a_new_editor_and_restore_keeps_the_replaced_content() {
+    let fx = fixture().await;
+    let page = fx.page("Notes", None).await;
+    let other = fx.teammate("t@home.io").await;
+
+    // One person editing in a row makes no versions.
+    fx.save_as(&fx.cookie, &page, "first").await;
+    fx.save_as(&fx.cookie, &page, "second").await;
+    let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
+    assert_eq!(list, json!([]));
+
+    // A different person's edit keeps what was there, credited to who wrote it.
+    fx.save_as(&other, &page, "third").await;
+    let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["saved_by"]["email"], "admin@home.io");
+    let rev = list[0]["id"].as_str().unwrap().to_string();
+    let detail = fx.json_get(&format!("/api/page-revisions/{rev}")).await;
+    assert_eq!(detail["blocks"][0]["spans"][0]["text"], "second");
+
+    // Restoring brings it back and keeps "third" as a version of its own.
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/page-revisions/{rev}/restore"),
+            "{}",
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let restored = json_of(res).await;
+    assert_eq!(restored["blocks"][0]["spans"][0]["text"], "second");
+    let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
+    assert_eq!(list.as_array().unwrap().len(), 2);
+    let newest = list[0]["id"].as_str().unwrap();
+    let detail = fx.json_get(&format!("/api/page-revisions/{newest}")).await;
+    assert_eq!(detail["blocks"][0]["spans"][0]["text"], "third");
+}
+
+#[tokio::test]
+async fn task_text_versions_keep_the_original_and_restore() {
+    let fx = fixture().await;
+    let project = json_of(
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/workspaces/{}/projects", fx.ws),
+                r#"{"name":"P"}"#,
+                Some(&fx.cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let lists = fx
+        .json_get(&format!(
+            "/api/projects/{}/lists",
+            project["id"].as_str().unwrap()
+        ))
+        .await;
+    let list = lists[0]["id"].as_str().unwrap();
+    let task = json_of(
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/lists/{list}/tasks"),
+                r#"{"title":"Original"}"#,
+                Some(&fx.cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let id = task["id"].as_str().unwrap();
+    let edit = |body: Value| {
+        let req = patch_json(
+            &format!("/api/tasks/{id}"),
+            &body.to_string(),
+            Some(&fx.cookie),
+        );
+        async { request(&fx.app, req).await.status() }
+    };
+    assert_eq!(edit(json!({ "title": "Renamed" })).await, StatusCode::OK);
+    assert_eq!(
+        edit(json!({ "title": "Renamed again" })).await,
+        StatusCode::OK
+    );
+    // A change to something else is not a text change.
+    assert_eq!(edit(json!({ "priority": "high" })).await, StatusCode::OK);
+
+    let list = fx.json_get(&format!("/api/tasks/{id}/revisions")).await;
+    // Only the original: the rest was one session by one person.
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["title"], "Original");
+    assert!(list[0]["saved_at"].is_null());
+
+    let rev = list[0]["id"].as_str().unwrap();
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/task-revisions/{rev}/restore"),
+            "{}",
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(json_of(res).await["title"], "Original");
+    let list = fx.json_get(&format!("/api/tasks/{id}/revisions")).await;
+    assert_eq!(list.as_array().unwrap().len(), 2);
+    assert_eq!(list[0]["title"], "Renamed again");
+}
+
+#[tokio::test]
+async fn markdown_export_of_a_page_and_of_the_whole_wiki() {
+    let fx = fixture().await;
+    let parent = fx.page("Home base", None).await;
+    let child = fx.page("Plan", Some(&parent)).await;
+    let body = json!({ "blocks": [
+        { "type": "heading", "attrs": { "level": 1 }, "spans": [text("Goals")] },
+        { "type": "paragraph", "spans": [
+            { "text": "see " },
+            { "page_link": { "page_id": child, "label": "Plan" } }
+        ] }
+    ]});
+    let res = request(
+        &fx.app,
+        put_json(
+            &format!("/api/pages/{parent}/blocks"),
+            &body.to_string(),
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = request(
+        &fx.app,
+        get(&format!("/api/pages/{parent}/export"), Some(&fx.cookie)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let disposition = res.headers()["content-disposition"]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(disposition.contains("Home base.md"), "{disposition}");
+    assert_eq!(
+        body_string(res.into_body()).await,
+        "# Home base\n\n## Goals\n\nsee Plan\n"
+    );
+
+    let res = request(
+        &fx.app,
+        get(
+            &format!("/api/workspaces/{}/wiki/export", fx.ws),
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    use http_body_util::BodyExt;
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut names: Vec<String> = zip
+        .file_names()
+        .filter_map(|n| n.ok())
+        .map(|n| n.to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Home base.md", "Home base/Plan.md"]);
+    let mut text_ = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("Home base.md").unwrap(), &mut text_).unwrap();
+    assert!(text_.contains("[Plan](Home%20base/Plan.md)"), "{text_}");
+}

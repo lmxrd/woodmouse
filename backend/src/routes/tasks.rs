@@ -15,6 +15,7 @@ use crate::error::ApiError;
 use crate::models::{
     Comment, FileRef, Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel, User,
 };
+use crate::revisions;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::trash;
@@ -492,6 +493,19 @@ pub async fn update_task(
         };
     let new_assignees = input.assignee_ids.clone();
 
+    // Keep the old title and description as a version when this edit starts a new editing session.
+    let text_changed = input
+        .title
+        .as_ref()
+        .is_some_and(|t| t.trim() != current.title)
+        || input
+            .description
+            .as_ref()
+            .is_some_and(|d| *d != current.description);
+    if text_changed {
+        revisions::snapshot_task(db, &current, user.id, false).await?;
+    }
+
     let mut tx = db.transaction().await?;
     let mut task = Task::get_by_id(&mut tx, &id).await?;
 
@@ -519,6 +533,11 @@ pub async fn update_task(
         if is_completed != was_completed {
             update = update.completed_at(is_completed.then(auth::now_secs));
         }
+    }
+    if text_changed {
+        update = update
+            .text_edited_at(Some(auth::now_secs()))
+            .text_edited_by(Some(user.id));
     }
     if let Some(priority) = input.priority {
         update = update.priority(priority);

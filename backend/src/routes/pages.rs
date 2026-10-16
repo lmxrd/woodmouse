@@ -14,6 +14,7 @@ use crate::auth::{self, CurrentUser};
 use crate::blocks::{BlockData, BlockKind, validate_blocks};
 use crate::error::ApiError;
 use crate::models::{Block, Page, Role, User};
+use crate::revisions;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::trash;
@@ -127,13 +128,19 @@ fn block_data(block: &Block) -> Result<BlockData, ApiError> {
     })
 }
 
-async fn blocks_of(db: &mut toasty::Db, page_id: uuid::Uuid) -> Result<Vec<BlockData>, ApiError> {
+pub(crate) async fn blocks_of(
+    db: &mut toasty::Db,
+    page_id: uuid::Uuid,
+) -> Result<Vec<BlockData>, ApiError> {
     let mut rows = Block::filter_by_page_id(page_id).exec(db).await?;
     rows.sort_by(|a, b| a.position.total_cmp(&b.position));
     rows.iter().map(block_data).collect()
 }
 
-async fn live_pages(db: &mut toasty::Db, workspace_id: uuid::Uuid) -> Result<Vec<Page>, ApiError> {
+pub(crate) async fn live_pages(
+    db: &mut toasty::Db,
+    workspace_id: uuid::Uuid,
+) -> Result<Vec<Page>, ApiError> {
     Ok(Page::filter_by_workspace_id(workspace_id)
         .exec(db)
         .await?
@@ -142,7 +149,7 @@ async fn live_pages(db: &mut toasty::Db, workspace_id: uuid::Uuid) -> Result<Vec
         .collect())
 }
 
-async fn detail(db: &mut toasty::Db, page: Page) -> Result<PageDetail, ApiError> {
+pub(crate) async fn detail(db: &mut toasty::Db, page: Page) -> Result<PageDetail, ApiError> {
     let pages = live_pages(db, page.workspace_id).await?;
     let by_id: HashMap<uuid::Uuid, &Page> = pages.iter().map(|p| (p.id, p)).collect();
     let mut ancestors = vec![];
@@ -400,32 +407,7 @@ pub async fn save_blocks(
             "the page was changed by someone else since you opened it",
         ));
     }
-    if blocks_of(db, id).await? != input.blocks {
-        let mut tx = db.transaction().await?;
-        Block::filter_by_page_id(id).delete().exec(&mut tx).await?;
-        for (i, block) in input.blocks.iter().enumerate() {
-            toasty::create!(Block {
-                page_id: id,
-                kind: block.kind.as_str().to_string(),
-                position: i as f64,
-                attrs: serde_json::to_string(&block.attrs)
-                    .map_err(|_| ApiError::internal("encoding failed"))?,
-                spans: serde_json::to_string(&block.spans)
-                    .map_err(|_| ApiError::internal("encoding failed"))?,
-            })
-            .exec(&mut tx)
-            .await?;
-        }
-        tx.commit().await?;
-        crate::search::index_page_body(db, id, &input.blocks).await?;
-        let next_version = page.version + 1;
-        page.update()
-            .updated_by(user.id)
-            .updated_at(auth::now_secs())
-            .version(next_version)
-            .exec(db)
-            .await?;
-    }
+    write_blocks(db, &mut page, user.id, &input.blocks, false).await?;
     Ok(Json(detail(db, page).await?))
 }
 
@@ -502,4 +484,46 @@ pub async fn ping_presence(
         }
     }
     Ok(Json(editors))
+}
+
+/// Replace a page's content with `blocks` (a no-op when nothing differs), keeping a version of what was
+/// there when [`revisions::should_snapshot`] says so (or always, with `force_snapshot`).
+pub(crate) async fn write_blocks(
+    db: &mut toasty::Db,
+    page: &mut Page,
+    editor: uuid::Uuid,
+    blocks: &[BlockData],
+    force_snapshot: bool,
+) -> Result<(), ApiError> {
+    let old = blocks_of(db, page.id).await?;
+    if old == blocks {
+        return Ok(());
+    }
+    revisions::snapshot_page(db, page, &old, editor, force_snapshot).await?;
+    let id = page.id;
+    let mut tx = db.transaction().await?;
+    Block::filter_by_page_id(id).delete().exec(&mut tx).await?;
+    for (i, block) in blocks.iter().enumerate() {
+        toasty::create!(Block {
+            page_id: id,
+            kind: block.kind.as_str().to_string(),
+            position: i as f64,
+            attrs: serde_json::to_string(&block.attrs)
+                .map_err(|_| ApiError::internal("encoding failed"))?,
+            spans: serde_json::to_string(&block.spans)
+                .map_err(|_| ApiError::internal("encoding failed"))?,
+        })
+        .exec(&mut tx)
+        .await?;
+    }
+    tx.commit().await?;
+    crate::search::index_page_body(db, id, blocks).await?;
+    let next_version = page.version + 1;
+    page.update()
+        .updated_by(editor)
+        .updated_at(auth::now_secs())
+        .version(next_version)
+        .exec(db)
+        .await?;
+    Ok(())
 }

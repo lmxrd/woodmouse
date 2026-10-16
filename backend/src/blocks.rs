@@ -60,7 +60,7 @@ impl BlockKind {
         serde_json::from_value(serde_json::Value::String(name.to_string())).ok()
     }
 
-    fn is_list_item(self) -> bool {
+    pub fn is_list_item(self) -> bool {
         matches!(self, Self::BulletItem | Self::NumberedItem | Self::TodoItem)
     }
 }
