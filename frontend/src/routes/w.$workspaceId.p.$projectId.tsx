@@ -9,6 +9,8 @@ import {
 } from "woodmouse-client/react-query";
 
 import { ActionMenu } from "../components/ActionMenu";
+import { CalendarLinks } from "../components/calendarlinks/CalendarLinks";
+import { ResponsiveDialog } from "../components/ResponsiveDialog";
 import { Board } from "../components/Board";
 import { CalendarView } from "../components/calendar/CalendarView";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -54,6 +56,7 @@ function ProjectPage() {
   });
   const [renaming, setRenaming] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   if (isError) {
     return (
@@ -95,28 +98,31 @@ function ProjectPage() {
             onChange={(next) => void navigate({ search: (prev) => ({ ...prev, view: next }) })}
             onApply={(params) => void navigate({ search: validateProjectSearch(params) })}
           />
-          {canWrite ? (
-            <ActionMenu
-              label="Project actions"
-              items={[
-                { label: "Rename project", onSelect: () => setRenaming(true) },
-                {
-                  label: "Activity",
-                  onSelect: () =>
-                    void routerNavigate({
-                      to: "/w/$workspaceId/activity",
-                      params: { workspaceId },
-                      search: { project: projectId },
-                    }),
-                },
-                {
-                  label: "Delete project…",
-                  destructive: true,
-                  onSelect: () => setConfirmDelete(true),
-                },
-              ]}
-            />
-          ) : null}
+          <ActionMenu
+            label="Project actions"
+            items={[
+              ...(canWrite ? [{ label: "Rename project", onSelect: () => setRenaming(true) }] : []),
+              {
+                label: "Activity",
+                onSelect: () =>
+                  void routerNavigate({
+                    to: "/w/$workspaceId/activity",
+                    params: { workspaceId },
+                    search: { project: projectId },
+                  }),
+              },
+              { label: "Calendar link…", onSelect: () => setCalendarOpen(true) },
+              ...(canWrite
+                ? [
+                    {
+                      label: "Delete project…",
+                      destructive: true,
+                      onSelect: () => setConfirmDelete(true),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </div>
       </header>
       {view === "list" ? (
@@ -129,6 +135,12 @@ function ProjectPage() {
         <Board projectId={projectId} workspaceId={workspaceId} />
       )}
       <Outlet />
+      <ResponsiveDialog open={calendarOpen} onOpenChange={setCalendarOpen} title="Calendar links">
+        <div className="flex flex-col gap-4 p-5">
+          <h2 className="font-display text-xl font-bold">Calendar links</h2>
+          <CalendarLinks workspaceId={workspaceId} projectId={projectId} scopes={["project"]} />
+        </div>
+      </ResponsiveDialog>
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}

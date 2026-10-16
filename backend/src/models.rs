@@ -588,3 +588,42 @@ pub struct PageDoc {
     /// Unix epoch seconds.
     pub updated_at: i64,
 }
+
+/// A secret link to a read-only calendar feed (iCalendar) of tasks with dates. Calendar apps cannot log
+/// in, so the secret in the link is the credential; whoever has it sees those tasks, as long as the
+/// person who made it still has access to them. Revoking sets `revoked_at` (links are never deleted).
+#[derive(Debug, toasty::Model)]
+pub struct CalendarLink {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    /// Whose link it is; the feed shows what this person can see.
+    #[index]
+    pub user_id: uuid::Uuid,
+
+    /// `user` (tasks assigned to the person, in every workspace), `project` or `workspace`.
+    pub scope: String,
+
+    pub workspace_id: Option<uuid::Uuid>,
+
+    pub project_id: Option<uuid::Uuid>,
+
+    /// A label the person gave it, or what it shows.
+    pub name: String,
+
+    /// `read` for now; reserved for write access (CalDAV) later.
+    pub mode: String,
+
+    #[unique]
+    pub secret: String,
+
+    /// Unix epoch seconds.
+    pub created_at: i64,
+
+    /// Unix epoch seconds of the last time a calendar app fetched it (rounded to a few minutes).
+    pub last_used_at: Option<i64>,
+
+    /// Unix epoch seconds; set when the link was revoked.
+    pub revoked_at: Option<i64>,
+}

@@ -54,3 +54,8 @@ export function pageExportUrl(pageId: string): string {
 export function wikiExportUrl(workspaceId: string): string {
   return `${import.meta.env.VITE_API_URL ?? ""}/api/workspaces/${workspaceId}/wiki/export`;
 }
+
+/** A calendar link's feed address on this server (`https://...`). */
+export function calendarFeedUrl(path: string): string {
+  return `${import.meta.env.VITE_API_URL ?? window.location.origin}${path}`;
+}

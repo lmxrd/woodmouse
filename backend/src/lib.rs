@@ -3,6 +3,7 @@ pub mod activity;
 pub mod auth;
 pub mod blocks;
 pub mod error;
+pub mod ical;
 pub mod live;
 pub mod markdown;
 pub mod models;

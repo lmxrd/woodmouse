@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod auth;
+pub mod calendar;
 pub mod comments;
 pub mod export;
 pub mod files;
@@ -48,7 +49,8 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
     // No session required.
     let public = health::router()
         .merge(auth::public_router())
-        .merge(invites::public_router());
+        .merge(invites::public_router())
+        .merge(calendar::public_router());
 
     // Session required — enforced by the layer for every route below.
     let protected = auth::protected_router()
@@ -66,6 +68,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(live::router())
         .merge(references::router())
         .merge(export::router())
+        .merge(calendar::router())
         .merge(search::router())
         .merge(files::router(max_upload_bytes))
         .merge(task_links::router())

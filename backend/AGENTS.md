@@ -81,3 +81,9 @@
   saves through `write_blocks` (attributed to the last editor); the Yjs state is kept in `PageDoc` with an
   `epoch` that changes whenever the document is rebuilt from blocks (REST save, restore): sockets then close
   with 4001 and clients reload. Never hold the db lock while calling `Rooms` (rooms take the db lock inside).
+- Calendar links (`routes/calendar.rs`, `ical.rs`): `CalendarLink` rows hold a 256-bit secret; the public feed
+  (`/api/calendar/<secret>.ics`) re-checks the owner's access on every request and is rebuilt each time. Links are
+  revoked (`revoked_at`), never deleted. Task dates are stored as local midnight in the saver's timezone, so
+  `ical::date_of` takes the nearest UTC midnight (right for timezones within 12h of UTC). `mode` is `read` only;
+  it is reserved for CalDAV write access later. Handler names must be unique across modules (they become client
+  operation ids): hence `list_calendar_links`, not `list_links`.

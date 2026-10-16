@@ -53,6 +53,13 @@ Woodmouse is a self-hosted task manager for a household or small team.
   preview and restores one; the content being replaced is kept first, so a restore can be undone. A task's
   title and description have the same history. Pages export as Markdown (one page from its menu, the whole
   wiki as a zip from the Wiki overview, with folders following the tree and links between pages kept).
+- **Calendar links**: subscribe from any calendar app (Apple, Google, Thunderbird, ...) to a read-only feed of
+  tasks with dates: your own tasks, a project, or a whole workspace. Ranges span their days, done tasks are
+  marked, undated tasks are left out. Links are secret URLs (anyone who has one sees those tasks); you can
+  name them, see when they were last used, and revoke one or all from your account page, a workspace's
+  Calendar settings tab, or a project's menu. A link stops working while its owner cannot see what it shows.
+  Set `PUBLIC_URL` if the server is reached through a different address than the one in the browser (the links
+  inside events use it).
 - **Search**: ⌘K (or Ctrl+K) searches page and task titles and text with SQLite full-text search (words match
   as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
   items are never found. Task comments are searched too (a match shows as its task). The `@` and `[[` pickers use the same search.
@@ -85,6 +92,7 @@ The backend reads these environment variables (all optional):
 | `DATABASE_URL`     | `sqlite:woodmouse.db`  | The SQLite database                                                  |
 | `DATA_DIR`         | `data`                 | Where uploaded files live (`<DATA_DIR>/files`) with the local store  |
 | `STORAGE_BACKEND`  | `local`                | Where new uploads are stored; `local` is the only backend for now    |
+| `PUBLIC_URL`       | from the request       | Address of the app for links inside calendar events (e.g. `https://tasks.example.com`) |
 | `MAX_UPLOAD_MB`    | `25`                   | Largest accepted upload                                              |
 
 Files are stored behind a small `FileStore` trait (`backend/src/storage.rs`) and each file records which backend

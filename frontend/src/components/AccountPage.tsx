@@ -10,6 +10,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { DATE_FORMATS, TIME_FORMATS, formatDateTime } from "../lib/format";
+import { CalendarLinks } from "./calendarlinks/CalendarLinks";
 import { Field } from "./Field";
 import { SaveStatus } from "./SaveStatus";
 import { Button } from "./ui/button";
@@ -32,6 +33,9 @@ export function AccountPage() {
       </header>
       <ProfileSection key={me.id + me.email + me.name} me={me} />
       <DisplaySection me={me} />
+      <Section title="Calendar links">
+        <CalendarLinks scopes={["user", "project", "workspace"]} />
+      </Section>
       <PasswordSection />
     </main>
   );
