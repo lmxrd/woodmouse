@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use toasty::stmt::in_list;
 
 use crate::error::ApiError;
-use crate::models::{Label, List, Project, Task};
+use crate::models::{Label, List, Page, Project, Task};
 
 type Tx<'a> = toasty::Transaction<'a>;
 
@@ -221,4 +221,77 @@ pub async fn restore_label(tx: &mut Tx<'_>, label_id: uuid::Uuid) -> Result<(), 
         .exec(tx)
         .await?;
     Ok(())
+}
+
+/// A page and every page below it, at any depth.
+pub(crate) fn page_subtree(pages: &[Page], root: uuid::Uuid) -> Vec<uuid::Uuid> {
+    let mut ids = vec![root];
+    let mut seen: HashSet<uuid::Uuid> = HashSet::from([root]);
+    loop {
+        let next: Vec<uuid::Uuid> = pages
+            .iter()
+            .filter(|p| {
+                p.parent_id.is_some_and(|parent| seen.contains(&parent)) && !seen.contains(&p.id)
+            })
+            .map(|p| p.id)
+            .collect();
+        if next.is_empty() {
+            return ids;
+        }
+        seen.extend(&next);
+        ids.extend(next);
+    }
+}
+
+async fn stamp_pages(
+    tx: &mut Tx<'_>,
+    ids: Vec<uuid::Uuid>,
+    stamp: Option<(i64, uuid::Uuid)>,
+) -> Result<(), ApiError> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    Page::all()
+        .filter(in_list(Page::fields().id(), ids))
+        .update()
+        .deleted_at(stamp.map(|s| s.0))
+        .deleted_by(stamp.map(|s| s.1))
+        .exec(tx)
+        .await?;
+    Ok(())
+}
+
+/// Delete a page and the pages below it that are not already deleted.
+pub async fn delete_page(
+    tx: &mut Tx<'_>,
+    page: &Page,
+    by: uuid::Uuid,
+    now: i64,
+) -> Result<(), ApiError> {
+    let all = Page::filter_by_workspace_id(page.workspace_id)
+        .exec(tx)
+        .await?;
+    let ids: Vec<uuid::Uuid> = page_subtree(&all, page.id)
+        .into_iter()
+        .filter(|id| all.iter().any(|p| p.id == *id && p.deleted_at.is_none()))
+        .collect();
+    stamp_pages(tx, ids, Some((now, by))).await
+}
+
+/// Restore a page and the pages deleted with it. Its parent page must be live.
+pub async fn restore_page(tx: &mut Tx<'_>, page: &Page) -> Result<(), ApiError> {
+    let stamp = page.deleted_at;
+    if let Some(parent_id) = page.parent_id
+        && Page::get_by_id(tx, &parent_id).await?.deleted_at.is_some()
+    {
+        return Err(ApiError::conflict("restore the parent page first"));
+    }
+    let all = Page::filter_by_workspace_id(page.workspace_id)
+        .exec(tx)
+        .await?;
+    let ids: Vec<uuid::Uuid> = page_subtree(&all, page.id)
+        .into_iter()
+        .filter(|id| all.iter().any(|p| p.id == *id && p.deleted_at == stamp))
+        .collect();
+    stamp_pages(tx, ids, None).await
 }

@@ -7,8 +7,10 @@ pub mod invites;
 pub mod labels;
 pub mod lists;
 pub mod members;
+pub mod pages;
 pub mod projects;
 pub mod saved_views;
+pub mod search;
 pub mod subtasks;
 pub mod task_links;
 pub mod tasks;
@@ -55,6 +57,8 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(comments::router())
         .merge(activity::router())
         .merge(saved_views::router())
+        .merge(pages::router())
+        .merge(search::router())
         .merge(files::router(max_upload_bytes))
         .merge(task_links::router())
         .merge(labels::router())

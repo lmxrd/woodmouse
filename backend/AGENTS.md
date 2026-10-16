@@ -57,3 +57,8 @@
   deleted. New list-less quick adds should target it.
 - Task listing supports `from`/`to` (a task is scheduled from its start, or due, date to its due, or start,
   date; overlap counts) and `unscheduled`, which the calendar and timeline use.
+
+- Wiki: a page is an ordered list of blocks in the app's own JSON format (`src/blocks.rs`; the editor is only a
+  view). Content saves carry `base_version` and bump `Page.version`; a stale save is a 409. Presence ("who else
+  is editing") is in memory only (`AppState.presence`). `routes/search.rs` is a small in-memory ranker for the
+  link pickers; full-text search is a separate chunk.

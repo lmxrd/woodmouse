@@ -22,6 +22,8 @@ import { Route as WWorkspaceIdSettingsRouteImport } from './routes/w.$workspaceI
 import { Route as WWorkspaceIdTrashRouteImport } from './routes/w.$workspaceId.trash'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
 import { Route as WWorkspaceIdTTaskIdRouteImport } from './routes/w.$workspaceId.t.$taskId'
+import { Route as WWorkspaceIdWikiIndexRouteImport } from './routes/w.$workspaceId.wiki.index'
+import { Route as WWorkspaceIdWikiPageIdRouteImport } from './routes/w.$workspaceId.wiki.$pageId'
 import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from './routes/w.$workspaceId.p.$projectId.t.$taskId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -89,6 +91,16 @@ const WWorkspaceIdTTaskIdRoute = WWorkspaceIdTTaskIdRouteImport.update({
   path: '/t/$taskId',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
+const WWorkspaceIdWikiIndexRoute = WWorkspaceIdWikiIndexRouteImport.update({
+  id: '/wiki/',
+  path: '/wiki/',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdWikiPageIdRoute = WWorkspaceIdWikiPageIdRouteImport.update({
+  id: '/wiki/$pageId',
+  path: '/wiki/$pageId',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
 const WWorkspaceIdPProjectIdTTaskIdRoute =
   WWorkspaceIdPProjectIdTTaskIdRouteImport.update({
     id: '/t/$taskId',
@@ -110,6 +122,8 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
+  '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
+  '/w/$workspaceId/wiki/': typeof WWorkspaceIdWikiIndexRoute
   '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
 export interface FileRoutesByTo {
@@ -125,6 +139,8 @@ export interface FileRoutesByTo {
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
+  '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
+  '/w/$workspaceId/wiki': typeof WWorkspaceIdWikiIndexRoute
   '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
 export interface FileRoutesById {
@@ -142,6 +158,8 @@ export interface FileRoutesById {
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
+  '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
+  '/w/$workspaceId/wiki/': typeof WWorkspaceIdWikiIndexRoute
   '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
 export interface FileRouteTypes {
@@ -160,6 +178,8 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
+    | '/w/$workspaceId/wiki/$pageId'
+    | '/w/$workspaceId/wiki/'
     | '/w/$workspaceId/p/$projectId/t/$taskId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -175,6 +195,8 @@ export interface FileRouteTypes {
     | '/w/$workspaceId'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
+    | '/w/$workspaceId/wiki/$pageId'
+    | '/w/$workspaceId/wiki'
     | '/w/$workspaceId/p/$projectId/t/$taskId'
   id:
     | '__root__'
@@ -191,6 +213,8 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
+    | '/w/$workspaceId/wiki/$pageId'
+    | '/w/$workspaceId/wiki/'
     | '/w/$workspaceId/p/$projectId/t/$taskId'
   fileRoutesById: FileRoutesById
 }
@@ -295,6 +319,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdTTaskIdRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
+    '/w/$workspaceId/wiki/': {
+      id: '/w/$workspaceId/wiki/'
+      path: '/wiki'
+      fullPath: '/w/$workspaceId/wiki/'
+      preLoaderRoute: typeof WWorkspaceIdWikiIndexRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/wiki/$pageId': {
+      id: '/w/$workspaceId/wiki/$pageId'
+      path: '/wiki/$pageId'
+      fullPath: '/w/$workspaceId/wiki/$pageId'
+      preLoaderRoute: typeof WWorkspaceIdWikiPageIdRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
     '/w/$workspaceId/p/$projectId/t/$taskId': {
       id: '/w/$workspaceId/p/$projectId/t/$taskId'
       path: '/t/$taskId'
@@ -328,6 +366,8 @@ interface WWorkspaceIdRouteChildren {
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
   WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren
   WWorkspaceIdTTaskIdRoute: typeof WWorkspaceIdTTaskIdRoute
+  WWorkspaceIdWikiPageIdRoute: typeof WWorkspaceIdWikiPageIdRoute
+  WWorkspaceIdWikiIndexRoute: typeof WWorkspaceIdWikiIndexRoute
 }
 
 const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
@@ -339,6 +379,8 @@ const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,
   WWorkspaceIdPProjectIdRoute: WWorkspaceIdPProjectIdRouteWithChildren,
   WWorkspaceIdTTaskIdRoute: WWorkspaceIdTTaskIdRoute,
+  WWorkspaceIdWikiPageIdRoute: WWorkspaceIdWikiPageIdRoute,
+  WWorkspaceIdWikiIndexRoute: WWorkspaceIdWikiIndexRoute,
 }
 
 const WWorkspaceIdRouteWithChildren = WWorkspaceIdRoute._addFileChildren(

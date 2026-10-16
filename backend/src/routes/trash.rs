@@ -15,7 +15,7 @@ use crate::access;
 use crate::activity::{self, Event};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Comment, Label, List, Project, Role, SavedView, Task, User};
+use crate::models::{Comment, Label, List, Page, Project, Role, SavedView, Task, User};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::trash;
@@ -46,6 +46,7 @@ pub enum TrashKind {
     Label,
     Comment,
     View,
+    Page,
 }
 
 /// One restorable thing in the trash. Items deleted as part of a bigger deletion (a task in a deleted
@@ -197,6 +198,37 @@ pub async fn list_trash(
         ));
     }
 
+    // Deleted pages: only those not deleted together with their parent page.
+    let pages = Page::filter_by_workspace_id(id).exec(db).await?;
+    for p in pages.iter().filter(|p| p.deleted_at.is_some()) {
+        let at = p.deleted_at.unwrap_or_default();
+        let with_parent = p
+            .parent_id
+            .and_then(|pid| pages.iter().find(|x| x.id == pid))
+            .is_some_and(|parent| parent.deleted_at == Some(at));
+        if with_parent {
+            continue;
+        }
+        let together = trash::page_subtree(&pages, p.id)
+            .into_iter()
+            .filter(|sid| {
+                *sid != p.id
+                    && pages
+                        .iter()
+                        .any(|x| x.id == *sid && x.deleted_at == Some(at))
+            })
+            .count();
+        raw.push((
+            TrashKind::Page,
+            p.id,
+            p.title.clone(),
+            None,
+            at,
+            p.deleted_by,
+            together,
+        ));
+    }
+
     // Deleted saved views: shared ones, and the caller's own private ones.
     for v in SavedView::filter_by_workspace_id(id).exec(db).await? {
         if v.deleted_at.is_none() || !crate::routes::saved_views::visible_to(&v, &user) {
@@ -301,6 +333,7 @@ pub async fn restore_item(
         TrashKind::List => access::list_workspace(db, item_id).await?,
         TrashKind::Task => access::task_workspace(db, item_id).await?,
         TrashKind::Label => Label::get_by_id(db, &item_id).await?.workspace_id,
+        TrashKind::Page => Page::get_by_id(db, &item_id).await?.workspace_id,
         TrashKind::View => SavedView::get_by_id(db, &item_id).await?.workspace_id,
         TrashKind::Comment => {
             let task = crate::routes::comments::comment_task(db, item_id).await?;
@@ -342,6 +375,13 @@ pub async fn restore_item(
                 return Err(ApiError::not_found());
             }
             trash::restore_label(&mut tx, item_id).await?;
+        }
+        TrashKind::Page => {
+            let page = Page::get_by_id(&mut tx, &item_id).await?;
+            if page.deleted_at.is_none() {
+                return Err(ApiError::not_found());
+            }
+            trash::restore_page(&mut tx, &page).await?;
         }
         TrashKind::View => {
             let view = SavedView::get_by_id(&mut tx, &item_id).await?;

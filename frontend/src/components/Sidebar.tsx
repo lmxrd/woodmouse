@@ -1,7 +1,8 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createProjectMutation,
+  listPagesOptions,
   listProjectsOptions,
   listWorkspacesOptions,
   logoutMutation,
@@ -13,6 +14,8 @@ import { useWorkspaceRole } from "../lib/useWorkspaceRole";
 import { cn } from "../lib/utils";
 import { InlineAdd } from "./InlineAdd";
 import { UserAvatar } from "./UserAvatar";
+import { PageTree } from "./wiki/PageTree";
+import { usePageActions } from "./wiki/usePageActions";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -37,6 +40,12 @@ export function Sidebar({
   const { data: me } = useQuery(meOptions());
   const { data: workspaces } = useQuery(listWorkspacesOptions());
   const { data: projects } = useQuery(listProjectsOptions({ path: { workspace_id: workspaceId } }));
+  const { data: pages } = useQuery(listPagesOptions({ path: { id: workspaceId } }));
+  const { createPage } = usePageActions(workspaceId);
+  // The page open right now, so the tree can highlight it and open the path to it.
+  const activePageId = useRouterState({
+    select: (s) => s.matches.find((m) => m.routeId === "/w/$workspaceId/wiki/$pageId")?.params,
+  })?.pageId;
   const workspace = workspaces?.find((w) => w.id === workspaceId);
   const { canWrite } = useWorkspaceRole(workspaceId);
 
@@ -131,6 +140,41 @@ export function Sidebar({
           onSubmit={(name) =>
             createProject.mutate({ path: { workspace_id: workspaceId }, body: { name } })
           }
+        />
+      </nav>
+
+      <nav className="flex flex-col text-sm" aria-label="Wiki">
+        <div className="mb-1.5 flex items-center justify-between">
+          <Link
+            to="/w/$workspaceId/wiki"
+            params={{ workspaceId }}
+            onClick={onNavigate}
+            className="label-mono text-muted-foreground hover:text-foreground"
+          >
+            Wiki
+          </Link>
+          {canWrite ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="New page"
+              onClick={() => {
+                createPage();
+                onNavigate?.();
+              }}
+            >
+              +
+            </Button>
+          ) : null}
+        </div>
+        <PageTree
+          pages={pages ?? []}
+          workspaceId={workspaceId}
+          activeId={activePageId}
+          canWrite={canWrite}
+          maxDepth={3}
+          onNavigate={onNavigate}
         />
       </nav>
 

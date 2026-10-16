@@ -4,7 +4,7 @@
 //! only v1 access mechanism.
 
 use crate::error::ApiError;
-use crate::models::{List, Project, Task, User, WorkspaceMember};
+use crate::models::{List, Page, Project, Task, User, WorkspaceMember};
 
 /// The user's role in the workspace: `None` when not a member. Super admins
 /// act as admin everywhere.
@@ -127,4 +127,19 @@ pub async fn task_workspace(
 ) -> Result<uuid::Uuid, ApiError> {
     let task = Task::get_by_id(db, &task_id).await?;
     list_workspace(db, task.list_id).await
+}
+
+/// A live page the caller may access. Deleted pages look nonexistent.
+pub async fn require_page_access(
+    db: &mut toasty::Db,
+    user: &User,
+    page_id: uuid::Uuid,
+    min_role: crate::models::Role,
+) -> Result<Page, ApiError> {
+    let page = Page::get_by_id(db, &page_id).await?;
+    if page.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
+    require_access(db, user, page.workspace_id, min_role).await?;
+    Ok(page)
 }

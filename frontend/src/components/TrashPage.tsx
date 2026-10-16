@@ -14,11 +14,14 @@ const KIND_LABEL: Record<TrashItem["kind"], string> = {
   label: "Label",
   comment: "Comment",
   view: "View",
+  page: "Page",
 };
 
 function detail(item: TrashItem): string {
   if (item.child_count === 0) return "";
-  const noun = { project: "task", list: "task", task: "subtask" }[item.kind as string] ?? "item";
+  const noun =
+    { project: "task", list: "task", task: "subtask", page: "subpage" }[item.kind as string] ??
+    "item";
   return ` · with ${item.child_count} ${noun}${item.child_count === 1 ? "" : "s"}`;
 }
 

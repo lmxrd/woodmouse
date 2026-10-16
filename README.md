@@ -34,6 +34,12 @@ Woodmouse is a self-hosted task manager for a household or small team.
 - **Files**: every upload goes into the workspace's library, deduplicated by content. Attaching a file to a
   task does not own it: deleting the task keeps the file, and only an admin's "clean up unused files" removes
   files nothing references.
+- **Wiki**: a tree of pages per workspace (the sidebar shows three levels, the Wiki overview all of them).
+  Pages are built from blocks (text, headings, bulleted, numbered and to-do lists, quotes, callouts, code,
+  dividers) with markdown shortcuts, a `/` menu, a floating toolbar, `@` to mention a task and `[[` to link
+  a page; external links can use any URL format. Edits save automatically. If someone else is editing the
+  same page you are told, and a save based on an outdated version is refused so nothing is silently
+  overwritten (keep yours or load theirs). Deleted pages go to the trash with their subpages.
 - **My tasks** shows everything assigned to you across a workspace, grouped by due date.
 - **Trash**: nothing is permanently deleted. Deleting a project, list, task, comment, label or view moves it
   (with what it contains) to the trash, where members with write access can restore it. The only permanent

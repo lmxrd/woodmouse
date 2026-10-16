@@ -1,6 +1,7 @@
 pub mod access;
 pub mod activity;
 pub mod auth;
+pub mod blocks;
 pub mod error;
 pub mod models;
 pub mod openapi;

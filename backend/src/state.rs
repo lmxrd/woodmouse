@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::sync::Mutex;
 
@@ -16,6 +18,8 @@ pub struct AppState {
     pub secure_cookies: bool,
     /// Where uploaded files live.
     pub files: Arc<FileStores>,
+    /// Who has which page open for editing (page id -> user id -> last ping). Lives in memory only.
+    pub presence: Arc<std::sync::Mutex<HashMap<uuid::Uuid, HashMap<uuid::Uuid, Instant>>>>,
 }
 
 impl AppState {
@@ -29,6 +33,7 @@ impl AppState {
             db: Arc::new(Mutex::new(db)),
             secure_cookies: std::env::var("WOODMOUSE_SECURE_COOKIES").is_ok_and(|v| v != "0"),
             files: Arc::new(files),
+            presence: Arc::default(),
         }
     }
 }

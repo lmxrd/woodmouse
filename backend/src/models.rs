@@ -439,3 +439,61 @@ pub struct SavedView {
 
     pub deleted_by: Option<uuid::Uuid>,
 }
+
+/// A wiki page. Pages form a tree per workspace through `parent_id`; siblings are ordered by `position`.
+/// The content lives in [`Block`] rows.
+#[derive(Debug, toasty::Model)]
+pub struct Page {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub workspace_id: uuid::Uuid,
+
+    #[index]
+    pub parent_id: Option<uuid::Uuid>,
+
+    pub title: String,
+
+    /// Ordering among siblings (floats, so a move only changes the moved page).
+    pub position: f64,
+
+    pub created_by: uuid::Uuid,
+
+    /// Unix epoch seconds.
+    pub created_at: i64,
+
+    pub updated_by: uuid::Uuid,
+
+    /// Unix epoch seconds of the last title or content change.
+    pub updated_at: i64,
+
+    /// Counts content saves; a save based on an older version is refused as a conflict.
+    pub version: i64,
+
+    pub deleted_at: Option<i64>,
+
+    pub deleted_by: Option<uuid::Uuid>,
+}
+
+/// One block of a page's content, in `position` order. `attrs` and `spans` are JSON text in the
+/// [`crate::blocks`] format. Saving a page replaces its blocks; history is kept as revisions.
+#[derive(Debug, toasty::Model)]
+pub struct Block {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub page_id: uuid::Uuid,
+
+    /// A [`crate::blocks::BlockKind`] name.
+    pub kind: String,
+
+    pub position: f64,
+
+    pub attrs: String,
+
+    pub spans: String,
+}

@@ -106,6 +106,18 @@ pub fn patch_json(uri: &str, json: &str, cookie: Option<&str>) -> Request<Body> 
     .unwrap()
 }
 
+pub fn put_json(uri: &str, json: &str, cookie: Option<&str>) -> Request<Body> {
+    with_cookie(
+        Request::builder()
+            .method("PUT")
+            .uri(uri)
+            .header("content-type", "application/json"),
+        cookie,
+    )
+    .body(Body::from(json.to_string()))
+    .unwrap()
+}
+
 pub fn delete(uri: &str, cookie: Option<&str>) -> Request<Body> {
     with_cookie(Request::builder().method("DELETE").uri(uri), cookie)
         .body(Body::empty())
