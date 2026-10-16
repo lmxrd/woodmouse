@@ -18,8 +18,8 @@
 
 - [ ] Estimated and actual work time for tasks
 - [ ] Sprints, created from the List view
-- [ ] Create new tasks from the List view
-- [ ] Create new tasks from the Timeline view
+- [x] Create new tasks from the List view
+- [x] Create new tasks from the Timeline view
 
 ## Site admin
 

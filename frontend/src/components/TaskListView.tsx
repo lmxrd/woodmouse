@@ -1,16 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import {
-  createTaskMutation,
   listListsOptions,
   listTasksOptions,
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
 import { PRIORITIES } from "../lib/priority";
+import { useWorkspaceRole } from "../lib/useWorkspaceRole";
 import { taskFilterQuery, type ProjectSearch } from "../lib/projectSearch";
 import { ProjectFilters } from "./ProjectFilters";
-import { InlineAdd } from "./InlineAdd";
+import { AddTask } from "./task/AddTask";
 import { TaskTable } from "./task/TaskTable";
 
 const projectRoute = getRouteApi("/w/$workspaceId/p/$projectId");
@@ -33,6 +33,7 @@ export function TaskListView({
   const serverSort =
     search.sort === "title" || search.sort === "due_date" ? search.sort : undefined;
 
+  const { canWrite } = useWorkspaceRole(workspaceId);
   const queryClient = useQueryClient();
   const refresh = () => queryClient.invalidateQueries();
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
@@ -48,7 +49,6 @@ export function TaskListView({
     }),
   );
   const update = useMutation({ ...updateTaskMutation(), onSuccess: refresh });
-  const create = useMutation({ ...createTaskMutation(), onSuccess: refresh });
 
   const tasks =
     search.sort === "priority" && fetched
@@ -93,20 +93,8 @@ export function TaskListView({
         }
       />
 
-      {lists && lists.length > 0 ? (
-        <div className="flex items-center gap-3 px-4 py-3 sm:px-6">
-          <InlineAdd
-            className="w-full max-w-sm"
-            label={`Add task to ${(lists.find((l) => l.id === search.list) ?? lists[0]).name}`}
-            placeholder="Task title"
-            onSubmit={(title) =>
-              create.mutate({
-                path: { list_id: (lists.find((l) => l.id === search.list) ?? lists[0]).id },
-                body: { title },
-              })
-            }
-          />
-        </div>
+      {canWrite ? (
+        <AddTask projectId={projectId} lists={lists ?? []} defaultListId={search.list} />
       ) : null}
     </>
   );

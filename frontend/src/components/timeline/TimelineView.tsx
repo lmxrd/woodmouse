@@ -31,6 +31,7 @@ import { ProjectFilters } from "../ProjectFilters";
 import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DependencyArrows, type Anchor } from "./DependencyArrows";
+import { AddTask } from "../task/AddTask";
 import { TimelineBar } from "./TimelineBar";
 import { isDone } from "../../lib/task";
 import { dayEpoch, dayIso } from "../../lib/time";
@@ -202,6 +203,16 @@ export function TimelineView({
         view="timeline"
         fields={["assignee", "label", "list", "status"]}
       />
+      {canWrite ? (
+        // New tasks get a week starting today, so they show as a bar to drag into place.
+        <AddTask
+          projectId={projectId}
+          lists={lists ?? []}
+          defaultListId={search.list}
+          extra={{ start_date: dayIso(today), due_date: dayIso(addDays(today, 6)) }}
+          className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5 sm:px-6"
+        />
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5 sm:px-6">
         <p className="label-mono text-muted-foreground">
           Bars span start to due date · diamonds are single days · dashed bars come from subtasks
