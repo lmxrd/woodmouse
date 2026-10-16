@@ -13,12 +13,14 @@ function DayCell({
   today,
   muted,
   editable,
+  projectId,
   lists,
 }: {
   day: number;
   today: number;
   muted: boolean;
   editable: boolean;
+  projectId: string;
   lists: List[];
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${day}`, disabled: !editable });
@@ -36,7 +38,7 @@ function DayCell({
       <span className={cn("font-mono text-[10px]", day === today && "font-medium text-primary")}>
         {new Date(day * 1000).getDate()}
       </span>
-      {editable ? <QuickAdd day={day} lists={lists} /> : null}
+      {editable ? <QuickAdd day={day} projectId={projectId} lists={lists} /> : null}
     </div>
   );
 }
@@ -89,6 +91,7 @@ export function WeekRow({
           today={today}
           muted={month !== undefined && new Date(day * 1000).getMonth() !== month}
           editable={editable}
+          projectId={projectId}
           lists={lists}
         />
       ))}

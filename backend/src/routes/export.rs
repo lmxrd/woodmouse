@@ -12,8 +12,9 @@ use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::markdown::page_to_markdown;
-use crate::models::{Page, Role};
-use crate::routes::pages::{blocks_of, live_pages};
+use crate::models::{Role, WikiPage};
+use crate::pages::blocks_of;
+use crate::routes::pages::live_pages;
 use crate::state::AppState;
 
 pub fn router() -> OpenApiRouter<AppState> {
@@ -99,9 +100,9 @@ pub async fn export_page(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let page = access::require_page_access(db, &user, id, Role::Read).await?;
-    let blocks = blocks_of(db, id).await?;
+    let blocks = blocks_of(&page)?;
     // Other pages are not part of this file, so links to them keep only their label.
     let markdown = page_to_markdown(&page.title, &blocks, &|_| None);
     Ok(attachment(
@@ -113,20 +114,20 @@ pub async fn export_page(
 
 /// Where each page goes in the archive: folders follow the tree, a page with subpages gets a folder of
 /// the same name next to its file. Names that collide get a number.
-fn archive_paths(pages: &[Page]) -> HashMap<uuid::Uuid, Vec<String>> {
-    let mut children: HashMap<Option<uuid::Uuid>, Vec<&Page>> = HashMap::new();
+fn archive_paths(pages: &[WikiPage]) -> HashMap<uuid::Uuid, Vec<String>> {
+    let mut children: HashMap<Option<uuid::Uuid>, Vec<&WikiPage>> = HashMap::new();
     let ids: HashSet<uuid::Uuid> = pages.iter().map(|p| p.id).collect();
     for p in pages {
         let parent = p.parent_id.filter(|id| ids.contains(id));
         children.entry(parent).or_default().push(p);
     }
     for list in children.values_mut() {
-        list.sort_by(|a, b| a.position.total_cmp(&b.position));
+        list.sort_by_key(|p| (p.position, p.id));
     }
     fn walk(
         parent: Option<uuid::Uuid>,
         dir: &[String],
-        children: &HashMap<Option<uuid::Uuid>, Vec<&Page>>,
+        children: &HashMap<Option<uuid::Uuid>, Vec<&WikiPage>>,
         out: &mut HashMap<uuid::Uuid, Vec<String>>,
     ) {
         let mut used: HashSet<String> = HashSet::new();
@@ -177,7 +178,7 @@ pub async fn export_wiki(
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
     let pages = live_pages(db, workspace_id).await?;
     let paths = archive_paths(&pages);
@@ -193,7 +194,7 @@ pub async fn export_wiki(
         let Some(path) = paths.get(&page.id) else {
             continue;
         };
-        let blocks = blocks_of(db, page.id).await?;
+        let blocks = blocks_of(page)?;
         let href = |target: uuid::Uuid| paths.get(&target).map(|t| relative_link(path, t));
         let markdown = page_to_markdown(&page.title, &blocks, &href);
         zip.start_file(path.join("/"), options)

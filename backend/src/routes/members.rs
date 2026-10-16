@@ -11,11 +11,13 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::{self, CurrentUser};
+use crate::audit::{self, Entry};
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Invite, List, Project, Role, Task, TaskAssignee, User, WorkspaceMember};
+use crate::models::{Project, Role, Task, TaskAssignee, User, UserInvite, WorkspaceMember};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::state::AppState;
+use crate::time;
 
 const INVITE_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 
@@ -71,24 +73,33 @@ fn member_of(user: &User, role: Role) -> Member {
 }
 
 /// Replace any outstanding invite of the user with a fresh one; returns its token.
-async fn issue_invite(db: &mut toasty::Db, user_id: uuid::Uuid) -> Result<String, ApiError> {
-    Invite::filter_by_user_id(user_id).delete().exec(db).await?;
+async fn issue_invite(
+    db: &mut dyn toasty::Executor,
+    user_id: uuid::Uuid,
+) -> Result<String, ApiError> {
+    UserInvite::filter_by_user_id(user_id)
+        .delete()
+        .exec(db)
+        .await?;
     let token = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     );
-    toasty::create!(Invite {
+    toasty::create!(UserInvite {
         token: token.clone(),
         user_id,
-        expires_at: auth::now_secs() + INVITE_TTL_SECS,
+        expires_at: time::add_seconds(time::now(), INVITE_TTL_SECS),
     })
     .exec(db)
     .await?;
     Ok(token)
 }
 
-async fn admin_count(db: &mut toasty::Db, workspace_id: uuid::Uuid) -> Result<usize, ApiError> {
+async fn admin_count(
+    db: &mut dyn toasty::Executor,
+    workspace_id: uuid::Uuid,
+) -> Result<usize, ApiError> {
     Ok(WorkspaceMember::all()
         .filter(WorkspaceMember::fields().workspace_id().eq(workspace_id))
         .exec(db)
@@ -118,7 +129,7 @@ pub async fn list_members(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<Member>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
 
     let memberships = WorkspaceMember::all()
@@ -171,28 +182,35 @@ pub async fn add_member(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<AddMember>,
 ) -> Result<(StatusCode, Json<AddMemberResponse>), ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Admin).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Admin).await?;
     validate_identity(&input.email)?;
     let email = input.email.trim().to_lowercase();
 
-    let invitee = match User::get_by_email(db, &email).await {
-        Ok(existing) => existing,
+    let mut tx = db.transaction().await?;
+    let invitee = match User::get_by_email(&mut tx, &email).await {
+        Ok(existing) => {
+            if !existing.active {
+                return Err(ApiError::bad_request("this account is disabled"));
+            }
+            existing
+        }
         Err(_) => {
             toasty::create!(User {
                 email,
                 name: input.name.trim().to_string(),
                 password_hash: String::new(),
                 super_admin: false,
+                active: true,
             })
-            .exec(db)
+            .exec(&mut tx)
             .await?
         }
     };
 
     if WorkspaceMember::filter_by_user_id_and_workspace_id(invitee.id, id)
         .first()
-        .exec(db)
+        .exec(&mut tx)
         .await?
         .is_some()
     {
@@ -203,14 +221,22 @@ pub async fn add_member(
         workspace_id: id,
         role: input.role,
     })
-    .exec(db)
+    .exec(&mut tx)
+    .await?;
+    audit::record(
+        &mut tx,
+        Entry::feed(id, user.id, "member_added")
+            .target("user", invitee.id)
+            .data(serde_json::json!({ "role": input.role })),
+    )
     .await?;
 
     let invite_token = if invitee.password_hash.is_empty() {
-        Some(issue_invite(db, invitee.id).await?)
+        Some(issue_invite(&mut tx, invitee.id).await?)
     } else {
         None
     };
+    tx.commit().await?;
     Ok((
         StatusCode::CREATED,
         Json(AddMemberResponse {
@@ -244,23 +270,34 @@ pub async fn update_member(
     Path((id, user_id)): Path<(uuid::Uuid, uuid::Uuid)>,
     Json(input): Json<UpdateMember>,
 ) -> Result<Json<Member>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Admin).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Admin).await?;
     let mut membership = WorkspaceMember::filter_by_user_id_and_workspace_id(user_id, id)
         .first()
-        .exec(db)
+        .exec(&mut *db)
         .await?
         .ok_or_else(ApiError::not_found)?;
 
     if membership.role == Role::Admin
         && input.role != Role::Admin
-        && admin_count(db, id).await? <= 1
+        && admin_count(&mut *db, id).await? <= 1
     {
         return Err(ApiError::conflict("a workspace needs at least one admin"));
     }
-    membership.update().role(input.role).exec(db).await?;
+    let old_role = membership.role;
+    let mut tx = db.transaction().await?;
+    membership.update().role(input.role).exec(&mut tx).await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "role_changed")
+            .target("user", user_id)
+            .in_workspace(id)
+            .data(serde_json::json!({ "from": old_role, "to": input.role })),
+    )
+    .await?;
+    tx.commit().await?;
 
-    let target = User::get_by_id(db, &user_id).await?;
+    let target = User::get_by_id(&mut *db, &user_id).await?;
     Ok(Json(member_of(&target, input.role)))
 }
 
@@ -287,51 +324,53 @@ pub async fn remove_member(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, user_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Admin).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Admin).await?;
     let membership = WorkspaceMember::filter_by_user_id_and_workspace_id(user_id, id)
         .first()
-        .exec(db)
+        .exec(&mut *db)
         .await?
         .ok_or_else(ApiError::not_found)?;
-    if membership.role == Role::Admin && admin_count(db, id).await? <= 1 {
+    if membership.role == Role::Admin && admin_count(&mut *db, id).await? <= 1 {
         return Err(ApiError::conflict("a workspace needs at least one admin"));
     }
 
-    // Unassign them from this workspace's tasks.
-    let project_ids: Vec<uuid::Uuid> = Project::filter_by_workspace_id(id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .map(|p| p.id)
-        .collect();
-    if !project_ids.is_empty() {
-        let list_ids: Vec<uuid::Uuid> = List::all()
-            .filter(in_list(List::fields().project_id(), project_ids))
-            .exec(db)
+    // Unassign them from this workspace's tasks (live or deleted).
+    let task_ids: Vec<uuid::Uuid> = {
+        let project_ids: Vec<uuid::Uuid> = Project::filter_by_workspace_id(id)
+            .exec(&mut *db)
             .await?
             .into_iter()
-            .map(|l| l.id)
+            .map(|p| p.id)
             .collect();
-        if !list_ids.is_empty() {
-            let task_ids: Vec<uuid::Uuid> = Task::all()
-                .filter(in_list(Task::fields().list_id(), list_ids))
-                .exec(db)
+        if project_ids.is_empty() {
+            vec![]
+        } else {
+            Task::all()
+                .filter(in_list(Task::fields().project_id(), project_ids))
+                .exec(&mut *db)
                 .await?
                 .into_iter()
                 .map(|t| t.id)
-                .collect();
-            if !task_ids.is_empty() {
-                TaskAssignee::all()
-                    .filter(in_list(TaskAssignee::fields().task_id(), task_ids))
-                    .filter(TaskAssignee::fields().user_id().eq(user_id))
-                    .delete()
-                    .exec(db)
-                    .await?;
-            }
+                .collect()
         }
+    };
+    let mut tx = db.transaction().await?;
+    if !task_ids.is_empty() {
+        TaskAssignee::all()
+            .filter(in_list(TaskAssignee::fields().task_id(), task_ids))
+            .filter(TaskAssignee::fields().user_id().eq(user_id))
+            .delete()
+            .exec(&mut tx)
+            .await?;
     }
-    membership.delete().exec(db).await?;
+    membership.delete().exec(&mut tx).await?;
+    audit::record(
+        &mut tx,
+        Entry::feed(id, user.id, "member_removed").target("user", user_id),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -358,17 +397,17 @@ pub async fn reissue_invite(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, user_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<(StatusCode, Json<InviteToken>), ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Admin).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Admin).await?;
     WorkspaceMember::filter_by_user_id_and_workspace_id(user_id, id)
         .first()
-        .exec(db)
+        .exec(&mut *db)
         .await?
         .ok_or_else(ApiError::not_found)?;
-    let target = User::get_by_id(db, &user_id).await?;
+    let target = User::get_by_id(&mut *db, &user_id).await?;
     if !target.password_hash.is_empty() {
         return Err(ApiError::conflict("this member has already set a password"));
     }
-    let invite_token = issue_invite(db, user_id).await?;
+    let invite_token = issue_invite(&mut *db, user_id).await?;
     Ok((StatusCode::CREATED, Json(InviteToken { invite_token })))
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LinkEdge, List, TaskResponse } from "woodmouse-client";
 
 import { addDays, daysBetween } from "./calendar";
+import { dayIso } from "./time";
 import {
   barBox,
   buildRows,
@@ -13,7 +14,8 @@ import {
 } from "./timeline";
 
 const day = (y: number, m: number, d: number) => Math.floor(new Date(y, m - 1, d).getTime() / 1000);
-const list = (id: string, name = id): List => ({ id, name, project_id: "p", is_inbox: false });
+const iso = (epochDay: number) => dayIso(epochDay);
+const list = (id: string, name = id): List => ({ id, name, project_id: "p", position: 20 });
 const task = (id: string, extra: Partial<TaskResponse> = {}): TaskResponse =>
   ({
     id,
@@ -21,19 +23,19 @@ const task = (id: string, extra: Partial<TaskResponse> = {}): TaskResponse =>
     parent_id: null,
     title: id,
     position: 1,
-    is_completed: false,
+    completed_at: null,
     subtask_total: 0,
     subtask_completed: 0,
     ...extra,
   }) as TaskResponse;
 
 describe("buildRows", () => {
-  const lists = [list("inbox", "Inbox"), list("l1", "To do"), list("empty")];
+  const lists = [list("l1", "To do"), list("empty")];
 
   it("groups by list, skips empty lists, and orders by position", () => {
     const rows = buildRows(
       lists,
-      [task("b", { position: 2 }), task("a", { position: 1 }), task("i", { list_id: "inbox" })],
+      [task("b", { position: 2 }), task("a", { position: 1 }), task("i", { list_id: null })],
       new Set(),
     );
     expect(rows.map((r) => (r.type === "group" ? `# ${r.list.name}` : r.task.id))).toEqual([
@@ -68,10 +70,10 @@ describe("buildRows", () => {
       lists,
       [
         task("p"),
-        task("c1", { parent_id: "p", start_date: a, due_date: b }),
-        task("c2", { parent_id: "p", due_date: c }),
-        task("own", { start_date: a, due_date: b }),
-        task("kid", { parent_id: "own", start_date: c, due_date: c }),
+        task("c1", { parent_id: "p", start_date: iso(a), due_date: iso(b) }),
+        task("c2", { parent_id: "p", due_date: iso(c) }),
+        task("own", { start_date: iso(a), due_date: iso(b) }),
+        task("kid", { parent_id: "own", start_date: iso(c), due_date: iso(c) }),
       ],
       new Set(),
     );
@@ -171,7 +173,7 @@ describe("dependencies", () => {
 describe("progressOf", () => {
   it("uses completed subtasks, else the completed state", () => {
     expect(progressOf(task("a", { subtask_total: 4, subtask_completed: 1 }))).toBe(0.25);
-    expect(progressOf(task("a", { is_completed: true }))).toBe(1);
+    expect(progressOf(task("a", { completed_at: "2026-10-16T08:30:00Z" }))).toBe(1);
     expect(progressOf(task("a"))).toBe(0);
   });
 });

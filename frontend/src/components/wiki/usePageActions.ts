@@ -29,7 +29,7 @@ export function usePageActions(workspaceId: string) {
     /** A new "Untitled" page (top level, or below `parentId`), opened with its title ready to edit. */
     createPage: (parentId?: string) =>
       create.mutate({ path: { id: workspaceId }, body: { parent_id: parentId } }),
-    movePage: (id: string, body: { parent_id?: string | null; position?: number }) =>
+    movePage: (id: string, body: { parent_id?: string | null; after_id?: string | null }) =>
       update.mutate({ path: { id }, body }),
     deletePage: (id: string, afterDelete?: () => void) =>
       remove.mutate({ path: { id } }, { onSuccess: afterDelete }),

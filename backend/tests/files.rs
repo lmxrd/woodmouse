@@ -418,6 +418,7 @@ async fn admin_cleanup_removes_only_unreferenced_files() {
             name: "".to_string(),
             password_hash: "x".to_string(),
             super_admin: false,
+            active: true,
         })
         .exec(&mut fx.db.clone())
         .await
@@ -434,7 +435,7 @@ async fn admin_cleanup_removes_only_unreferenced_files() {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: 4_102_444_800
+            expires_at: common::far_future()
         })
         .exec(&mut fx.db.clone())
         .await

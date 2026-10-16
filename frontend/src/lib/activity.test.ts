@@ -7,7 +7,7 @@ const entry = (kind: string, data: Record<string, unknown>): ActivityView => ({
   id: "1",
   kind,
   data,
-  created_at: 0,
+  created_at: "2026-10-16T08:30:00Z",
 });
 
 describe("plainText", () => {
@@ -20,7 +20,7 @@ describe("plainText", () => {
 });
 
 describe("describeActivity", () => {
-  const day = (n: number) => `day ${n}`;
+  const day = (iso: string) => `day ${iso.slice(0, 10)}`;
 
   it("phrases the common kinds", () => {
     expect(describeActivity(entry("task_created", { title: "A" }), day).text).toBe('created "A"');
@@ -36,9 +36,9 @@ describe("describeActivity", () => {
   });
 
   it("formats due dates with the given formatter and handles clearing", () => {
-    expect(describeActivity(entry("due_changed", { title: "A", to: 5 }), day).text).toBe(
-      'set the due date of "A" to day 5',
-    );
+    expect(
+      describeActivity(entry("due_changed", { title: "A", to: "2026-10-18T00:00:00Z" }), day).text,
+    ).toBe('set the due date of "A" to day 2026-10-18');
     expect(describeActivity(entry("due_changed", { title: "A", to: null }), day).text).toBe(
       'cleared the due date of "A"',
     );

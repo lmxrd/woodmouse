@@ -8,7 +8,7 @@ default-run = "woodmouse"
 [dependencies]
 axum = { version = "0.8", features = ["multipart", "ws"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync"] }
 tower-http = { version = "0.7", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -17,7 +17,7 @@ async-trait = "0.1"
 sha2 = "0.10"
 
 # ORM + SQLite driver
-toasty = { version = "0.11", features = ["sqlite"] }
+toasty = { version = "0.11", features = ["sqlite", "jiff", "migration"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # OpenAPI
@@ -36,6 +36,7 @@ zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 yrs = { version = "0.28", features = ["sync"] }
 futures-util = "0.3.34"
 base64 = "0.23.1"
+jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
 
 [dev-dependencies]
 http-body-util = "0.1"

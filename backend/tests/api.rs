@@ -227,6 +227,7 @@ async fn workspaces_access_is_enforced() {
         name: "Other".to_string(),
         password_hash: "not-a-login-hash".to_string(),
         super_admin: false,
+        active: true,
     })
     .exec(&mut db.clone())
     .await
@@ -235,7 +236,7 @@ async fn workspaces_access_is_enforced() {
     toasty::create!(woodmouse::models::Session {
         token: other_token.clone(),
         user_id: other.id,
-        expires_at: 4_102_444_800, // 2100-01-01
+        expires_at: common::far_future(), // 2100-01-01
     })
     .exec(&mut db.clone())
     .await

@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::{Session, User};
+use crate::models::{Role, User};
 use crate::state::AppState;
 
 /// Routes reachable without a session.
@@ -48,6 +49,12 @@ pub struct PublicUser {
     pub week_start: String,
     /// `light`, `dark` or `system` (follow the device).
     pub theme_mode: String,
+    /// IANA timezone (`Europe/Oslo`), once known.
+    pub timezone: Option<String>,
+    /// Access to every workspace at this role, given by the super admin.
+    pub global_role: Option<Role>,
+    /// False for a disabled account (it cannot sign in).
+    pub active: bool,
 }
 
 impl From<&User> for PublicUser {
@@ -73,6 +80,9 @@ impl From<&User> for PublicUser {
                 .theme_mode
                 .clone()
                 .unwrap_or_else(|| crate::routes::themes::MODES[2].to_string()),
+            timezone: user.timezone.clone(),
+            global_role: user.global_role,
+            active: user.active,
         }
     }
 }
@@ -128,7 +138,7 @@ fn validate_credentials(email: &str, password: &str) -> Result<(), ApiError> {
     responses((status = 200, description = "Auth status", body = AuthStatus))
 )]
 pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatus>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let users = User::all().exec(db).await?;
     Ok(Json(AuthStatus {
         bootstrap_required: users.is_empty(),
@@ -155,23 +165,30 @@ pub async fn bootstrap(
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     validate_credentials(&input.email, &input.password)?;
 
-    let db = &mut *state.db.lock().await;
-    if !User::all().exec(db).await?.is_empty() {
+    let mut db = state.writer().await;
+    if !User::all().exec(&mut *db).await?.is_empty() {
         return Err(ApiError::conflict(
             "bootstrap is closed: a user already exists",
         ));
     }
 
+    let mut tx = db.transaction().await?;
     let user = toasty::create!(User {
         email: input.email.trim().to_lowercase(),
         name: input.name.trim().to_string(),
         password_hash: auth::hash_password(&input.password)?,
         super_admin: true,
+        active: true,
     })
-    .exec(db)
+    .exec(&mut tx)
     .await?;
-
-    let (_, jar) = auth::create_session(db, user.id, state.secure_cookies).await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "user_created").target("user", user.id),
+    )
+    .await?;
+    let (_, jar) = auth::create_session(&mut tx, user.id, state.secure_cookies).await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, jar, Json(PublicUser::from(&user))))
 }
 
@@ -188,18 +205,36 @@ pub async fn bootstrap(
 )]
 pub async fn login(
     State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
     Json(input): Json<LoginRequest>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
-    let db = &mut *state.db.lock().await;
-    // Generic error: never reveal whether the email exists.
-    let user = User::get_by_email(db, &input.email.trim().to_lowercase())
-        .await
-        .map_err(|_| ApiError::unauthorized())?;
-    if !auth::verify_password(&input.password, &user.password_hash) {
-        return Err(ApiError::unauthorized());
+    let email = input.email.trim().to_lowercase();
+    // Repeated failures wait longer (never a lockout).
+    let delay = state.login_limits.delay(&email, address.as_deref());
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
     }
+    let mut db = state.writer().await;
+    let user = User::get_by_email(&mut *db, &email).await.ok();
+    // Generic error: never reveal whether the email exists or the account is disabled.
+    let ok = user
+        .as_ref()
+        .is_some_and(|u| u.active && auth::verify_password(&input.password, &u.password_hash));
+    let Some(user) = user.filter(|_| ok) else {
+        state.login_limits.failed(&email, address.as_deref());
+        let _ = audit::record(&mut *db, Entry::admin(None, "login_failed")).await;
+        return Err(ApiError::unauthorized());
+    };
+    state.login_limits.succeeded(&email);
 
-    let (_, jar) = auth::create_session(db, user.id, state.secure_cookies).await?;
+    let mut tx = db.transaction().await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "login").target("user", user.id),
+    )
+    .await?;
+    let (_, jar) = auth::create_session(&mut tx, user.id, state.secure_cookies).await?;
+    tx.commit().await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
 }
 
@@ -213,10 +248,21 @@ pub async fn login(
 )]
 pub async fn logout(
     State(state): State<AppState>,
-    CurrentUser { session_token, .. }: CurrentUser,
+    CurrentUser {
+        user,
+        session_token,
+        ..
+    }: CurrentUser,
 ) -> Result<(StatusCode, CookieJar), ApiError> {
-    let db = &mut *state.db.lock().await;
-    auth::delete_session(db, &session_token).await?;
+    let mut db = state.writer().await;
+    let mut tx = db.transaction().await?;
+    auth::delete_session(&mut tx, &session_token).await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "logout").target("user", user.id),
+    )
+    .await?;
+    tx.commit().await?;
 
     // Removing from the jar marks the cookie for expiry in the response.
     let removal = Cookie::build((auth::SESSION_COOKIE, "")).path("/").build();
@@ -252,6 +298,8 @@ pub struct UpdateMe {
     pub week_start: Option<String>,
     /// `light`, `dark` or `system`.
     pub theme_mode: Option<String>,
+    /// An IANA timezone name such as `Europe/Oslo`.
+    pub timezone: Option<String>,
 }
 
 /// Edit your own profile and display preferences.
@@ -296,7 +344,14 @@ pub async fn update_me(
         return Err(ApiError::bad_request("unknown theme mode"));
     }
 
-    let db = &mut *state.db.lock().await;
+    if let Some(zone) = &input.timezone
+        && jiff::tz::TimeZone::get(zone).is_err()
+    {
+        return Err(ApiError::bad_request("unknown timezone"));
+    }
+
+    let mut writer = state.writer().await;
+    let db: &mut toasty::Db = &mut writer;
     let email = match &input.email {
         Some(email) => {
             validate_identity(email)?;
@@ -312,13 +367,14 @@ pub async fn update_me(
         None => None,
     };
 
-    let mut current = User::get_by_id(db, &user.id).await?;
+    let mut current = User::get_by_id(&mut *db, &user.id).await?;
     if input.name.is_some()
         || email.is_some()
         || input.date_format.is_some()
         || input.time_format.is_some()
         || input.week_start.is_some()
         || input.theme_mode.is_some()
+        || input.timezone.is_some()
     {
         let mut update = current.update();
         if let Some(name) = &input.name {
@@ -338,6 +394,9 @@ pub async fn update_me(
         }
         if let Some(mode) = input.theme_mode {
             update = update.theme_mode(Some(mode));
+        }
+        if let Some(zone) = input.timezone {
+            update = update.timezone(Some(zone));
         }
         update.exec(db).await?;
     }
@@ -377,17 +436,45 @@ pub async fn change_password(
     }
     validate_password(&input.new_password)?;
 
-    let db = &mut *state.db.lock().await;
-    let mut current = User::get_by_id(db, &user.id).await?;
+    let mut db = state.writer().await;
+    let mut tx = db.transaction().await?;
+    let mut current = User::get_by_id(&mut tx, &user.id).await?;
     current
         .update()
         .password_hash(auth::hash_password(&input.new_password)?)
-        .exec(db)
+        .exec(&mut tx)
         .await?;
-    for session in Session::filter_by_user_id(user.id).exec(db).await? {
-        if session.token != session_token {
-            session.delete().exec(db).await?;
-        }
-    }
+    auth::delete_sessions_of(&mut tx, user.id, Some(&session_token)).await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "password_changed").target("user", user.id),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The client's network address, if known: the connection's, else the first `X-Forwarded-For` entry.
+/// Used only to slow down repeated failed logins; it is never stored.
+pub struct ClientAddr(pub Option<String>);
+
+impl axum::extract::FromRequestParts<AppState> for ClientAddr {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let from_connection = parts
+            .extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0.ip().to_string());
+        let forwarded = parts
+            .headers
+            .get("x-forwarded-for")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(|v| v.trim().to_string());
+        Ok(ClientAddr(forwarded.or(from_connection)))
+    }
 }

@@ -8,11 +8,13 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::{self, CurrentUser};
+use crate::audit;
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{Role, SavedView, User};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
+use crate::time;
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -71,7 +73,7 @@ pub(crate) fn visible_to(view: &SavedView, user: &User) -> bool {
 }
 
 async fn respond(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     workspace_id: uuid::Uuid,
     views: Vec<SavedView>,
@@ -113,7 +115,7 @@ pub async fn list_views(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<SavedViewResponse>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let workspace_id = access::require_project_access(db, &user, id, Role::Read).await?;
     let mut views: Vec<SavedView> = SavedView::filter_by_project_id(id)
         .exec(db)
@@ -147,13 +149,13 @@ pub async fn create_view(
     Json(input): Json<CreateView>,
 ) -> Result<(StatusCode, Json<SavedViewResponse>), ApiError> {
     let name = validate(&input.name, &input.params)?;
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
     let min = if input.is_shared {
         Role::Write
     } else {
         Role::Read
     };
-    let workspace_id = access::require_project_access(db, &user, id, min).await?;
+    let workspace_id = access::require_project_access(&mut *db, &user, id, min).await?;
     let view = toasty::create!(SavedView {
         workspace_id,
         project_id: id,
@@ -161,16 +163,20 @@ pub async fn create_view(
         name,
         params: input.params.to_string(),
         is_shared: input.is_shared,
-        created_at: auth::now_secs(),
+        created_at: time::now(),
     })
-    .exec(db)
+    .exec(&mut *db)
     .await?;
-    let mut out = respond(db, &user, workspace_id, vec![view]).await?;
+    let mut out = respond(&mut *db, &user, workspace_id, vec![view]).await?;
     Ok((StatusCode::CREATED, Json(out.swap_remove(0))))
 }
 
 /// A view the caller may change: visible to them, and theirs (or shared with them as an admin).
-async fn editable(db: &mut toasty::Db, user: &User, id: uuid::Uuid) -> Result<SavedView, ApiError> {
+async fn editable(
+    db: &mut dyn toasty::Executor,
+    user: &User,
+    id: uuid::Uuid,
+) -> Result<SavedView, ApiError> {
     let view = SavedView::get_by_id(db, &id).await?;
     if view.deleted_at.is_some() || !visible_to(&view, user) {
         return Err(ApiError::not_found());
@@ -206,14 +212,14 @@ pub async fn update_view(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateView>,
 ) -> Result<Json<SavedViewResponse>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let mut view = editable(db, &user, id).await?;
+    let mut db = state.writer().await;
+    let mut view = editable(&mut *db, &user, id).await?;
     let name = validate(
         input.name.as_deref().unwrap_or(&view.name),
         input.params.as_ref().unwrap_or(&serde_json::json!({})),
     )?;
     if input.is_shared == Some(true) {
-        access::require_project_access(db, &user, view.project_id, Role::Write).await?;
+        access::require_project_access(&mut *db, &user, view.project_id, Role::Write).await?;
     }
     let workspace_id = view.workspace_id;
     let mut update = view.update().name(name);
@@ -223,8 +229,8 @@ pub async fn update_view(
     if let Some(shared) = input.is_shared {
         update = update.is_shared(shared);
     }
-    update.exec(db).await?;
-    let mut out = respond(db, &user, workspace_id, vec![view]).await?;
+    update.exec(&mut *db).await?;
+    let mut out = respond(&mut *db, &user, workspace_id, vec![view]).await?;
     Ok(Json(out.swap_remove(0)))
 }
 
@@ -246,13 +252,15 @@ pub async fn delete_view(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    editable(db, &user, id).await?;
+    let mut db = state.writer().await;
+    let view = editable(&mut *db, &user, id).await?;
+    let mut tx = db.transaction().await?;
     SavedView::filter_by_id(id)
         .update()
-        .deleted_at(Some(auth::now_secs()))
-        .deleted_by(Some(user.id))
-        .exec(db)
+        .deleted_at(Some(time::now()))
+        .exec(&mut tx)
         .await?;
+    audit::deleted(&mut tx, user.id, view.workspace_id, "view", id, &view.name).await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

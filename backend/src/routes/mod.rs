@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod admin;
 pub mod auth;
 pub mod calendar;
 pub mod comments;
@@ -55,6 +56,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
 
     // Session required — enforced by the layer for every route below.
     let protected = auth::protected_router()
+        .merge(admin::router())
         .merge(workspaces::router())
         .merge(members::router())
         .merge(projects::router())

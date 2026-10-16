@@ -32,6 +32,7 @@ import {
   weekdayLabels,
 } from "../../lib/calendar";
 import { taskFilterQuery, type Zoom } from "../../lib/projectSearch";
+import { dayIso } from "../../lib/time";
 import { useFormatters } from "../../lib/useFormatters";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { cn } from "../../lib/utils";
@@ -74,7 +75,7 @@ export function CalendarView({
   const search = route.useSearch();
   const navigate = route.useNavigate();
   const queryClient = useQueryClient();
-  const { weekStart, date: formatDate } = useFormatters();
+  const { weekStart, localDay: formatDate } = useFormatters();
   const { canWrite } = useWorkspaceRole(workspaceId);
   const [today] = useState(() => startOfDay(Math.floor(Date.now() / 1000)));
 
@@ -86,7 +87,13 @@ export function CalendarView({
   const filters = taskFilterQuery(search, "calendar");
   const rangeQuery = listTasksOptions({
     path: { workspace_id: workspaceId },
-    query: { project_id: projectId, include_subtasks: true, from, to, ...filters },
+    query: {
+      project_id: projectId,
+      include_subtasks: true,
+      from: dayIso(from),
+      to: dayIso(to),
+      ...filters,
+    },
   });
   // The panel offers tasks to schedule, so it shows open ones unless a status filter says otherwise.
   const unscheduledQuery = listTasksOptions({
@@ -146,7 +153,7 @@ export function CalendarView({
     const target = Number(String(over.id).slice(4));
     const span = taskSpan(task);
     if (!span) {
-      update.mutate({ path: { id: task.id }, body: { due_date: target } });
+      update.mutate({ path: { id: task.id }, body: { due_date: dayIso(target) } });
       return;
     }
     const delta = daysBetween(grabDay.current ?? span.start, target);

@@ -2,20 +2,23 @@
 
 use axum::Json;
 use axum::extract::{Path, State};
+use jiff::civil::DateTime;
 use serde::Serialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::{Page, PageRevision, Role, Task, TaskRevision, User};
-use crate::revisions;
+use crate::models::{Revision, Role, Task, User, WikiPage};
+use crate::revisions::{self, PageContent, TaskContent};
 use crate::routes::auth::PublicUser;
-use crate::routes::pages::{PageDetail, detail, write_blocks};
+use crate::routes::pages::{PageDetail, detail};
 use crate::routes::tasks::{TaskResponse, hydrate_tasks};
 use crate::state::AppState;
+use crate::{pages, time};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -27,15 +30,19 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(restore_task_revision))
 }
 
-/// One earlier version, newest first in lists.
+/// One version, newest first in lists. A revision holds the content as it was after the change.
 #[derive(Serialize, ToSchema)]
 pub struct RevisionSummary {
     pub id: uuid::Uuid,
-    /// Unix epoch seconds when this content was saved; absent for a task's original text.
-    pub saved_at: Option<i64>,
+    /// When this content was last saved.
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub saved_at: DateTime,
     pub saved_by: Option<PublicUser>,
-    /// The page's or task's title in this version.
+    /// The page's or task's title in this version (empty when redacted).
     pub title: String,
+    /// An admin removed this version's content.
+    pub redacted: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -52,34 +59,47 @@ pub struct TaskRevisionDetail {
     pub description: String,
 }
 
-async fn author(db: &mut toasty::Db, id: Option<uuid::Uuid>) -> Option<PublicUser> {
-    let id = id?;
+async fn author(db: &mut dyn toasty::Executor, id: uuid::Uuid) -> Option<PublicUser> {
     User::get_by_id(db, &id)
         .await
         .ok()
         .map(|u| PublicUser::from(&u))
 }
 
-async fn page_summary(db: &mut toasty::Db, r: &PageRevision) -> RevisionSummary {
+async fn summary(db: &mut dyn toasty::Executor, r: &Revision, title: String) -> RevisionSummary {
     RevisionSummary {
         id: r.id,
-        saved_at: Some(r.saved_at),
-        saved_by: author(db, Some(r.saved_by)).await,
-        title: r.title.clone(),
+        saved_at: r.updated_at,
+        saved_by: author(db, r.actor_id).await,
+        title,
+        redacted: r.redacted_at.is_some(),
     }
 }
 
-async fn task_summary(db: &mut toasty::Db, r: &TaskRevision) -> RevisionSummary {
-    RevisionSummary {
-        id: r.id,
-        saved_at: r.saved_at,
-        saved_by: author(db, r.saved_by).await,
-        title: r.title.clone(),
-    }
+async fn page_summary(db: &mut dyn toasty::Executor, r: &Revision) -> RevisionSummary {
+    let title = revisions::content::<PageContent>(r)
+        .map(|c| c.title)
+        .unwrap_or_default();
+    summary(db, r, title).await
 }
 
-fn page_blocks(r: &PageRevision) -> Result<Vec<BlockData>, ApiError> {
-    serde_json::from_str(&r.blocks).map_err(|_| ApiError::internal("stored version is unreadable"))
+async fn task_summary(db: &mut dyn toasty::Executor, r: &Revision) -> RevisionSummary {
+    let title = revisions::content::<TaskContent>(r)
+        .map(|c| c.title)
+        .unwrap_or_default();
+    summary(db, r, title).await
+}
+
+async fn load_revision(
+    db: &mut dyn toasty::Executor,
+    id: uuid::Uuid,
+    kind: &str,
+) -> Result<Revision, ApiError> {
+    let revision = Revision::get_by_id(db, &id).await?;
+    if revision.target_type != kind {
+        return Err(ApiError::not_found());
+    }
+    Ok(revision)
 }
 
 /// The earlier versions of a page, newest first.
@@ -99,26 +119,23 @@ pub async fn list_page_revisions(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<RevisionSummary>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_page_access(db, &user, id, Role::Read).await?;
-    let mut revisions = PageRevision::filter_by_page_id(id).exec(db).await?;
-    // Ids are time-ordered, so they break ties within the same second.
-    revisions.sort_by_key(|r| std::cmp::Reverse((r.created_at, r.id)));
     let mut out = vec![];
-    for r in &revisions {
+    for r in &revisions::of(db, id).await? {
         out.push(page_summary(db, r).await);
     }
     Ok(Json(out))
 }
 
 async fn load_page_revision(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     id: uuid::Uuid,
     min: Role,
-) -> Result<(PageRevision, Page), ApiError> {
-    let revision = PageRevision::get_by_id(db, &id).await?;
-    let page = access::require_page_access(db, user, revision.page_id, min).await?;
+) -> Result<(Revision, WikiPage), ApiError> {
+    let revision = load_revision(db, id, revisions::PAGE).await?;
+    let page = access::require_page_access(db, user, revision.target_id, min).await?;
     Ok((revision, page))
 }
 
@@ -139,11 +156,13 @@ pub async fn get_page_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<PageRevisionDetail>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let (revision, _) = load_page_revision(db, &user, id, Role::Read).await?;
     Ok(Json(PageRevisionDetail {
         summary: page_summary(db, &revision).await,
-        blocks: page_blocks(&revision)?,
+        blocks: revisions::content::<PageContent>(&revision)
+            .map(|c| c.blocks)
+            .unwrap_or_default(),
     }))
 }
 
@@ -165,11 +184,15 @@ pub async fn restore_page_revision(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<PageDetail>, ApiError> {
     let (restored, page_id) = {
-        let db = &mut *state.db.lock().await;
-        let (revision, mut page) = load_page_revision(db, &user, id, Role::Write).await?;
-        write_blocks(db, &mut page, user.id, &page_blocks(&revision)?, true).await?;
+        let mut db = state.writer().await;
+        let (revision, mut page) = load_page_revision(&mut *db, &user, id, Role::Write).await?;
+        let content = revisions::content::<PageContent>(&revision)
+            .ok_or_else(|| ApiError::conflict("this version was removed by an admin"))?;
+        let mut tx = db.transaction().await?;
+        pages::save_content(&mut tx, &mut page, user.id, &content.blocks, true).await?;
+        tx.commit().await?;
         let page_id = page.id;
-        (detail(db, page).await?, page_id)
+        (detail(&mut *db, page).await?, page_id)
     };
     // Everyone editing live gets the restored content.
     state.rooms.reset(&state, page_id).await;
@@ -193,27 +216,24 @@ pub async fn list_task_revisions(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<RevisionSummary>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
-    let mut revisions = TaskRevision::filter_by_task_id(id).exec(db).await?;
-    // Ids are time-ordered, so they break ties within the same second.
-    revisions.sort_by_key(|r| std::cmp::Reverse((r.created_at, r.id)));
     let mut out = vec![];
-    for r in &revisions {
+    for r in &revisions::of(db, id).await? {
         out.push(task_summary(db, r).await);
     }
     Ok(Json(out))
 }
 
 async fn load_task_revision(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     id: uuid::Uuid,
     min: Role,
-) -> Result<TaskRevision, ApiError> {
-    let revision = TaskRevision::get_by_id(db, &id).await?;
-    access::require_task_access(db, user, revision.task_id, min).await?;
-    Ok(revision)
+) -> Result<(Revision, uuid::Uuid), ApiError> {
+    let revision = load_revision(db, id, revisions::TASK).await?;
+    let workspace = access::require_task_access(db, user, revision.target_id, min).await?;
+    Ok((revision, workspace))
 }
 
 /// One earlier title and description of a task.
@@ -233,11 +253,13 @@ pub async fn get_task_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<TaskRevisionDetail>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let revision = load_task_revision(db, &user, id, Role::Read).await?;
+    let db = &mut state.db();
+    let (revision, _) = load_task_revision(db, &user, id, Role::Read).await?;
     Ok(Json(TaskRevisionDetail {
         summary: task_summary(db, &revision).await,
-        description: revision.description.clone(),
+        description: revisions::content::<TaskContent>(&revision)
+            .map(|c| c.description)
+            .unwrap_or_default(),
     }))
 }
 
@@ -258,20 +280,30 @@ pub async fn restore_task_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let revision = load_task_revision(db, &user, id, Role::Write).await?;
-    let mut task = Task::get_by_id(db, &revision.task_id).await?;
-    if task.title != revision.title || task.description != revision.description {
-        revisions::snapshot_task(db, &task, user.id, true).await?;
+    let mut db = state.writer().await;
+    let (revision, workspace_id) = load_task_revision(&mut *db, &user, id, Role::Write).await?;
+    let content = revisions::content::<TaskContent>(&revision)
+        .ok_or_else(|| ApiError::conflict("this version was removed by an admin"))?;
+    let mut task = Task::get_by_id(&mut *db, &revision.target_id).await?;
+    if task.title != content.title || task.description != content.description {
+        let mut tx = db.transaction().await?;
         task.update()
-            .title(revision.title.clone())
-            .description(revision.description.clone())
-            .text_edited_at(Some(crate::auth::now_secs()))
-            .text_edited_by(Some(user.id))
-            .exec(db)
+            .title(content.title.clone())
+            .description(content.description.clone())
+            .exec(&mut tx)
             .await?;
+        let new = revisions::record_task(&mut tx, task.id, user.id, &content).await?;
+        audit::record(
+            &mut tx,
+            audit::Entry::admin(Some(user.id), "task_edited")
+                .target("task", task.id)
+                .in_workspace(workspace_id)
+                .data(serde_json::json!({ "revision_id": new.id, "restored_from": revision.id })),
+        )
+        .await?;
+        tx.commit().await?;
     }
-    let task = Task::get_by_id(db, &revision.task_id).await?;
-    let mut responses = hydrate_tasks(db, vec![task]).await?;
+    let task = Task::get_by_id(&mut *db, &revision.target_id).await?;
+    let mut responses = hydrate_tasks(&mut *db, vec![task]).await?;
     Ok(Json(responses.swap_remove(0)))
 }

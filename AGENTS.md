@@ -10,8 +10,10 @@
   typecheck/lint/format in `frontend/`)
 - `mise run fix` — each stack's auto-fixes
 - `mise run clean` — delete the local dev database and uploaded files; the
-  schema is recreated on next backend start (use after schema changes; no
-  migrations yet)
+  schema is recreated from the migrations on next backend start (only needed
+  for a database made before migrations existed, or to start over)
+- After changing `backend/src/models.rs`: `cargo run --bin migrate -- generate <name>`
+  in `backend/`, and commit `backend/toasty/`
 
 ## Structure
 

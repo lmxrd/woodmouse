@@ -9,10 +9,10 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::activity::{self, Event};
+use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{LinkKind, List, Project, Role, Task, TaskLink};
+use crate::models::{LinkKind, Project, Role, Task, TaskLink};
 use crate::state::AppState;
 
 pub fn router() -> OpenApiRouter<AppState> {
@@ -37,7 +37,10 @@ pub struct LinkedTask {
     pub id: uuid::Uuid,
     pub project_id: uuid::Uuid,
     pub title: String,
-    pub is_completed: bool,
+    /// When the task was completed; absent while it is open.
+    #[serde(with = "crate::time::utc_option")]
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub completed_at: Option<jiff::civil::DateTime>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -55,7 +58,7 @@ pub struct AddLink {
 }
 
 async fn views_for(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     task_id: uuid::Uuid,
     links: Vec<TaskLink>,
 ) -> Result<Vec<TaskLinkView>, ApiError> {
@@ -76,11 +79,6 @@ async fn views_for(
         .filter(in_list(Task::fields().id(), other_ids))
         .exec(db)
         .await?;
-    let list_ids: Vec<uuid::Uuid> = tasks.iter().map(|t| t.list_id).collect();
-    let lists = List::all()
-        .filter(in_list(List::fields().id(), list_ids))
-        .exec(db)
-        .await?;
 
     Ok(links
         .into_iter()
@@ -94,7 +92,6 @@ async fn views_for(
             let other = tasks
                 .iter()
                 .find(|t| t.id == other_id && t.deleted_at.is_none())?;
-            let project_id = lists.iter().find(|l| l.id == other.list_id)?.project_id;
             Some(TaskLinkView {
                 id: link.id,
                 kind: link.kind,
@@ -105,16 +102,19 @@ async fn views_for(
                 },
                 task: LinkedTask {
                     id: other.id,
-                    project_id,
+                    project_id: other.project_id,
                     title: other.title.clone(),
-                    is_completed: other.is_completed,
+                    completed_at: other.completed_at,
                 },
             })
         })
         .collect())
 }
 
-async fn links_of(db: &mut toasty::Db, task_id: uuid::Uuid) -> Result<Vec<TaskLink>, ApiError> {
+async fn links_of(
+    db: &mut dyn toasty::Executor,
+    task_id: uuid::Uuid,
+) -> Result<Vec<TaskLink>, ApiError> {
     let mut links = TaskLink::filter_by_task_id(task_id).exec(db).await?;
     links.extend(
         TaskLink::filter_by_related_task_id(task_id)
@@ -142,7 +142,7 @@ pub async fn list_links(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<TaskLinkView>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
     let links = links_of(db, id).await?;
     Ok(Json(views_for(db, id, links).await?))
@@ -170,19 +170,20 @@ pub async fn add_link(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<AddLink>,
 ) -> Result<(StatusCode, Json<TaskLinkView>), ApiError> {
-    let db = &mut *state.db.lock().await;
-    let workspace_id = access::require_task_access(db, &user, id, Role::Write).await?;
+    let mut db = state.writer().await;
+    let workspace_id = access::require_task_access(&mut *db, &user, id, Role::Write).await?;
     if input.related_task_id == id {
         return Err(ApiError::bad_request("a task cannot link to itself"));
     }
     // The other task must be live and in the same workspace (otherwise it looks nonexistent).
-    let other = access::require_task_access(db, &user, input.related_task_id, Role::Write).await?;
+    let other =
+        access::require_task_access(&mut *db, &user, input.related_task_id, Role::Write).await?;
     if other != workspace_id {
         return Err(ApiError::not_found());
     }
 
     // Any existing link of the same kind between the two (either direction) is a conflict.
-    let existing = links_of(db, id).await?;
+    let existing = links_of(&mut *db, id).await?;
     if existing.iter().any(|l| {
         l.kind == input.kind
             && (l.task_id == input.related_task_id || l.related_task_id == input.related_task_id)
@@ -192,30 +193,29 @@ pub async fn add_link(
         ));
     }
 
+    let mut tx = db.transaction().await?;
     let link = toasty::create!(TaskLink {
         task_id: id,
         related_task_id: input.related_task_id,
         kind: input.kind,
     })
-    .exec(db)
+    .exec(&mut tx)
     .await?;
-    let mut views = views_for(db, id, vec![link]).await?;
+    let mut views = views_for(&mut tx, id, vec![link]).await?;
     let view = views.swap_remove(0);
 
-    let task = Task::get_by_id(db, &id).await?;
-    let project_id = List::get_by_id(db, &task.list_id).await?.project_id;
-    activity::record(
-        db,
-        Event {
-            workspace_id,
-            project_id: Some(project_id),
-            task_id: Some(id),
-            actor_id: user.id,
-            kind: "link_added",
-            data: serde_json::json!({ "title": task.title, "kind": view.kind, "other": view.task.title }),
-        },
+    let task = Task::get_by_id(&mut tx, &id).await?;
+    audit::task_event(
+        &mut tx,
+        workspace_id,
+        task.project_id,
+        user.id,
+        "link_added",
+        id,
+        serde_json::json!({ "title": task.title, "kind": view.kind, "other": view.task.title }),
     )
-    .await;
+    .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, Json(view)))
 }
 
@@ -240,13 +240,13 @@ pub async fn remove_link(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, link_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_task_access(db, &user, id, Role::Write).await?;
-    let link = TaskLink::get_by_id(db, &link_id).await?;
+    let mut db = state.writer().await;
+    access::require_task_access(&mut *db, &user, id, Role::Write).await?;
+    let link = TaskLink::get_by_id(&mut *db, &link_id).await?;
     if link.task_id != id && link.related_task_id != id {
         return Err(ApiError::not_found());
     }
-    link.delete().exec(db).await?;
+    link.delete().exec(&mut *db).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -286,34 +286,21 @@ pub async fn list_workspace_links(
     Path(id): Path<uuid::Uuid>,
     Query(filters): Query<LinkFilters>,
 ) -> Result<Json<Vec<LinkEdge>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
 
-    let projects: Vec<Project> = Project::filter_by_workspace_id(id)
+    let project_ids: Vec<uuid::Uuid> = Project::filter_by_workspace_id(id)
         .exec(db)
         .await?
         .into_iter()
         .filter(|p| p.deleted_at.is_none() && filters.project_id.is_none_or(|f| f == p.id))
+        .map(|p| p.id)
         .collect();
-    if projects.is_empty() {
-        return Ok(Json(vec![]));
-    }
-    let list_ids: Vec<uuid::Uuid> = List::all()
-        .filter(in_list(
-            List::fields().project_id(),
-            projects.iter().map(|p| p.id).collect::<Vec<_>>(),
-        ))
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|l| l.deleted_at.is_none())
-        .map(|l| l.id)
-        .collect();
-    if list_ids.is_empty() {
+    if project_ids.is_empty() {
         return Ok(Json(vec![]));
     }
     let live: std::collections::HashSet<uuid::Uuid> = Task::all()
-        .filter(in_list(Task::fields().list_id(), list_ids))
+        .filter(in_list(Task::fields().project_id(), project_ids))
         .filter(Task::fields().deleted_at().is_none())
         .exec(db)
         .await?

@@ -32,6 +32,8 @@ import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { DependencyArrows, type Anchor } from "./DependencyArrows";
 import { TimelineBar } from "./TimelineBar";
+import { isDone } from "../../lib/task";
+import { dayEpoch, dayIso } from "../../lib/time";
 
 const route = getRouteApi("/w/$workspaceId/p/$projectId");
 const LABEL_WIDTH_WIDE = 220;
@@ -171,16 +173,18 @@ export function TimelineView({
   const commit = (task: TaskResponse, mode: "move" | "start" | "end", delta: number) => {
     const span = rows.find((r) => r.type === "task" && r.task.id === task.id);
     if (!span || span.type !== "task" || !span.span) return;
-    const body: { start_date?: number; due_date?: number } = {};
+    const body: { start_date?: string; due_date?: string } = {};
+    const start = dayEpoch(task.start_date);
+    const due = dayEpoch(task.due_date);
     if (mode === "move") {
-      if (task.start_date != null) body.start_date = addDays(task.start_date, delta);
-      if (task.due_date != null) body.due_date = addDays(task.due_date, delta);
+      if (start != null) body.start_date = dayIso(addDays(start, delta));
+      if (due != null) body.due_date = dayIso(addDays(due, delta));
     } else if (mode === "start") {
-      const next = addDays(task.start_date ?? span.span.start, delta);
-      body.start_date = Math.min(next, task.due_date ?? span.span.end);
+      const next = addDays(start ?? span.span.start, delta);
+      body.start_date = dayIso(Math.min(next, due ?? span.span.end));
     } else {
-      const next = addDays(task.due_date ?? span.span.end, delta);
-      body.due_date = Math.max(next, task.start_date ?? span.span.start);
+      const next = addDays(due ?? span.span.end, delta);
+      body.due_date = dayIso(Math.max(next, start ?? span.span.start));
     }
     update.mutate({ path: { id: task.id }, body });
   };
@@ -313,7 +317,7 @@ export function TimelineView({
                     search={(prev) => prev}
                     className={cn(
                       "min-w-0 flex-1 truncate text-sm hover:underline",
-                      row.task.is_completed && "text-muted-foreground line-through",
+                      isDone(row.task) && "text-muted-foreground line-through",
                     )}
                   >
                     {row.task.title}

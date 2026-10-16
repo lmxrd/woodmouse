@@ -1,5 +1,5 @@
-//! Subtasks: ordinary tasks with a `parent_id`, nested to any depth. A subtask lives in its parent's
-//! list, so boards and lists (which hide subtasks by default) stay uncluttered.
+//! Subtasks: ordinary tasks with a `parent_id`, nested to any depth. A subtask lives with its
+//! parent (same project and list, or the inbox), so boards and lists (which hide subtasks by default) stay uncluttered.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -37,11 +37,10 @@ pub async fn list_subtasks(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<TaskResponse>>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_task_access(db, &user, id, Role::Read).await?;
-    let task = Task::get_by_id(db, &id).await?;
+    let db = &mut state.db();
+    let (task, _) = access::require_task(db, &user, id, Role::Read).await?;
 
-    let live: Vec<Task> = Task::filter_by_list_id(task.list_id)
+    let live: Vec<Task> = Task::filter_by_project_id(task.project_id)
         .exec(db)
         .await?
         .into_iter()
@@ -52,7 +51,7 @@ pub async fn list_subtasks(
         .filter(|t| *t != id)
         .collect();
     let mut subtasks: Vec<Task> = live.into_iter().filter(|t| below.contains(&t.id)).collect();
-    subtasks.sort_by(|a, b| a.position.total_cmp(&b.position));
+    subtasks.sort_by_key(|t| (t.position, t.id));
     Ok(Json(hydrate_tasks(db, subtasks).await?))
 }
 
@@ -77,10 +76,17 @@ pub async fn create_subtask(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
-    let db = &mut *state.db.lock().await;
-    let workspace_id = access::require_task_access(db, &user, id, Role::Write).await?;
-    let parent = Task::get_by_id(db, &id).await?;
-    let response =
-        create_task_in(db, workspace_id, parent.list_id, Some(id), user.id, input).await?;
+    let mut db = state.writer().await;
+    let (parent, workspace_id) = access::require_task(&mut *db, &user, id, Role::Write).await?;
+    let response = create_task_in(
+        &mut db,
+        workspace_id,
+        parent.project_id,
+        parent.list_id,
+        Some(id),
+        user.id,
+        input,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(response)))
 }

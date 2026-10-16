@@ -6,11 +6,13 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::{self, CurrentUser};
+use crate::audit;
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{List, Project, Role};
+use crate::models::{Project, Role};
+use crate::routes::workspaces::clean_description;
 use crate::state::AppState;
-use crate::trash;
+use crate::{time, trash};
 
 /// All project routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -25,11 +27,14 @@ pub fn router() -> OpenApiRouter<AppState> {
 #[derive(Deserialize, ToSchema)]
 pub struct CreateProject {
     pub name: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub struct UpdateProject {
     pub name: Option<String>,
+    pub description: Option<String>,
 }
 
 /// List the projects in a workspace.
@@ -50,7 +55,7 @@ pub async fn list_projects(
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<Project>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
     let projects = Project::filter_by_workspace_id(workspace_id)
         .exec(db)
@@ -87,25 +92,19 @@ pub async fn create_project(
         return Err(ApiError::bad_request("name is required"));
     }
 
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, workspace_id, Role::Write).await?;
+    let description = clean_description(&input.description)?;
 
-    // Every project starts with an inbox list.
-    let mut tx = db.transaction().await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, workspace_id, Role::Write).await?;
+
+    // A project's inbox is not a list: it is the tasks that have none.
     let project = toasty::create!(Project {
         workspace_id,
         name: name.to_string(),
+        description,
     })
-    .exec(&mut tx)
+    .exec(&mut *db)
     .await?;
-    toasty::create!(List {
-        project_id: project.id,
-        name: "Inbox".to_string(),
-        is_inbox: true,
-    })
-    .exec(&mut tx)
-    .await?;
-    tx.commit().await?;
     Ok((StatusCode::CREATED, Json(project)))
 }
 
@@ -127,9 +126,8 @@ pub async fn get_project(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Project>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_project_access(db, &user, id, Role::Read).await?;
-    let project = Project::get_by_id(db, &id).await?;
+    let db = &mut state.db();
+    let project = access::require_project(db, &user, id, Role::Read).await?;
     Ok(Json(project))
 }
 
@@ -154,19 +152,28 @@ pub async fn update_project(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateProject>,
 ) -> Result<Json<Project>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_project_access(db, &user, id, Role::Write).await?;
-    let mut project = Project::get_by_id(db, &id).await?;
+    let mut db = state.writer().await;
+    let mut project = access::require_project(&mut *db, &user, id, Role::Write).await?;
+    let description = input
+        .description
+        .as_deref()
+        .map(clean_description)
+        .transpose()?;
 
-    let mut update = project.update();
-    if let Some(name) = input.name {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(ApiError::bad_request("name is required"));
+    if input.name.is_some() || description.is_some() {
+        let mut update = project.update();
+        if let Some(name) = input.name {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(ApiError::bad_request("name is required"));
+            }
+            update = update.name(name.to_string());
         }
-        update = update.name(name.to_string());
+        if let Some(description) = description {
+            update = update.description(description);
+        }
+        update.exec(&mut *db).await?;
     }
-    update.exec(db).await?;
     Ok(Json(project))
 }
 
@@ -188,12 +195,21 @@ pub async fn delete_project(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_project_access(db, &user, id, Role::Write).await?;
+    let mut db = state.writer().await;
+    let project = access::require_project(&mut *db, &user, id, Role::Write).await?;
 
     // Soft delete: the project, its lists and its tasks move to Trash together.
     let mut tx = db.transaction().await?;
-    trash::delete_project(&mut tx, id, user.id, auth::now_secs()).await?;
+    trash::delete_project(&mut tx, id, time::now()).await?;
+    audit::deleted(
+        &mut tx,
+        user.id,
+        project.workspace_id,
+        "project",
+        id,
+        &project.name,
+    )
+    .await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

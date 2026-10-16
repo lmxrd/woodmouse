@@ -1,11 +1,13 @@
 import { Outlet, useParams } from "@tanstack/react-router";
 
+import { useDetectTimezone } from "../lib/useDetectTimezone";
 import { useTheme } from "../lib/useTheme";
 
 /** Bare frame: the login sheet and the app shell (see routes/w.$workspaceId.tsx) bring their own layout. */
 export function RootLayout() {
   const { workspaceId } = useParams({ strict: false });
   useTheme(workspaceId);
+  useDetectTimezone();
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Outlet />

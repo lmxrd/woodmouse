@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { meOptions } from "woodmouse-client/react-query";
 
 import type { WeekStart } from "./calendar";
+import { dayEpoch, instant } from "./time";
 import {
   DEFAULT_PREFS,
   formatDate,
@@ -21,9 +22,15 @@ export function useFormatters() {
   return {
     prefs,
     weekStart,
-    date: (epoch: number) => formatDate(epoch, prefs),
-    dateShort: (epoch: number) => formatDateShort(epoch, prefs),
-    dateTime: (epoch: number) => formatDateTime(epoch, prefs),
-    when: (epoch: number) => formatWhen(epoch, prefs),
+    /** A day as the calendar holds it: the epoch second of its local midnight. */
+    localDay: (epochDay: number) => formatDate(epochDay, prefs),
+    /** A day from the API (a task's start or due date). */
+    date: (day: string) => formatDate(dayEpoch(day), prefs),
+    dateShort: (day: string) => formatDateShort(dayEpoch(day), prefs),
+    /** The local date of an instant from the API. */
+    dateOf: (at: string) => formatDate(instant(at), prefs),
+    /** An instant from the API, in the viewer's local time. */
+    dateTime: (at: string) => formatDateTime(instant(at), prefs),
+    when: (at: string) => formatWhen(instant(at), prefs),
   };
 }

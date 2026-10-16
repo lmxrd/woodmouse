@@ -30,8 +30,7 @@ use yrs::{Doc, Origin, ReadTxn, StateVector, Transact, Update};
 
 use crate::blocks::validate_blocks;
 use crate::error::ApiError;
-use crate::models::{Page, PageDoc};
-use crate::routes::pages::{blocks_of, write_blocks};
+use crate::models::{PageDoc, WikiPage};
 use crate::state::AppState;
 
 /// Close codes sent to clients (the 4000s are application defined).
@@ -263,9 +262,21 @@ impl Rooms {
         if let Some(room) = room {
             room.shut_down(close::RESET);
         }
-        let db = &mut *state.db.lock().await;
-        if let Err(e) = PageDoc::filter_by_page_id(page_id).delete().exec(db).await {
+        let mut db = state.writer().await;
+        if let Err(e) = PageDoc::filter_by_page_id(page_id)
+            .delete()
+            .exec(&mut *db)
+            .await
+        {
             tracing::warn!(%e, "could not discard a page's live document");
+        }
+    }
+
+    /// Save every open room now (the server is shutting down), so the last seconds of typing are kept.
+    pub async fn save_all(&self, state: &AppState) {
+        let rooms: Vec<Arc<Room>> = self.map.lock().await.values().cloned().collect();
+        for room in rooms {
+            persist(state, &room).await;
         }
     }
 
@@ -280,13 +291,19 @@ impl Rooms {
 /// Load a page's document from the database, or build it from the page's blocks.
 async fn open_room(state: &AppState, page_id: uuid::Uuid) -> Result<Arc<Room>, ApiError> {
     use base64::Engine;
-    let db = &mut *state.db.lock().await;
+    let mut writer = state.writer().await;
+    let db: &mut toasty::Db = &mut writer;
+    let page = WikiPage::get_by_id(&mut *db, &page_id).await?;
     let blocks = {
-        let mut blocks = blocks_of(db, page_id).await?;
+        let mut blocks = crate::pages::blocks_of(&page)?;
         crate::blocks::trim_trailing_empty(&mut blocks);
         blocks
     };
-    if let Some(stored) = PageDoc::filter_by_page_id(page_id).first().exec(db).await? {
+    if let Some(stored) = PageDoc::filter_by_page_id(page_id)
+        .first()
+        .exec(&mut *db)
+        .await?
+    {
         let doc = Doc::new();
         let restored = base64::engine::general_purpose::STANDARD
             .decode(&stored.state)
@@ -306,7 +323,7 @@ async fn open_room(state: &AppState, page_id: uuid::Uuid) -> Result<Arc<Room>, A
 }
 
 async fn store_doc(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     page_id: uuid::Uuid,
     epoch: &str,
     doc: &Doc,
@@ -316,7 +333,7 @@ async fn store_doc(
         doc.transact()
             .encode_state_as_update_v1(&StateVector::default()),
     );
-    let now = crate::auth::now_secs();
+    let now = crate::time::now();
     match PageDoc::filter_by_page_id(page_id).first().exec(db).await? {
         Some(mut row) => {
             row.update()
@@ -348,9 +365,10 @@ async fn persist(state: &AppState, room: &Room) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take();
-    let db = &mut *state.db.lock().await;
+    let mut writer = state.writer().await;
+    let db: &mut toasty::Db = &mut writer;
     let result: Result<(), ApiError> = async {
-        let Ok(mut page) = Page::get_by_id(db, &room.page_id).await else {
+        let Ok(mut page) = WikiPage::get_by_id(&mut *db, &room.page_id).await else {
             return Ok(());
         };
         if page.deleted_at.is_some() || room.is_shut_down() {
@@ -361,8 +379,11 @@ async fn persist(state: &AppState, room: &Room) {
             return Ok(());
         }
         let editor = editor.unwrap_or(page.updated_by);
-        write_blocks(db, &mut page, editor, &blocks, false).await?;
-        store_doc(db, room.page_id, &room.epoch, &room.doc).await
+        let mut tx = db.transaction().await?;
+        crate::pages::save_content(&mut tx, &mut page, editor, &blocks, false).await?;
+        store_doc(&mut tx, room.page_id, &room.epoch, &room.doc).await?;
+        tx.commit().await?;
+        Ok(())
     }
     .await;
     if result.is_err() {
@@ -462,12 +483,12 @@ pub async fn serve(
                 break;
             }
             _ = access_check.tick() => {
-                let db = &mut *state.db.lock().await;
-                let page_ok = Page::get_by_id(db, &room.page_id).await.is_ok_and(|p| p.deleted_at.is_none());
+                let db = &mut state.db();
+                let page_ok = WikiPage::get_by_id(db, &room.page_id).await.is_ok_and(|p| p.deleted_at.is_none());
                 let Ok(user) = crate::models::User::get_by_id(db, &user_id).await else { continue };
                 let workspace = state_workspace(db, room.page_id).await;
                 match crate::access::role_in(db, &user, workspace).await {
-                    Ok(Some(role)) if page_ok => can_edit = role >= crate::models::Role::Write,
+                    Ok(Some(role)) if page_ok && user.active => can_edit = role >= crate::models::Role::Write,
                     _ => {
                         close_with = Some(if page_ok { close::FORBIDDEN } else { close::DELETED });
                         break;
@@ -494,8 +515,8 @@ pub async fn serve(
     }
 }
 
-async fn state_workspace(db: &mut toasty::Db, page_id: uuid::Uuid) -> uuid::Uuid {
-    Page::get_by_id(db, &page_id)
+async fn state_workspace(db: &mut dyn toasty::Executor, page_id: uuid::Uuid) -> uuid::Uuid {
+    WikiPage::get_by_id(db, &page_id)
         .await
         .map(|p| p.workspace_id)
         .unwrap_or_default()

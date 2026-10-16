@@ -364,6 +364,7 @@ async fn trash_needs_write_access() {
         name: "Reader".to_string(),
         password_hash: "not-a-login-hash".to_string(),
         super_admin: false,
+        active: true,
     })
     .exec(&mut db.clone())
     .await
@@ -380,7 +381,7 @@ async fn trash_needs_write_access() {
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: reader.id,
-        expires_at: 4_102_444_800,
+        expires_at: common::far_future(),
     })
     .exec(&mut db.clone())
     .await

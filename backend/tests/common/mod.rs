@@ -10,6 +10,11 @@ use tower::ServiceExt;
 
 use woodmouse::state::AppState;
 
+/// A date-time far enough ahead that nothing seeded with it expires during a test.
+pub fn far_future() -> jiff::civil::DateTime {
+    "2100-01-01T00:00:00".parse().expect("valid date-time")
+}
+
 pub async fn app() -> axum::Router {
     app_with_db().await.0
 }
@@ -21,7 +26,11 @@ pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db)
         .connect("sqlite::memory:")
         .await
         .expect("connect in-memory db");
-    db.push_schema().await.expect("create schema");
+    // The schema comes from the migrations, so the tests also prove they build a working database.
+    woodmouse::migrations::MIGRATIONS
+        .apply(&db)
+        .await
+        .expect("apply migrations");
     woodmouse::search::ensure_index(&mut db.clone())
         .await
         .unwrap_or_else(|_| panic!("create search index"));
@@ -44,7 +53,11 @@ pub async fn app_with_db() -> (axum::Router, toasty::Db) {
         .connect("sqlite::memory:")
         .await
         .expect("connect in-memory db");
-    db.push_schema().await.expect("create schema");
+    // The schema comes from the migrations, so the tests also prove they build a working database.
+    woodmouse::migrations::MIGRATIONS
+        .apply(&db)
+        .await
+        .expect("apply migrations");
     woodmouse::search::ensure_index(&mut db.clone())
         .await
         .unwrap_or_else(|_| panic!("create search index"));

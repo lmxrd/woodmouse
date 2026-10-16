@@ -16,6 +16,7 @@ import { cn } from "../lib/utils";
 import { FilterSelect } from "./FilterSelect";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import { isDone } from "../lib/task";
 
 const route = getRouteApi("/w/$workspaceId/my-tasks");
 
@@ -58,7 +59,7 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
 
   const projectName = (id: string) => projects?.find((p) => p.id === id)?.name ?? "";
   const byDue = (a: TaskResponse, b: TaskResponse) =>
-    (a.due_date ?? Infinity) - (b.due_date ?? Infinity) || a.title.localeCompare(b.title);
+    (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") || a.title.localeCompare(b.title);
   const grouped = (bucket: DueBucket) =>
     (tasks ?? []).filter((t) => dueBucket(t.due_date) === bucket).sort(byDue);
 
@@ -127,7 +128,7 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
                   >
                     <Checkbox
                       aria-label={`Completed: ${task.title}`}
-                      checked={task.is_completed}
+                      checked={isDone(task)}
                       onCheckedChange={(checked) =>
                         update.mutate({
                           path: { id: task.id },
@@ -140,7 +141,7 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
                       params={{ workspaceId, taskId: task.id }}
                       className={cn(
                         "min-w-0 flex-1 truncate text-sm font-medium",
-                        task.is_completed && "text-muted-foreground line-through",
+                        isDone(task) && "text-muted-foreground line-through",
                       )}
                     >
                       {task.title}

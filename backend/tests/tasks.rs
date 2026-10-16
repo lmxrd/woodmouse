@@ -201,27 +201,27 @@ async fn task_lifecycle() {
 
     // New tasks append: position increments, defaults apply.
     let a = get_task_json(&fx, task_a).await;
-    assert_eq!(a["is_completed"], false);
+    assert!(a["completed_at"].is_null());
     assert_eq!(a["priority"], "medium");
-    assert_eq!(a["position"], 1.0);
+    assert_eq!(a["position"], 20);
     let b = get_task_json(&fx, task_b).await;
-    assert_eq!(b["position"], 2.0);
+    assert_eq!(b["position"], 40);
 
     // Partial update: is_completed + priority + due date.
     let res = request(
         &fx.app,
         patch_json(
             &format!("/api/tasks/{task_a}"),
-            r#"{"is_completed":true,"priority":"urgent","due_date":1767225600}"#,
+            r#"{"is_completed":true,"priority":"urgent","due_date":"2026-01-01T00:00:00Z"}"#,
             Some(&fx.cookie),
         ),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
     let a = get_task_json(&fx, task_a).await;
-    assert_eq!(a["is_completed"], true);
+    assert!(a["completed_at"].is_string());
     assert_eq!(a["priority"], "urgent");
-    assert_eq!(a["due_date"], 1767225600);
+    assert_eq!(a["due_date"], "2026-01-01T00:00:00Z");
 
     // Explicit null clears the due date; absent leaves it unchanged.
     let res = request(
@@ -465,12 +465,12 @@ async fn filtering_and_sorting() {
 
     // due_date sort: tasks without a due date order first ascending (SQLite
     // NULL ordering). Alpha has none; Beta is due before Gamma.
-    for (id, due) in [(&t2, 1700000000), (&t3, 1800000000)] {
+    for (id, due) in [(&t2, "2023-11-14T00:00:00Z"), (&t3, "2027-01-15T00:00:00Z")] {
         request(
             &fx.app,
             patch_json(
                 &format!("/api/tasks/{id}"),
-                &format!(r#"{{"due_date":{due}}}"#),
+                &format!(r#"{{"due_date":"{due}"}}"#),
                 Some(&fx.cookie),
             ),
         )
@@ -516,6 +516,7 @@ async fn access_isolation_and_roles() {
         name: "Other".to_string(),
         password_hash: "not-a-login-hash".to_string(),
         super_admin: false,
+        active: true,
     })
     .exec(&mut db.clone())
     .await
@@ -524,7 +525,7 @@ async fn access_isolation_and_roles() {
     toasty::create!(woodmouse::models::Session {
         token: other_token.clone(),
         user_id: other.id,
-        expires_at: 4_102_444_800,
+        expires_at: common::far_future(),
     })
     .exec(&mut db.clone())
     .await
@@ -712,7 +713,7 @@ async fn move_between_lists_and_start_date() {
         &fx.app,
         patch_json(
             &format!("/api/tasks/{t1}"),
-            &format!(r#"{{"list_id":"{other_list}","start_date":1700000000}}"#),
+            &format!(r#"{{"list_id":"{other_list}","start_date":"2023-11-14T00:00:00Z"}}"#),
             Some(&fx.cookie),
         ),
     )
@@ -720,8 +721,8 @@ async fn move_between_lists_and_start_date() {
     assert_eq!(res.status(), StatusCode::OK);
     let task = get_task_json(&fx, t1).await;
     assert_eq!(task["list_id"], other_list.to_string());
-    assert_eq!(task["start_date"], 1700000000);
-    assert_eq!(task["position"], 1.0, "appended to the empty target list");
+    assert_eq!(task["start_date"], "2023-11-14T00:00:00Z");
+    assert_eq!(task["position"], 20, "appended to the empty target list");
     assert!(list_tasks_json(&fx, "").await.is_empty());
 
     // `null` clears the start date.
@@ -760,6 +761,7 @@ async fn workspace_members_listing() {
         name: "Alice".to_string(),
         password_hash: "not-a-login-hash".to_string(),
         super_admin: false,
+        active: true,
     })
     .exec(&mut db.clone())
     .await
@@ -798,6 +800,7 @@ async fn workspace_members_listing() {
         name: "Stranger".to_string(),
         password_hash: "not-a-login-hash".to_string(),
         super_admin: false,
+        active: true,
     })
     .exec(&mut db.clone())
     .await
@@ -805,7 +808,7 @@ async fn workspace_members_listing() {
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: stranger.id,
-        expires_at: 4_102_444_800,
+        expires_at: common::far_future(),
     })
     .exec(&mut db.clone())
     .await
@@ -936,7 +939,7 @@ async fn completion_timestamp_and_project_id() {
     let t = create_task(&fx, "Alpha").await;
 
     let task = get_task_json(&fx, t).await;
-    assert_eq!(task["is_completed"], false);
+    assert!(task["completed_at"].is_null());
     assert!(task["completed_at"].is_null());
     assert_eq!(task["project_id"], fx.project_id.to_string());
 
@@ -956,9 +959,9 @@ async fn completion_timestamp_and_project_id() {
     // Completing sets the timestamp.
     patch(r#"{"is_completed":true}"#.to_string()).await;
     let done = get_task_json(&fx, t).await;
-    assert_eq!(done["is_completed"], true);
-    let stamp = done["completed_at"].as_i64().expect("completed_at set");
-    assert!(stamp > 1_700_000_000);
+    assert!(done["completed_at"].is_string());
+    let stamp = done["completed_at"].clone();
+    assert!(stamp.is_string(), "completed_at set");
 
     // Completing again (or editing something else) keeps the original timestamp.
     patch(r#"{"is_completed":true,"priority":"high"}"#.to_string()).await;
@@ -979,13 +982,12 @@ async fn completion_timestamp_and_project_id() {
     let other = json_id(res).await;
     patch(format!(r#"{{"is_completed":false,"list_id":"{other}"}}"#)).await;
     let reopened = get_task_json(&fx, t).await;
-    assert_eq!(reopened["is_completed"], false);
     assert!(reopened["completed_at"].is_null());
     assert_eq!(reopened["list_id"], other.to_string());
 }
 
 #[tokio::test]
-async fn new_projects_start_with_an_undeletable_inbox() {
+async fn tasks_without_a_list_are_the_projects_inbox() {
     let app = app().await;
     let cookie = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &cookie, "Home").await;
@@ -1002,8 +1004,43 @@ async fn new_projects_start_with_an_undeletable_inbox() {
         json_id(res).await
     };
 
-    // The inbox exists from the start and stays first, even as lists are added.
-    request(
+    // A new project has no lists; quick adds go to the inbox (no list).
+    let res = request(
+        &app,
+        get(&format!("/api/projects/{project}/lists"), Some(&cookie)),
+    )
+    .await;
+    let lists: Vec<Value> = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    assert!(lists.is_empty());
+    let res = request(
+        &app,
+        post_json(
+            &format!("/api/projects/{project}/tasks"),
+            r#"{"title":"Quick idea"}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let task: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    assert!(task["list_id"].is_null());
+    assert_eq!(task["project_id"], project.to_string());
+    let task_id = task["id"].as_str().unwrap().to_string();
+
+    // The inbox filter lists them; moving into a list takes it out, and `null` moves it back.
+    let inbox = |app: axum::Router, cookie: String| async move {
+        let res = request(
+            &app,
+            get(
+                &format!("/api/workspaces/{ws}/tasks?project_id={project}&inbox=true"),
+                Some(&cookie),
+            ),
+        )
+        .await;
+        serde_json::from_str::<Vec<Value>>(&body_string(res.into_body()).await).unwrap()
+    };
+    assert_eq!(inbox(app.clone(), cookie.clone()).await.len(), 1);
+    let res = request(
         &app,
         post_json(
             &format!("/api/projects/{project}/lists"),
@@ -1012,31 +1049,37 @@ async fn new_projects_start_with_an_undeletable_inbox() {
         ),
     )
     .await;
+    let later = json_id(res).await;
     let res = request(
         &app,
-        get(&format!("/api/projects/{project}/lists"), Some(&cookie)),
+        patch_json(
+            &format!("/api/tasks/{task_id}"),
+            &format!(r#"{{"list_id":"{later}"}}"#),
+            Some(&cookie),
+        ),
     )
     .await;
-    let lists: Vec<Value> = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
-    assert_eq!(lists.len(), 2);
-    assert_eq!(lists[0]["name"], "Inbox");
-    assert_eq!(lists[0]["is_inbox"], true);
-    assert_eq!(lists[1]["is_inbox"], false);
-
-    // It cannot be deleted; other lists can.
-    let inbox = lists[0]["id"].as_str().unwrap();
-    let res = request(&app, delete(&format!("/api/lists/{inbox}"), Some(&cookie))).await;
-    assert_eq!(res.status(), StatusCode::CONFLICT);
-    let other = lists[1]["id"].as_str().unwrap();
-    let res = request(&app, delete(&format!("/api/lists/{other}"), Some(&cookie))).await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(inbox(app.clone(), cookie.clone()).await.is_empty());
+    let res = request(
+        &app,
+        patch_json(
+            &format!("/api/tasks/{task_id}"),
+            r#"{"list_id":null}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(inbox(app.clone(), cookie.clone()).await.len(), 1);
 }
 
 #[tokio::test]
 async fn scheduling_filters_and_project_links() {
     let fx = fixture().await;
     let day = 86_400;
-    let base = 1_800_000_000;
+    let base = 20_833 * 86_400; // a midnight
+    let iso = |secs: i64| jiff::Timestamp::from_second(secs).unwrap().to_string();
     let mk = |title: &'static str, extra: String| {
         let (app, cookie, list) = (fx.app.clone(), fx.cookie.clone(), fx.list_id);
         async move {
@@ -1052,15 +1095,23 @@ async fn scheduling_filters_and_project_links() {
             json_id(res).await
         }
     };
-    let due_only = mk("Due only", format!(r#","due_date":{}"#, base + 5 * day)).await;
+    let due_only = mk(
+        "Due only",
+        format!(r#","due_date":"{}""#, iso(base + 5 * day)),
+    )
+    .await;
     let span = mk(
         "Span",
-        format!(r#","start_date":{},"due_date":{}"#, base, base + 3 * day),
+        format!(
+            r#","start_date":"{}","due_date":"{}""#,
+            iso(base),
+            iso(base + 3 * day)
+        ),
     )
     .await;
     let _start_only = mk(
         "Start only",
-        format!(r#","start_date":{}"#, base + 10 * day),
+        format!(r#","start_date":"{}""#, iso(base + 10 * day)),
     )
     .await;
     let _none = mk("Unscheduled", String::new()).await;
@@ -1076,31 +1127,41 @@ async fn scheduling_filters_and_project_links() {
                 ),
             )
             .await;
-            let mut t: Vec<String> =
-                serde_json::from_str::<Vec<Value>>(&body_string(res.into_body()).await)
-                    .unwrap()
-                    .iter()
-                    .map(|t| t["title"].as_str().unwrap().to_string())
-                    .collect();
+            let text = body_string(res.into_body()).await;
+            let mut t: Vec<String> = serde_json::from_str::<Vec<Value>>(&text)
+                .unwrap_or_else(|_| panic!("{query}: {text}"))
+                .iter()
+                .map(|t| t["title"].as_str().unwrap().to_string())
+                .collect();
             t.sort();
             t
         }
     };
     // Overlap, not containment: the span shows up in any window touching it.
     assert_eq!(
-        titles(format!("from={}&to={}", base + 2 * day, base + 4 * day)).await,
+        titles(format!(
+            "from={}&to={}",
+            iso(base + 2 * day),
+            iso(base + 4 * day)
+        ))
+        .await,
         ["Span"]
     );
     assert_eq!(
-        titles(format!("from={}&to={}", base + 3 * day, base + 5 * day)).await,
+        titles(format!(
+            "from={}&to={}",
+            iso(base + 3 * day),
+            iso(base + 5 * day)
+        ))
+        .await,
         ["Due only", "Span"]
     );
     assert_eq!(
-        titles(format!("from={}", base + 6 * day)).await,
+        titles(format!("from={}", iso(base + 6 * day))).await,
         ["Start only"]
     );
     assert_eq!(
-        titles(format!("to={}", base - day)).await,
+        titles(format!("to={}", iso(base - day))).await,
         Vec::<String>::new()
     );
     assert_eq!(

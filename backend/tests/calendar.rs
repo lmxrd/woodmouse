@@ -55,6 +55,7 @@ impl Fx {
             name: "".to_string(),
             password_hash: "x".to_string(),
             super_admin: false,
+            active: true,
         })
         .exec(db)
         .await
@@ -71,7 +72,7 @@ impl Fx {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: 4_102_444_800
+            expires_at: common::far_future()
         })
         .exec(db)
         .await
@@ -80,7 +81,8 @@ impl Fx {
     }
 }
 
-const DAY: i64 = 20_742 * 86_400; // 2026-10-16
+const DAY: &str = "2026-10-16T00:00:00Z";
+const DAY_PLUS_2: &str = "2026-10-18T00:00:00Z";
 
 #[tokio::test]
 async fn feeds_show_dated_tasks_and_revoking_stops_them() {
@@ -97,11 +99,14 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
         )
         .await;
     let project_id = project["id"].as_str().unwrap().to_string();
-    let lists = fx
-        .get(&fx.cookie, &format!("/api/projects/{project_id}/lists"))
-        .await
-        .1;
-    let list = lists[0]["id"].as_str().unwrap().to_string();
+    let (_, created) = fx
+        .post(
+            &fx.cookie,
+            &format!("/api/projects/{project_id}/lists"),
+            json!({ "name": "Todo" }),
+        )
+        .await;
+    let list = created["id"].as_str().unwrap().to_string();
 
     let task = |title: &str, dates: Value| {
         let (list, title) = (list.clone(), title.to_string());
@@ -133,7 +138,7 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
     };
     task(
         "Order oak",
-        json!({ "start_date": DAY, "due_date": DAY + 2 * 86_400 }),
+        json!({ "start_date": DAY, "due_date": DAY_PLUS_2 }),
     )
     .await;
     let done = task("Pay deposit", json!({ "due_date": DAY })).await;
@@ -179,7 +184,7 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
     // The list shows them with when they were last used; filters narrow it.
     let (_, all) = fx.get(&fx.cookie, "/api/calendar-links").await;
     assert_eq!(all.as_array().unwrap().len(), 3);
-    assert!(all[0]["last_used_at"].is_number());
+    assert!(all[0]["last_used_at"].is_string());
     let (_, only_project) = fx
         .get(
             &fx.cookie,

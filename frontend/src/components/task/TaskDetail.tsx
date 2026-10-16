@@ -32,6 +32,10 @@ import { PrioritySelect } from "./PrioritySelect";
 import { SubtaskTree } from "./SubtaskTree";
 import { TaskActivity } from "./TaskActivity";
 import { TaskLinks } from "./TaskLinks";
+import { isDone } from "../../lib/task";
+
+/** The Select value for "no list": the project's inbox. */
+const INBOX = "inbox";
 
 /**
  * Everything about one task, with autosave. Container-agnostic: the dialog route and the full-page
@@ -145,7 +149,7 @@ function TaskForm({
           <Checkbox
             className="mt-2.5 size-[18px]"
             aria-label="Completed"
-            checked={task.is_completed}
+            checked={isDone(task)}
             disabled={!canWrite}
             onCheckedChange={(checked) => save({ is_completed: checked === true })}
           />
@@ -166,7 +170,7 @@ function TaskForm({
               if (!trimmed) return setTitle(task.title);
               if (trimmed !== task.title) save({ title: trimmed });
             }}
-            className={`min-w-0 flex-1 resize-none border-b border-dashed border-transparent bg-transparent font-display text-2xl leading-tight font-medium field-sizing-content outline-none hover:border-border focus:border-ring ${task.is_completed ? "text-muted-foreground line-through" : ""}`}
+            className={`min-w-0 flex-1 resize-none border-b border-dashed border-transparent bg-transparent font-display text-2xl leading-tight font-medium field-sizing-content outline-none hover:border-border focus:border-ring ${isDone(task) ? "text-muted-foreground line-through" : ""}`}
           />
         </div>
 
@@ -270,11 +274,15 @@ function TaskForm({
         className="m-0 flex min-w-0 flex-col gap-4 border-0 border-t border-border bg-muted/40 p-5 sm:border-t-0"
       >
         <Field label="List">
-          <Select value={task.list_id} onValueChange={(listId) => save({ list_id: listId })}>
+          <Select
+            value={task.list_id ?? INBOX}
+            onValueChange={(listId) => save({ list_id: listId === INBOX ? null : listId })}
+          >
             <SelectTrigger aria-label="List" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={INBOX}>Inbox</SelectItem>
               {lists?.map((l) => (
                 <SelectItem key={l.id} value={l.id}>
                   {l.name}

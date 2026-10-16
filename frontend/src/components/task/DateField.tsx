@@ -2,15 +2,15 @@ import { toDateInput, fromDateInput } from "../../lib/dates";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
-/** A native date input (good touch UI for free) bound to epoch seconds, with a clear button. */
+/** A native date input (good touch UI for free) bound to an API day value (`2026-10-16T00:00:00Z`), with a clear button. */
 export function DateField({
   id,
   value,
   onChange,
 }: {
   id: string;
-  value: number | null | undefined;
-  onChange: (value: number | null) => void;
+  value: string | null | undefined;
+  onChange: (value: string | null) => void;
 }) {
   return (
     <div className="flex gap-1">

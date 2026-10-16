@@ -1,8 +1,10 @@
 /**
- * Day arithmetic for the calendar and timeline. Dates are Unix epoch seconds at local midnight (what
- * the task date fields store), and all stepping goes through `Date` so daylight-saving changes never
- * shift a day.
+ * Day arithmetic for the calendar and timeline. A day is the Unix epoch second of its local midnight
+ * (see `time.ts` for converting to and from the API's day values), and all stepping goes through
+ * `Date` so daylight-saving changes never shift a day.
  */
+
+import { dayEpoch, dayIso } from "./time";
 
 export type WeekStart = "monday" | "sunday";
 
@@ -78,8 +80,9 @@ export function weekdayLabels(weekStart: WeekStart): string[] {
 }
 
 export interface Scheduled {
-  start_date?: number | null;
-  due_date?: number | null;
+  /** The API's day values (`2026-10-16T00:00:00Z`). */
+  start_date?: string | null;
+  due_date?: string | null;
 }
 
 /**
@@ -87,21 +90,22 @@ export interface Scheduled {
  * date). Null when it has neither.
  */
 export function taskSpan(task: Scheduled): { start: number; end: number } | null {
-  const a = task.start_date ?? task.due_date;
-  const b = task.due_date ?? task.start_date;
+  const a = dayEpoch(task.start_date ?? task.due_date);
+  const b = dayEpoch(task.due_date ?? task.start_date);
   if (a == null || b == null) return null;
-  const [start, end] = [startOfDay(a), startOfDay(b)];
-  return start <= end ? { start, end } : { start: end, end: start };
+  return a <= b ? { start: a, end: b } : { start: b, end: a };
 }
 
 /** New `start_date`/`due_date` values after moving a task by `days`; dates it lacks stay unset. */
 export function shiftDates(
   task: Scheduled,
   days: number,
-): { start_date?: number; due_date?: number } {
-  const out: { start_date?: number; due_date?: number } = {};
-  if (task.start_date != null) out.start_date = addDays(task.start_date, days);
-  if (task.due_date != null) out.due_date = addDays(task.due_date, days);
+): { start_date?: string; due_date?: string } {
+  const out: { start_date?: string; due_date?: string } = {};
+  const start = dayEpoch(task.start_date);
+  const due = dayEpoch(task.due_date);
+  if (start != null) out.start_date = dayIso(addDays(start, days));
+  if (due != null) out.due_date = dayIso(addDays(due, days));
   return out;
 }
 

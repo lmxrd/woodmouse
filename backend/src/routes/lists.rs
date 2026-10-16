@@ -6,11 +6,12 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::{self, CurrentUser};
+use crate::audit;
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{List, Role};
 use crate::state::AppState;
-use crate::trash;
+use crate::{ordering, time, trash};
 
 /// All list routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -50,16 +51,15 @@ pub async fn list_lists(
     CurrentUser { user, .. }: CurrentUser,
     Path(project_id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<List>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_project_access(db, &user, project_id, Role::Read).await?;
-    // Ids are time-ordered, so sorting by id is creation order, which puts the inbox first.
     let mut lists: Vec<List> = List::filter_by_project_id(project_id)
         .exec(db)
         .await?
         .into_iter()
         .filter(|l| l.deleted_at.is_none())
         .collect();
-    lists.sort_by_key(|l| l.id);
+    lists.sort_by_key(|l| (l.position, l.id));
     Ok(Json(lists))
 }
 
@@ -89,15 +89,22 @@ pub async fn create_list(
         return Err(ApiError::bad_request("name is required"));
     }
 
-    let db = &mut *state.db.lock().await;
-    access::require_project_access(db, &user, project_id, Role::Write).await?;
+    let mut db = state.writer().await;
+    access::require_project_access(&mut *db, &user, project_id, Role::Write).await?;
 
+    let position = ordering::append(
+        List::filter_by_project_id(project_id)
+            .exec(&mut *db)
+            .await?
+            .iter()
+            .map(|l| l.position),
+    );
     let list = toasty::create!(List {
         project_id,
         name: name.to_string(),
-        is_inbox: false,
+        position,
     })
-    .exec(db)
+    .exec(&mut *db)
     .await?;
     Ok((StatusCode::CREATED, Json(list)))
 }
@@ -120,9 +127,8 @@ pub async fn get_list(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<List>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_list_access(db, &user, id, Role::Read).await?;
-    let list = List::get_by_id(db, &id).await?;
+    let db = &mut state.db();
+    let (list, _) = access::require_list(db, &user, id, Role::Read).await?;
     Ok(Json(list))
 }
 
@@ -147,9 +153,8 @@ pub async fn update_list(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateList>,
 ) -> Result<Json<List>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_list_access(db, &user, id, Role::Write).await?;
-    let mut list = List::get_by_id(db, &id).await?;
+    let mut db = state.writer().await;
+    let (mut list, _) = access::require_list(&mut *db, &user, id, Role::Write).await?;
 
     let mut update = list.update();
     if let Some(name) = input.name {
@@ -159,7 +164,7 @@ pub async fn update_list(
         }
         update = update.name(name.to_string());
     }
-    update.exec(db).await?;
+    update.exec(&mut *db).await?;
     Ok(Json(list))
 }
 
@@ -173,8 +178,7 @@ pub async fn update_list(
     responses(
         (status = 204, description = "List deleted"),
         (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access"),
-        (status = 409, description = "The inbox cannot be deleted")
+        (status = 404, description = "No list with that id, or no access")
     )
 )]
 pub async fn delete_list(
@@ -182,15 +186,13 @@ pub async fn delete_list(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    access::require_list_access(db, &user, id, Role::Write).await?;
-    if List::get_by_id(db, &id).await?.is_inbox {
-        return Err(ApiError::conflict("the inbox cannot be deleted"));
-    }
+    let mut db = state.writer().await;
+    let (list, workspace_id) = access::require_list(&mut *db, &user, id, Role::Write).await?;
 
     // Soft delete: the list and its tasks move to Trash together.
     let mut tx = db.transaction().await?;
-    trash::delete_list(&mut tx, id, user.id, auth::now_secs()).await?;
+    trash::delete_list(&mut tx, &list, time::now()).await?;
+    audit::deleted(&mut tx, user.id, workspace_id, "list", id, &list.name).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

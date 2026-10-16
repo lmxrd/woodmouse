@@ -12,6 +12,7 @@ import { cn } from "../../lib/utils";
 import { LabelTag } from "../LabelTag";
 import { AvatarStack } from "../UserAvatar";
 import { Checkbox } from "../ui/checkbox";
+import { isDone } from "../../lib/task";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -37,7 +38,7 @@ export function TaskCardBody({
       <Checkbox
         className="relative z-10 mt-0.5"
         aria-label={`Completed: ${task.title}`}
-        checked={task.is_completed}
+        checked={isDone(task)}
         disabled={!editable}
         onCheckedChange={(checked) => onToggleCompleted(task, checked === true)}
       />
@@ -46,7 +47,7 @@ export function TaskCardBody({
           <h3
             className={cn(
               "text-sm leading-snug font-medium",
-              task.is_completed && "text-muted-foreground line-through",
+              isDone(task) && "text-muted-foreground line-through",
             )}
           >
             <Link
@@ -94,9 +95,7 @@ export function TaskCardBody({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {task.due_date != null ? (
             <span
-              className={cn(
-                isDueNow(task.due_date) && !task.is_completed && "font-medium text-signal",
-              )}
+              className={cn(isDueNow(task.due_date) && !isDone(task) && "font-medium text-signal")}
             >
               {dateShort(task.due_date)}
             </span>
@@ -141,7 +140,7 @@ export function SortableTaskCard(props: CardProps & { columnId: string }) {
       className={cn(
         cardClass,
         editable && "cursor-grab touch-manipulation",
-        task.is_completed && "bg-muted",
+        isDone(task) && "bg-muted",
         isDragging && "opacity-40",
       )}
       {...pointerListeners}
@@ -169,7 +168,7 @@ export function TaskCardOverlay(props: CardProps) {
       className={cn(
         cardClass,
         "cursor-grabbing border-foreground shadow-md",
-        props.task.is_completed && "bg-muted",
+        isDone(props.task) && "bg-muted",
       )}
     >
       <TaskCardBody {...props} />

@@ -9,6 +9,10 @@ import {
   type WeekStart,
 } from "./calendar";
 import type { Zoom } from "./projectSearch";
+import { isDone } from "./task";
+
+/** The id of the synthetic list that holds tasks with no list (the project's inbox). */
+export const INBOX_ID = "inbox";
 
 export interface Span {
   start: number;
@@ -75,9 +79,11 @@ export function buildRows(
     rows.push({ type: "task", task, depth, hasChildren: kids.length > 0, ...spanOf(task) });
     if (!collapsed.has(task.id)) for (const kid of kids) addTask(kid, depth + 1);
   };
-  for (const list of lists) {
+  // Tasks in no list form the project's inbox group, first.
+  const inbox: List = { id: INBOX_ID, name: "Inbox", project_id: "", position: 0 };
+  for (const list of [inbox, ...lists]) {
     const top = tasks
-      .filter((t) => t.list_id === list.id && isTopLevel(t))
+      .filter((t) => (t.list_id ?? INBOX_ID) === list.id && isTopLevel(t))
       .sort((a, b) => a.position - b.position);
     if (top.length === 0) continue;
     rows.push({ type: "group", list });
@@ -176,7 +182,7 @@ export function dependencyArrows(edges: LinkEdge[], spans: ReadonlyMap<string, S
 /** Progress from 0 to 1: the share of completed subtasks, or all-or-nothing for a task with none. */
 export function progressOf(task: TaskResponse): number {
   if (task.subtask_total > 0) return task.subtask_completed / task.subtask_total;
-  return task.is_completed ? 1 : 0;
+  return isDone(task) ? 1 : 0;
 }
 
 export const todayStart = (): number => startOfDay(Math.floor(Date.now() / 1000));

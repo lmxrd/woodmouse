@@ -1,3 +1,13 @@
+//! The database models. Conventions (see TODO.md and AGENTS.md):
+//!
+//! - Every date-time is a `jiff::civil::DateTime` meaning UTC (see `crate::time`); task dates are a day at
+//!   midnight UTC.
+//! - Users' things are soft deleted (`deleted_at`); who deleted them is in the `AuditLog`.
+//! - Ordering uses integer positions spaced 20 apart (see `crate::ordering`).
+//! - Relations (`#[belongs_to]`) are for typed navigation; Toasty enforces them in its query engine, not as
+//!   database constraints. Nothing that has children is ever hard deleted, so its cascades do not fire.
+
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -51,11 +61,21 @@ pub struct User {
     /// Light, dark or follow the device: `light`, `dark` or `system`; `None` means `system`.
     pub theme_mode: Option<String>,
 
+    /// IANA timezone (`Europe/Oslo`), filled in from the browser the first time; `None` until then.
+    pub timezone: Option<String>,
+
     /// Argon2id hash (PHC string format).
     pub password_hash: String,
 
-    /// System-level super admin: the first registered user, sees everything.
+    /// The one site-wide super admin: the first registered user. Above every workspace role, gates the
+    /// site admin page, never delegated.
     pub super_admin: bool,
+
+    /// Access to every workspace at this role, given by the super admin; `None` means memberships only.
+    pub global_role: Option<Role>,
+
+    /// Disabled accounts cannot sign in; everything they made stays.
+    pub active: bool,
 }
 
 /// A login session. The opaque token travels in an httpOnly cookie.
@@ -71,15 +91,17 @@ pub struct Session {
     #[index]
     pub user_id: uuid::Uuid,
 
-    /// Expiry as Unix epoch seconds.
-    pub expires_at: i64,
+    #[belongs_to(key = user_id, references = id)]
+    pub user: toasty::Deferred<User>,
+
+    pub expires_at: DateTime,
 }
 
 /// A one-time invite link for a user who has not set a password yet. The
 /// token is shown to the inviting admin in the UI; accepting it sets the
 /// password and deletes the invite.
 #[derive(Debug, toasty::Model)]
-pub struct Invite {
+pub struct UserInvite {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
@@ -90,12 +112,14 @@ pub struct Invite {
     #[index]
     pub user_id: uuid::Uuid,
 
-    /// Expiry as Unix epoch seconds.
-    pub expires_at: i64,
+    #[belongs_to(key = user_id, references = id)]
+    pub user: toasty::Deferred<User>,
+
+    pub expires_at: DateTime,
 }
 
 /// A workspace: the top-level container for projects, tasks, and wiki pages.
-#[derive(Debug, Serialize, ToSchema, toasty::Model)]
+#[derive(Debug, Clone, Serialize, ToSchema, toasty::Model)]
 pub struct Workspace {
     #[key]
     #[auto]
@@ -103,19 +127,21 @@ pub struct Workspace {
 
     pub name: String,
 
+    pub description: String,
+
     /// The workspace's colour palette (one of `themes::PALETTES`); `None` means the default.
     pub theme_palette: Option<String>,
 
     /// The workspace's accent colour as `#rrggbb`; `None` means the palette's own.
     pub theme_accent: Option<String>,
+
+    /// Soft delete: a deleted workspace is hidden from everyone and only the super admin can restore it.
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub deleted_at: Option<DateTime>,
 }
 
-/// A user's membership in a workspace. In v1 this is the only access
-/// mechanism — project-level membership is deferred.
-///
-/// One row per (user, workspace): the composite primary key makes duplicate
-/// memberships impossible at the schema level. `ProjectMember`, if it ever
-/// arrives, copies this shape.
+/// A user's membership in a workspace. One row per (user, workspace).
 #[derive(Debug, toasty::Model)]
 #[index(user_id)]
 pub struct WorkspaceMember {
@@ -124,6 +150,12 @@ pub struct WorkspaceMember {
 
     #[key]
     pub workspace_id: uuid::Uuid,
+
+    #[belongs_to(key = user_id, references = id)]
+    pub user: toasty::Deferred<User>,
+
+    #[belongs_to(key = workspace_id, references = id)]
+    pub workspace: toasty::Deferred<Workspace>,
 
     pub role: Role,
 
@@ -156,8 +188,7 @@ pub enum Priority {
     Urgent,
 }
 
-/// A project inside a workspace. Access inherits from workspace membership —
-/// there are no project members in v1.
+/// A project inside a workspace. Access inherits from workspace membership.
 #[derive(Debug, Serialize, ToSchema, toasty::Model)]
 pub struct Project {
     #[key]
@@ -167,18 +198,22 @@ pub struct Project {
     #[index]
     pub workspace_id: uuid::Uuid,
 
+    #[belongs_to(key = workspace_id, references = id)]
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub workspace: toasty::Deferred<Workspace>,
+
     pub name: String,
 
-    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
-    #[serde(skip)]
-    pub deleted_at: Option<i64>,
+    pub description: String,
 
-    /// Who deleted it.
+    /// Soft delete: when set the row is hidden everywhere but Trash.
     #[serde(skip)]
-    pub deleted_by: Option<uuid::Uuid>,
+    #[schema(ignore)]
+    pub deleted_at: Option<DateTime>,
 }
 
-/// A list of tasks inside a project.
+/// A list of tasks inside a project. A project's inbox is not a list: it is the tasks without one.
 #[derive(Debug, Serialize, ToSchema, toasty::Model)]
 pub struct List {
     #[key]
@@ -188,70 +223,67 @@ pub struct List {
     #[index]
     pub project_id: uuid::Uuid,
 
+    #[belongs_to(key = project_id, references = id)]
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub project: toasty::Deferred<Project>,
+
     pub name: String,
 
-    /// The project's inbox: an unorganized dump list every project starts with. New quick-added
-    /// tasks land here, and it cannot be deleted.
-    pub is_inbox: bool,
+    /// Ordering among the project's lists.
+    pub position: i64,
 
-    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
+    /// Soft delete: when set the row is hidden everywhere but Trash.
     #[serde(skip)]
-    pub deleted_at: Option<i64>,
-
-    /// Who deleted it.
-    #[serde(skip)]
-    pub deleted_by: Option<uuid::Uuid>,
+    #[schema(ignore)]
+    pub deleted_at: Option<DateTime>,
 }
 
-/// A task. `position` is a float for fractional reordering; `parent_id` is
-/// used for subtasks (any depth).
-#[derive(Debug, Serialize, ToSchema, toasty::Model)]
+/// A task. `list_id` is `None` while the task is in the project's inbox; `parent_id` is set for subtasks
+/// (any depth), which always share their parent's project and list.
+#[derive(Debug, toasty::Model)]
 pub struct Task {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
 
     #[index]
-    pub list_id: uuid::Uuid,
+    pub project_id: uuid::Uuid,
+
+    #[belongs_to(key = project_id, references = id)]
+    pub project: toasty::Deferred<Project>,
+
+    #[index]
+    pub list_id: Option<uuid::Uuid>,
+
+    #[belongs_to(key = list_id, references = id)]
+    pub list: toasty::Deferred<Option<List>>,
 
     pub title: String,
 
-    /// Plain text for now; rich text once the wiki editor (Model A blocks)
-    /// lands in Phase 3.
+    /// Markdown.
     pub description: String,
 
-    pub is_completed: bool,
+    /// When the task was completed; `None` while it is open.
+    pub completed_at: Option<DateTime>,
 
-    /// When the task was completed (Unix epoch seconds); set and cleared together with
-    /// `is_completed`, so a Done view can show the most recent first.
-    pub completed_at: Option<i64>,
-
-    /// Ordering within the list; new tasks append (max + 1).
-    pub position: f64,
+    /// Ordering among the tasks of its list (or inbox).
+    pub position: i64,
 
     pub priority: Priority,
 
-    /// Start date as Unix epoch seconds, if set (for timeline views).
-    pub start_date: Option<i64>,
+    /// A calendar day (midnight UTC), if set.
+    pub start_date: Option<DateTime>,
 
-    /// Due date as Unix epoch seconds, if set.
-    pub due_date: Option<i64>,
+    /// A calendar day (midnight UTC), if set.
+    pub due_date: Option<DateTime>,
 
-    /// The parent task when this is a subtask (any depth). A subtask lives in its parent's list.
+    /// The parent task when this is a subtask.
+    #[index]
     pub parent_id: Option<uuid::Uuid>,
 
-    /// When the title or description last changed (unset for tasks never edited since they were created).
-    pub text_edited_at: Option<i64>,
-
-    pub text_edited_by: Option<uuid::Uuid>,
-
-    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
-    #[serde(skip)]
-    pub deleted_at: Option<i64>,
-
-    /// Who deleted it.
-    #[serde(skip)]
-    pub deleted_by: Option<uuid::Uuid>,
+    /// Soft delete: when set the row is hidden everywhere but Trash.
+    pub deleted_at: Option<DateTime>,
 }
 
 /// A workspace-scoped label that tasks can carry.
@@ -264,18 +296,20 @@ pub struct Label {
     #[index]
     pub workspace_id: uuid::Uuid,
 
+    #[belongs_to(key = workspace_id, references = id)]
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub workspace: toasty::Deferred<Workspace>,
+
     pub name: String,
 
     /// Hex color like `#71717a`.
     pub color: String,
 
-    /// Soft delete: when set (Unix epoch seconds) the row is hidden everywhere but Trash.
+    /// Soft delete: when set the row is hidden everywhere but Trash.
     #[serde(skip)]
-    pub deleted_at: Option<i64>,
-
-    /// Who deleted it.
-    #[serde(skip)]
-    pub deleted_by: Option<uuid::Uuid>,
+    #[schema(ignore)]
+    pub deleted_at: Option<DateTime>,
 }
 
 /// Task assignee. Composite key: a user is assigned to a task at most once.
@@ -288,6 +322,12 @@ pub struct TaskAssignee {
 
     #[key]
     pub user_id: uuid::Uuid,
+
+    #[belongs_to(key = task_id, references = id)]
+    pub task: toasty::Deferred<Task>,
+
+    #[belongs_to(key = user_id, references = id)]
+    pub user: toasty::Deferred<User>,
 }
 
 /// Task/label association. Composite key: a label is attached at most once.
@@ -300,6 +340,12 @@ pub struct TaskLabel {
 
     #[key]
     pub label_id: uuid::Uuid,
+
+    #[belongs_to(key = task_id, references = id)]
+    pub task: toasty::Deferred<Task>,
+
+    #[belongs_to(key = label_id, references = id)]
+    pub label: toasty::Deferred<Label>,
 }
 
 /// How two tasks relate. `Blocks` and `Duplicates` read from the owning task to the related one
@@ -329,7 +375,7 @@ pub struct TaskLink {
     pub kind: LinkKind,
 }
 
-/// A comment on a task. The body is markdown.
+/// A comment on a task. The body is markdown; earlier bodies are `Revision`s.
 #[derive(Debug, toasty::Model)]
 pub struct Comment {
     #[key]
@@ -339,24 +385,21 @@ pub struct Comment {
     #[index]
     pub task_id: uuid::Uuid,
 
+    #[belongs_to(key = task_id, references = id)]
+    pub task: toasty::Deferred<Task>,
+
     pub author_id: uuid::Uuid,
 
     pub body: String,
 
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    pub created_at: DateTime,
 
-    /// Unix epoch seconds of the last edit, if any.
-    pub edited_at: Option<i64>,
-
-    pub deleted_at: Option<i64>,
-
-    pub deleted_by: Option<uuid::Uuid>,
+    pub deleted_at: Option<DateTime>,
 }
 
 /// A file in a workspace's library. The bytes live in the storage backend named by
 /// `storage_backend` under `storage_key`. Files are never deleted along with whatever references
-/// them; only an admin's cleanup of unreferenced files (or deleting the workspace) removes them.
+/// them; only an admin's cleanup of unreferenced files removes them.
 #[derive(Debug, toasty::Model)]
 pub struct File {
     #[key]
@@ -383,49 +426,66 @@ pub struct File {
 
     pub uploaded_by: uuid::Uuid,
 
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    pub created_at: DateTime,
 }
 
-/// A file attached to a task. Composite key: attached at most once.
+/// A file attached to a task or a wiki page. Attached at most once per target.
 #[derive(Debug, toasty::Model)]
 #[index(file_id)]
-#[index(task_id)]
+#[index(target_id)]
 pub struct FileRef {
     #[key]
     pub file_id: uuid::Uuid,
 
+    /// `task` or `page`.
     #[key]
-    pub task_id: uuid::Uuid,
+    pub target_type: String,
+
+    #[key]
+    pub target_id: uuid::Uuid,
 }
 
-/// One entry of the activity feed: who did what, to which task, when. `kind` is a short snake_case
-/// name (`task_created`, `comment_added`, ...) and `data` a JSON object with what the UI needs to
-/// phrase it (titles are snapshotted, so entries stay readable after renames and deletes).
+/// Who may see an audit entry: the workspace's activity feed (and the audit) or the audit only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, toasty::Embed)]
+#[serde(rename_all = "snake_case")]
+pub enum Visibility {
+    Workspace,
+    Admin,
+}
+
+/// One entry of the append-only audit log, which is also the source of the workspace activity feed.
+/// Never updated or deleted. `data` is a JSON object with what the UI needs to phrase the entry (titles
+/// are snapshotted; edits point to their `Revision`), never content itself. No network addresses or
+/// browsers are recorded.
 #[derive(Debug, toasty::Model)]
-pub struct Activity {
+#[index(workspace_id, visibility, created_at)]
+pub struct AuditLog {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
 
     #[index]
-    pub workspace_id: uuid::Uuid,
+    pub actor_id: Option<uuid::Uuid>,
+
+    /// snake_case: `login`, `task_created`, `entity_deleted`, ...
+    #[index]
+    pub action: String,
+
+    /// `user`, `workspace`, `task`, `page`, `comment`, ...
+    pub target_type: Option<String>,
 
     #[index]
-    pub project_id: Option<uuid::Uuid>,
+    pub target_id: Option<uuid::Uuid>,
 
-    #[index]
-    pub task_id: Option<uuid::Uuid>,
+    /// Set for workspace events (always when `visibility` is `workspace`).
+    pub workspace_id: Option<uuid::Uuid>,
 
-    pub actor_id: uuid::Uuid,
+    pub visibility: Visibility,
 
-    pub kind: String,
-
-    /// JSON text.
+    /// JSON object text.
     pub data: String,
 
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    pub created_at: DateTime,
 }
 
 /// A named set of view settings (view, filters, sort) for a project, private to its owner or shared
@@ -443,6 +503,9 @@ pub struct SavedView {
     #[index]
     pub project_id: uuid::Uuid,
 
+    #[belongs_to(key = project_id, references = id)]
+    pub project: toasty::Deferred<Project>,
+
     pub owner_id: uuid::Uuid,
 
     pub name: String,
@@ -452,18 +515,15 @@ pub struct SavedView {
 
     pub is_shared: bool,
 
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    pub created_at: DateTime,
 
-    pub deleted_at: Option<i64>,
-
-    pub deleted_by: Option<uuid::Uuid>,
+    pub deleted_at: Option<DateTime>,
 }
 
 /// A wiki page. Pages form a tree per workspace through `parent_id`; siblings are ordered by `position`.
-/// The content lives in [`Block`] rows.
+/// `content` is the page's blocks as versioned JSON (see `crate::blocks::Content`).
 #[derive(Debug, toasty::Model)]
-pub struct Page {
+pub struct WikiPage {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
@@ -471,100 +531,61 @@ pub struct Page {
     #[index]
     pub workspace_id: uuid::Uuid,
 
+    #[belongs_to(key = workspace_id, references = id)]
+    pub workspace: toasty::Deferred<Workspace>,
+
     #[index]
     pub parent_id: Option<uuid::Uuid>,
 
     pub title: String,
 
-    /// Ordering among siblings (floats, so a move only changes the moved page).
-    pub position: f64,
+    /// Ordering among siblings.
+    pub position: i64,
+
+    /// `{"version": 1, "blocks": [...]}`.
+    pub content: String,
 
     pub created_by: uuid::Uuid,
 
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    pub created_at: DateTime,
 
     pub updated_by: uuid::Uuid,
 
-    /// Unix epoch seconds of the last title or content change.
-    pub updated_at: i64,
+    /// The last title or content change.
+    pub updated_at: DateTime,
 
     /// Counts content saves; a save based on an older version is refused as a conflict.
     pub version: i64,
 
-    pub deleted_at: Option<i64>,
-
-    pub deleted_by: Option<uuid::Uuid>,
+    pub deleted_at: Option<DateTime>,
 }
 
-/// One block of a page's content, in `position` order. `attrs` and `spans` are JSON text in the
-/// [`crate::blocks`] format. Saving a page replaces its blocks; history is kept as revisions.
+/// A version of a task (title and description), wiki page (title and blocks) or comment (body), with who
+/// made it. A revision holds the content *after* a change; a page's newest revision is updated in place
+/// while one editing session lasts. Admins can redact a revision's content.
 #[derive(Debug, toasty::Model)]
-pub struct Block {
+pub struct Revision {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
 
-    #[index]
-    pub page_id: uuid::Uuid,
-
-    /// A [`crate::blocks::BlockKind`] name.
-    pub kind: String,
-
-    pub position: f64,
-
-    pub attrs: String,
-
-    pub spans: String,
-}
-
-/// An earlier state of a page's content, kept when an editing session by someone else (or after a pause)
-/// begins. See `revisions.rs` for when versions are taken.
-#[derive(Debug, toasty::Model)]
-pub struct PageRevision {
-    #[key]
-    #[auto]
-    pub id: uuid::Uuid,
+    /// `task`, `page` or `comment`.
+    pub target_type: String,
 
     #[index]
-    pub page_id: uuid::Uuid,
+    pub target_id: uuid::Uuid,
 
-    /// Unix epoch seconds when this content was saved.
-    pub saved_at: i64,
+    pub actor_id: uuid::Uuid,
 
-    pub saved_by: uuid::Uuid,
+    pub created_at: DateTime,
 
-    /// The page's title at that time.
-    pub title: String,
+    /// The last change in this revision's editing session.
+    pub updated_at: DateTime,
 
-    /// The blocks, as JSON (`Vec<BlockData>`).
-    pub blocks: String,
+    /// JSON; empty after redaction.
+    pub content: String,
 
-    /// Unix epoch seconds when this version was recorded.
-    pub created_at: i64,
-}
-
-/// An earlier title and description of a task.
-#[derive(Debug, toasty::Model)]
-pub struct TaskRevision {
-    #[key]
-    #[auto]
-    pub id: uuid::Uuid,
-
-    #[index]
-    pub task_id: uuid::Uuid,
-
-    /// When this text was saved; unset for the text the task was created with.
-    pub saved_at: Option<i64>,
-
-    pub saved_by: Option<uuid::Uuid>,
-
-    pub title: String,
-
-    pub description: String,
-
-    /// Unix epoch seconds when this version was recorded.
-    pub created_at: i64,
+    pub redacted_at: Option<DateTime>,
 }
 
 /// A reference from a page's content to a page or task (`@task` mention or `[[page]]` link), derived from
@@ -579,6 +600,9 @@ pub struct ContentLink {
     #[index]
     pub source_page_id: uuid::Uuid,
 
+    #[belongs_to(key = source_page_id, references = id)]
+    pub source_page: toasty::Deferred<WikiPage>,
+
     #[index]
     pub target_id: uuid::Uuid,
 
@@ -587,21 +611,23 @@ pub struct ContentLink {
 }
 
 /// The live editing state of a page: its Yjs document, so that a restart does not lose what clients still
-/// hold. `epoch` names the document's lineage; it changes whenever the document is rebuilt from the blocks
-/// (after a save outside live editing, or a restore), which tells clients to start over instead of merging
-/// two unrelated histories.
+/// hold. `epoch` names the document's lineage; it changes whenever the document is rebuilt from the
+/// page's content (after a save outside live editing, or a restore), which tells clients to start over
+/// instead of merging two unrelated histories.
 #[derive(Debug, toasty::Model)]
 pub struct PageDoc {
     #[key]
     pub page_id: uuid::Uuid,
+
+    #[belongs_to(key = page_id, references = id)]
+    pub page: toasty::Deferred<WikiPage>,
 
     pub epoch: String,
 
     /// The document as a Yjs update, base64.
     pub state: String,
 
-    /// Unix epoch seconds.
-    pub updated_at: i64,
+    pub updated_at: DateTime,
 }
 
 /// A secret link to a read-only calendar feed (iCalendar) of tasks with dates. Calendar apps cannot log
@@ -616,6 +642,9 @@ pub struct CalendarLink {
     /// Whose link it is; the feed shows what this person can see.
     #[index]
     pub user_id: uuid::Uuid,
+
+    #[belongs_to(key = user_id, references = id)]
+    pub user: toasty::Deferred<User>,
 
     /// `user` (tasks assigned to the person, in every workspace), `project` or `workspace`.
     pub scope: String,
@@ -633,12 +662,10 @@ pub struct CalendarLink {
     #[unique]
     pub secret: String,
 
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    pub created_at: DateTime,
 
-    /// Unix epoch seconds of the last time a calendar app fetched it (rounded to a few minutes).
-    pub last_used_at: Option<i64>,
+    /// The last time a calendar app fetched it (rounded to a few minutes).
+    pub last_used_at: Option<DateTime>,
 
-    /// Unix epoch seconds; set when the link was revoked.
-    pub revoked_at: Option<i64>,
+    pub revoked_at: Option<DateTime>,
 }

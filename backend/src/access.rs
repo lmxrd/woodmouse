@@ -1,111 +1,144 @@
 //! The single workspace access check. Every handler that touches a
 //! workspace-scoped resource must go through [`require_access`] (or one of
-//! the `require_*_access` resolvers below) — workspace membership is the
-//! only v1 access mechanism.
+//! the `require_*_access` resolvers below).
+//!
+//! A person's role in a workspace is the highest of: admin if they are the super admin, their
+//! `global_role` (access to every workspace given by the super admin), and their membership. Deleted
+//! workspaces are invisible to everyone (the super admin restores them from the site trash).
 
 use crate::error::ApiError;
-use crate::models::{List, Page, Project, Task, User, WorkspaceMember};
+use crate::models::{List, Project, Role, Task, User, WikiPage, Workspace, WorkspaceMember};
 
-/// The user's role in the workspace: `None` when not a member. Super admins
-/// act as admin everywhere.
+/// The user's role in the workspace: `None` when they have no access (or it is deleted).
 pub async fn role_in(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     workspace_id: uuid::Uuid,
-) -> Result<Option<crate::models::Role>, ApiError> {
-    if user.super_admin {
-        return Ok(Some(crate::models::Role::Admin));
+) -> Result<Option<Role>, ApiError> {
+    let Ok(workspace) = Workspace::get_by_id(db, &workspace_id).await else {
+        return Ok(None);
+    };
+    if workspace.deleted_at.is_some() {
+        return Ok(None);
     }
-    // The composite primary key guarantees at most one membership row.
     let membership = WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, workspace_id)
         .first()
         .exec(db)
-        .await?;
-    Ok(membership.map(|m| m.role))
+        .await?
+        .map(|m| m.role);
+    let super_admin = user.super_admin.then_some(Role::Admin);
+    Ok([super_admin, user.global_role, membership]
+        .into_iter()
+        .flatten()
+        .max())
 }
 
-/// Whether the user is a workspace member with any role. Used to validate
-/// task assignees, who must be able to see the workspace.
-pub async fn is_workspace_member(
-    db: &mut toasty::Db,
+/// Whether the user can see the workspace (any role). Used to validate task assignees.
+pub async fn can_see_workspace(
+    db: &mut dyn toasty::Executor,
     user_id: uuid::Uuid,
     workspace_id: uuid::Uuid,
 ) -> Result<bool, ApiError> {
-    Ok(
-        WorkspaceMember::filter_by_user_id_and_workspace_id(user_id, workspace_id)
-            .first()
-            .exec(db)
-            .await?
-            .is_some(),
-    )
+    let Ok(user) = User::get_by_id(db, &user_id).await else {
+        return Ok(false);
+    };
+    Ok(user.active && role_in(db, &user, workspace_id).await?.is_some())
 }
 
 /// Require at least `min_role` in the workspace.
 ///
 /// Returns the actual role on success. Both "workspace does not exist" and
 /// "no access" map to 404 so callers cannot probe for workspace ids they
-/// are not a member of.
+/// cannot see.
 pub async fn require_access(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     workspace_id: uuid::Uuid,
-    min_role: crate::models::Role,
-) -> Result<crate::models::Role, ApiError> {
+    min_role: Role,
+) -> Result<Role, ApiError> {
     match role_in(db, user, workspace_id).await? {
         Some(role) if role >= min_role => Ok(role),
         _ => Err(ApiError::not_found()),
     }
 }
 
-/// Resolve a project to its workspace and require access. Deleted projects look nonexistent.
-/// Returns the workspace id.
-pub async fn require_project_access(
-    db: &mut toasty::Db,
+/// A live project the caller may access at `min_role`.
+pub async fn require_project(
+    db: &mut dyn toasty::Executor,
     user: &User,
     project_id: uuid::Uuid,
-    min_role: crate::models::Role,
-) -> Result<uuid::Uuid, ApiError> {
+    min_role: Role,
+) -> Result<Project, ApiError> {
     let project = Project::get_by_id(db, &project_id).await?;
     if project.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
     require_access(db, user, project.workspace_id, min_role).await?;
-    Ok(project.workspace_id)
+    Ok(project)
 }
 
-/// Resolve a list to its workspace (via the project) and require access. Deleted lists, and lists
-/// of deleted projects, look nonexistent.
-pub async fn require_list_access(
-    db: &mut toasty::Db,
+/// Resolve a project to its workspace and require access. Deleted projects look nonexistent.
+/// Returns the workspace id.
+pub async fn require_project_access(
+    db: &mut dyn toasty::Executor,
+    user: &User,
+    project_id: uuid::Uuid,
+    min_role: Role,
+) -> Result<uuid::Uuid, ApiError> {
+    Ok(require_project(db, user, project_id, min_role)
+        .await?
+        .workspace_id)
+}
+
+/// A live list (of a live project) the caller may access, with its project's workspace id.
+pub async fn require_list(
+    db: &mut dyn toasty::Executor,
     user: &User,
     list_id: uuid::Uuid,
-    min_role: crate::models::Role,
-) -> Result<uuid::Uuid, ApiError> {
+    min_role: Role,
+) -> Result<(List, uuid::Uuid), ApiError> {
     let list = List::get_by_id(db, &list_id).await?;
     if list.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
-    require_project_access(db, user, list.project_id, min_role).await
+    let workspace = require_project_access(db, user, list.project_id, min_role).await?;
+    Ok((list, workspace))
 }
 
-/// Resolve a task to its workspace (via list and project) and require access. Deleted tasks look
-/// nonexistent.
-pub async fn require_task_access(
-    db: &mut toasty::Db,
+/// A live task (in a live list and project) the caller may access, with its workspace id.
+pub async fn require_task(
+    db: &mut dyn toasty::Executor,
     user: &User,
     task_id: uuid::Uuid,
-    min_role: crate::models::Role,
-) -> Result<uuid::Uuid, ApiError> {
+    min_role: Role,
+) -> Result<(Task, uuid::Uuid), ApiError> {
     let task = Task::get_by_id(db, &task_id).await?;
     if task.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
-    require_list_access(db, user, task.list_id, min_role).await
+    if let Some(list_id) = task.list_id {
+        let list = List::get_by_id(db, &list_id).await?;
+        if list.deleted_at.is_some() {
+            return Err(ApiError::not_found());
+        }
+    }
+    let workspace = require_project_access(db, user, task.project_id, min_role).await?;
+    Ok((task, workspace))
+}
+
+/// Resolve a task to its workspace and require access. Returns the workspace id.
+pub async fn require_task_access(
+    db: &mut dyn toasty::Executor,
+    user: &User,
+    task_id: uuid::Uuid,
+    min_role: Role,
+) -> Result<uuid::Uuid, ApiError> {
+    Ok(require_task(db, user, task_id, min_role).await?.1)
 }
 
 /// The workspace a project belongs to, deleted or not (for Trash, which must see deleted items).
 pub async fn project_workspace(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     project_id: uuid::Uuid,
 ) -> Result<uuid::Uuid, ApiError> {
     Ok(Project::get_by_id(db, &project_id).await?.workspace_id)
@@ -113,7 +146,7 @@ pub async fn project_workspace(
 
 /// The workspace a list belongs to, deleted or not.
 pub async fn list_workspace(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     list_id: uuid::Uuid,
 ) -> Result<uuid::Uuid, ApiError> {
     let list = List::get_by_id(db, &list_id).await?;
@@ -122,24 +155,33 @@ pub async fn list_workspace(
 
 /// The workspace a task belongs to, deleted or not.
 pub async fn task_workspace(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     task_id: uuid::Uuid,
 ) -> Result<uuid::Uuid, ApiError> {
     let task = Task::get_by_id(db, &task_id).await?;
-    list_workspace(db, task.list_id).await
+    project_workspace(db, task.project_id).await
 }
 
 /// A live page the caller may access. Deleted pages look nonexistent.
 pub async fn require_page_access(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     page_id: uuid::Uuid,
-    min_role: crate::models::Role,
-) -> Result<Page, ApiError> {
-    let page = Page::get_by_id(db, &page_id).await?;
+    min_role: Role,
+) -> Result<WikiPage, ApiError> {
+    let page = WikiPage::get_by_id(db, &page_id).await?;
     if page.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
     require_access(db, user, page.workspace_id, min_role).await?;
     Ok(page)
+}
+
+/// Only the super admin.
+pub fn require_super_admin(user: &User) -> Result<(), ApiError> {
+    if user.super_admin {
+        Ok(())
+    } else {
+        Err(ApiError::not_found())
+    }
 }

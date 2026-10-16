@@ -12,6 +12,7 @@ import {
   toIsoDay,
   weekdayLabels,
 } from "./calendar";
+import { dayIso } from "./time";
 
 const day = (y: number, m: number, d: number) => Math.floor(new Date(y, m - 1, d).getTime() / 1000);
 
@@ -67,21 +68,21 @@ describe("weeks and months", () => {
 describe("task scheduling", () => {
   it("spans from start to due, or a single day", () => {
     const [a, b] = [day(2026, 10, 12), day(2026, 10, 15)];
-    expect(taskSpan({ start_date: a, due_date: b })).toEqual({ start: a, end: b });
-    expect(taskSpan({ due_date: b })).toEqual({ start: b, end: b });
-    expect(taskSpan({ start_date: a })).toEqual({ start: a, end: a });
+    expect(taskSpan({ start_date: dayIso(a), due_date: dayIso(b) })).toEqual({ start: a, end: b });
+    expect(taskSpan({ due_date: dayIso(b) })).toEqual({ start: b, end: b });
+    expect(taskSpan({ start_date: dayIso(a) })).toEqual({ start: a, end: a });
     expect(taskSpan({})).toBeNull();
   });
   it("tolerates a start after the due date", () => {
     const [a, b] = [day(2026, 10, 15), day(2026, 10, 12)];
-    expect(taskSpan({ start_date: a, due_date: b })).toEqual({ start: b, end: a });
+    expect(taskSpan({ start_date: dayIso(a), due_date: dayIso(b) })).toEqual({ start: b, end: a });
   });
   it("moves both dates by the same amount and leaves missing ones unset", () => {
     const [a, b] = [day(2026, 10, 12), day(2026, 10, 15)];
-    const moved = shiftDates({ start_date: a, due_date: b }, 3);
-    expect(toIsoDay(moved.start_date!)).toBe("2026-10-15");
-    expect(toIsoDay(moved.due_date!)).toBe("2026-10-18");
-    expect(shiftDates({ due_date: b }, -1)).toEqual({ due_date: addDays(b, -1) });
+    const moved = shiftDates({ start_date: dayIso(a), due_date: dayIso(b) }, 3);
+    expect(moved.start_date).toBe("2026-10-15T00:00:00Z");
+    expect(moved.due_date).toBe("2026-10-18T00:00:00Z");
+    expect(shiftDates({ due_date: dayIso(b) }, -1)).toEqual({ due_date: dayIso(addDays(b, -1)) });
   });
 });
 

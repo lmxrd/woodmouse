@@ -9,7 +9,6 @@
 
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::Page;
 use toasty::stmt::Value;
 
 const SETUP: &[&str] = &[
@@ -17,9 +16,11 @@ const SETUP: &[&str] = &[
         rid INTEGER PRIMARY KEY,
         id TEXT NOT NULL UNIQUE,
         kind TEXT NOT NULL,
+        ws TEXT NOT NULL,
         title TEXT NOT NULL,
         body TEXT NOT NULL DEFAULT ''
     )",
+    "CREATE INDEX IF NOT EXISTS search_docs_ws ON search_docs(ws)",
     "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
         title, body, content='search_docs', content_rowid='rid',
         tokenize='unicode61 remove_diacritics 2', prefix='2 3'
@@ -36,42 +37,39 @@ const SETUP: &[&str] = &[
             VALUES ('delete', old.rid, old.title, old.body);
         INSERT INTO search_fts(rowid, title, body) VALUES (new.rid, new.title, new.body);
     END",
+    // Tasks: the workspace comes from the task's project.
     "CREATE TRIGGER IF NOT EXISTS search_tasks_ai AFTER INSERT ON tasks BEGIN
-        INSERT INTO search_docs(id, kind, title, body)
-            VALUES (lower(hex(new.id)), 'task', new.title, new.description)
+        INSERT INTO search_docs(id, kind, ws, title, body)
+            VALUES (lower(hex(new.id)), 'task',
+                    (SELECT lower(hex(workspace_id)) FROM projects WHERE id = new.project_id),
+                    new.title, new.description)
             ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body;
     END",
     "CREATE TRIGGER IF NOT EXISTS search_tasks_au AFTER UPDATE OF title, description ON tasks BEGIN
-        INSERT INTO search_docs(id, kind, title, body)
-            VALUES (lower(hex(new.id)), 'task', new.title, new.description)
+        INSERT INTO search_docs(id, kind, ws, title, body)
+            VALUES (lower(hex(new.id)), 'task',
+                    (SELECT lower(hex(workspace_id)) FROM projects WHERE id = new.project_id),
+                    new.title, new.description)
             ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body;
     END",
-    "CREATE TRIGGER IF NOT EXISTS search_tasks_ad AFTER DELETE ON tasks BEGIN
-        DELETE FROM search_docs WHERE id = lower(hex(old.id));
-    END",
     "CREATE TRIGGER IF NOT EXISTS search_comments_ai AFTER INSERT ON comments BEGIN
-        INSERT INTO search_docs(id, kind, title, body)
-            VALUES (lower(hex(new.id)), 'comment', '', new.body)
+        INSERT INTO search_docs(id, kind, ws, title, body)
+            VALUES (lower(hex(new.id)), 'comment',
+                    (SELECT lower(hex(p.workspace_id)) FROM tasks t JOIN projects p ON p.id = t.project_id
+                      WHERE t.id = new.task_id),
+                    '', new.body)
             ON CONFLICT(id) DO UPDATE SET body = excluded.body;
     END",
     "CREATE TRIGGER IF NOT EXISTS search_comments_au AFTER UPDATE OF body ON comments BEGIN
-        INSERT INTO search_docs(id, kind, title, body)
-            VALUES (lower(hex(new.id)), 'comment', '', new.body)
-            ON CONFLICT(id) DO UPDATE SET body = excluded.body;
+        UPDATE search_docs SET body = new.body WHERE id = lower(hex(new.id));
     END",
-    "CREATE TRIGGER IF NOT EXISTS search_comments_ad AFTER DELETE ON comments BEGIN
-        DELETE FROM search_docs WHERE id = lower(hex(old.id));
-    END",
-    "CREATE TRIGGER IF NOT EXISTS search_pages_ai AFTER INSERT ON pages BEGIN
-        INSERT INTO search_docs(id, kind, title) VALUES (lower(hex(new.id)), 'page', new.title)
+    "CREATE TRIGGER IF NOT EXISTS search_pages_ai AFTER INSERT ON wiki_pages BEGIN
+        INSERT INTO search_docs(id, kind, ws, title)
+            VALUES (lower(hex(new.id)), 'page', lower(hex(new.workspace_id)), new.title)
             ON CONFLICT(id) DO UPDATE SET title = excluded.title;
     END",
-    "CREATE TRIGGER IF NOT EXISTS search_pages_au AFTER UPDATE OF title ON pages BEGIN
-        INSERT INTO search_docs(id, kind, title) VALUES (lower(hex(new.id)), 'page', new.title)
-            ON CONFLICT(id) DO UPDATE SET title = excluded.title;
-    END",
-    "CREATE TRIGGER IF NOT EXISTS search_pages_ad AFTER DELETE ON pages BEGIN
-        DELETE FROM search_docs WHERE id = lower(hex(old.id));
+    "CREATE TRIGGER IF NOT EXISTS search_pages_au AFTER UPDATE OF title ON wiki_pages BEGIN
+        UPDATE search_docs SET title = new.title WHERE id = lower(hex(new.id));
     END",
 ];
 
@@ -85,74 +83,22 @@ fn key(id: uuid::Uuid) -> String {
     id.simple().to_string()
 }
 
-/// Create the index and its triggers (idempotent), and index what existed before them.
-pub async fn ensure_index(db: &mut toasty::Db) -> Result<(), ApiError> {
+/// Create the index and its triggers (idempotent).
+pub async fn ensure_index(db: &mut dyn toasty::Executor) -> Result<(), ApiError> {
     for sql in SETUP {
         toasty::sql::statement(*sql)
             .exec(db)
             .await
             .map_err(|e| err("creating the search index", e))?;
     }
-    // Comments joined the index after tasks and pages did: fill them in once for older databases.
-    toasty::sql::statement(
-        "INSERT INTO search_docs(id, kind, title, body)
-            SELECT lower(hex(id)), 'comment', '', body FROM comments
-            WHERE NOT EXISTS (SELECT 1 FROM search_docs WHERE kind = 'comment')
-            ON CONFLICT(id) DO NOTHING",
-    )
-    .exec(db)
-    .await
-    .map_err(|e| err("filling the search index", e))?;
-    let rows = toasty::sql::query("SELECT COUNT(*) FROM search_docs")
-        .exec(db)
-        .await
-        .map_err(|e| err("reading the search index", e))?;
-    if i64_at(&rows[0], 0) > 0 {
-        return Ok(());
-    }
-    // First start with search: fill the index from existing data.
-    for sql in [
-        "INSERT INTO search_docs(id, kind, title, body)
-            SELECT lower(hex(id)), 'task', title, description FROM tasks",
-        "INSERT INTO search_docs(id, kind, title) SELECT lower(hex(id)), 'page', title FROM pages",
-    ] {
-        toasty::sql::statement(sql)
-            .exec(db)
-            .await
-            .map_err(|e| err("filling the search index", e))?;
-    }
-    use crate::models::Block;
-    for page in Page::all().exec(db).await? {
-        let blocks = Block::filter_by_page_id(page.id).exec(db).await?;
-        let body = blocks
-            .iter()
-            .filter_map(|b| {
-                let kind = crate::blocks::BlockKind::parse(&b.kind)?;
-                let spans = serde_json::from_str(&b.spans).ok()?;
-                Some((
-                    b.position,
-                    BlockData {
-                        kind,
-                        attrs: Default::default(),
-                        spans,
-                    }
-                    .plain_text(),
-                ))
-            })
-            .collect::<Vec<_>>();
-        let mut body = body;
-        body.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let text = body
-            .into_iter()
-            .map(|(_, t)| t)
-            .collect::<Vec<_>>()
-            .join("\n");
-        set_body(db, page.id, &text).await?;
-    }
     Ok(())
 }
 
-async fn set_body(db: &mut toasty::Db, page_id: uuid::Uuid, body: &str) -> Result<(), ApiError> {
+async fn set_body(
+    db: &mut dyn toasty::Executor,
+    page_id: uuid::Uuid,
+    body: &str,
+) -> Result<(), ApiError> {
     toasty::sql::statement("UPDATE search_docs SET body = ?1 WHERE id = ?2")
         .bind(body.to_string())
         .bind(key(page_id))
@@ -164,7 +110,7 @@ async fn set_body(db: &mut toasty::Db, page_id: uuid::Uuid, body: &str) -> Resul
 
 /// Index a page's text after its blocks were saved.
 pub async fn index_page_body(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     page_id: uuid::Uuid,
     blocks: &[BlockData],
 ) -> Result<(), ApiError> {
@@ -227,7 +173,7 @@ fn match_expression(query: &str) -> Option<String> {
 /// Search the live pages and tasks of `workspaces`, best match first (title matches count ten times as
 /// much as text matches). An empty query returns the newest items instead.
 pub async fn search(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     workspaces: &[uuid::Uuid],
     query: &str,
     kind: Option<Kind>,
@@ -267,34 +213,39 @@ pub async fn search(
     } else {
         "?1 = ?1 AND"
     };
+    // Matching documents first (cheap: the index and the workspace column), then only those are checked
+    // against the live pages, tasks and comments, so deleted things and moved or deleted lists never show.
     let sql = format!(
-        "WITH scoped AS (
-            SELECT lower(hex(p.id)) AS id, lower(hex(p.workspace_id)) AS ws,
-                   '' AS project, 0 AS done, p.title AS title, lower(hex(p.id)) AS target
-            FROM pages p
-            WHERE p.deleted_at IS NULL AND lower(hex(p.workspace_id)) IN ({marks})
-            UNION ALL
-            SELECT lower(hex(t.id)), lower(hex(pr.workspace_id)), lower(hex(pr.id)), t.is_completed,
-                   t.title, lower(hex(t.id))
-            FROM tasks t
-            JOIN lists l ON l.id = t.list_id
-            JOIN projects pr ON pr.id = l.project_id
-            WHERE t.deleted_at IS NULL AND l.deleted_at IS NULL AND pr.deleted_at IS NULL
-              AND lower(hex(pr.workspace_id)) IN ({marks})
-            UNION ALL
-            SELECT lower(hex(c.id)), lower(hex(pr.workspace_id)), lower(hex(pr.id)), t.is_completed,
-                   t.title, lower(hex(t.id))
-            FROM comments c
-            JOIN tasks t ON t.id = c.task_id
-            JOIN lists l ON l.id = t.list_id
-            JOIN projects pr ON pr.id = l.project_id
-            WHERE c.deleted_at IS NULL AND t.deleted_at IS NULL AND l.deleted_at IS NULL
-              AND pr.deleted_at IS NULL AND lower(hex(pr.workspace_id)) IN ({marks})
+        "WITH hits AS (
+            SELECT d.id AS id, d.kind AS kind, d.ws AS ws, {snippet} AS snip, {order} AS rank
+            FROM {from}
+            WHERE {matching} d.ws IN ({marks})
+              AND (?2 = '' OR d.kind = ?2 OR (?2 = 'task' AND d.kind = 'comment'))
+            ORDER BY rank LIMIT ?3
         )
-        SELECT d.kind, s.target, s.title, {snippet}, s.ws, s.project, s.done
-        FROM {from} JOIN scoped s ON s.id = d.id
-        WHERE {matching} (?2 = '' OR d.kind = ?2 OR (?2 = 'task' AND d.kind = 'comment'))
-        ORDER BY {order} LIMIT ?3"
+        SELECT h.kind, h.id, p.title, h.snip, h.ws, '', 0, h.rank
+        FROM hits h JOIN wiki_pages p ON p.id = unhex(h.id)
+        WHERE h.kind = 'page' AND p.deleted_at IS NULL
+        UNION ALL
+        SELECT 'task', lower(hex(t.id)), t.title, h.snip, h.ws, lower(hex(t.project_id)),
+               t.completed_at IS NOT NULL, h.rank
+        FROM hits h
+        JOIN tasks t ON t.id = unhex(h.id)
+        JOIN projects pr ON pr.id = t.project_id
+        LEFT JOIN lists l ON l.id = t.list_id
+        WHERE h.kind = 'task' AND t.deleted_at IS NULL AND pr.deleted_at IS NULL
+          AND (l.id IS NULL OR l.deleted_at IS NULL)
+        UNION ALL
+        SELECT 'comment', lower(hex(t.id)), t.title, h.snip, h.ws, lower(hex(t.project_id)),
+               t.completed_at IS NOT NULL, h.rank
+        FROM hits h
+        JOIN comments c ON c.id = unhex(h.id)
+        JOIN tasks t ON t.id = c.task_id
+        JOIN projects pr ON pr.id = t.project_id
+        LEFT JOIN lists l ON l.id = t.list_id
+        WHERE h.kind = 'comment' AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+          AND pr.deleted_at IS NULL AND (l.id IS NULL OR l.deleted_at IS NULL)
+        ORDER BY rank"
     );
     let mut q = toasty::sql::query(sql)
         .bind(expression.unwrap_or_default())

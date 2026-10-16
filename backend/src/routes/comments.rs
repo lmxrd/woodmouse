@@ -9,12 +9,15 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::activity::{self, Event};
-use crate::auth::{self, CurrentUser};
+use crate::audit::{self, Entry};
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Comment, Role, Task, User};
+use crate::models::{Comment, Revision, Role, Task, User};
+use crate::revisions;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
+use crate::time;
+use jiff::civil::DateTime;
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -29,10 +32,13 @@ pub struct CommentView {
     pub author: Option<PublicUser>,
     /// Markdown.
     pub body: String,
-    /// Unix epoch seconds.
-    pub created_at: i64,
-    /// Unix epoch seconds of the last edit, if it was edited.
-    pub edited_at: Option<i64>,
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime,
+    /// The last edit, if it was edited (the newest of its revisions).
+    #[serde(with = "time::utc_option")]
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub edited_at: Option<DateTime>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -49,7 +55,10 @@ fn validate_body(body: &str) -> Result<String, ApiError> {
     Ok(body.to_string())
 }
 
-async fn views(db: &mut toasty::Db, comments: Vec<Comment>) -> Result<Vec<CommentView>, ApiError> {
+async fn views(
+    db: &mut dyn toasty::Executor,
+    comments: Vec<Comment>,
+) -> Result<Vec<CommentView>, ApiError> {
     let author_ids: Vec<uuid::Uuid> = comments.iter().map(|c| c.author_id).collect();
     let authors: Vec<User> = if author_ids.is_empty() {
         vec![]
@@ -59,9 +68,28 @@ async fn views(db: &mut toasty::Db, comments: Vec<Comment>) -> Result<Vec<Commen
             .exec(db)
             .await?
     };
+    let comment_ids: Vec<uuid::Uuid> = comments.iter().map(|c| c.id).collect();
+    let revision_rows: Vec<Revision> = if comment_ids.is_empty() {
+        vec![]
+    } else {
+        Revision::all()
+            .filter(in_list(Revision::fields().target_id(), comment_ids))
+            .exec(db)
+            .await?
+    };
     Ok(comments
         .into_iter()
-        .map(|c| CommentView {
+        .map(|c| {
+            let mine: Vec<&Revision> = revision_rows
+                .iter()
+                .filter(|r| r.target_type == revisions::COMMENT && r.target_id == c.id)
+                .collect();
+            let edited_at = (mine.len() > 1)
+                .then(|| mine.iter().map(|r| r.created_at).max())
+                .flatten();
+            (c, edited_at)
+        })
+        .map(|(c, edited_at)| CommentView {
             id: c.id,
             task_id: c.task_id,
             author: authors
@@ -70,14 +98,14 @@ async fn views(db: &mut toasty::Db, comments: Vec<Comment>) -> Result<Vec<Commen
                 .map(PublicUser::from),
             body: c.body,
             created_at: c.created_at,
-            edited_at: c.edited_at,
+            edited_at,
         })
         .collect())
 }
 
 /// A comment the caller may see (its task is live and readable); returns the workspace id.
 async fn load(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     id: uuid::Uuid,
     min_role: Role,
@@ -108,7 +136,7 @@ pub async fn list_comments(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<CommentView>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
     let mut comments: Vec<Comment> = Comment::filter_by_task_id(id)
         .exec(db)
@@ -142,35 +170,30 @@ pub async fn add_comment(
     Json(input): Json<CommentBody>,
 ) -> Result<(StatusCode, Json<CommentView>), ApiError> {
     let body = validate_body(&input.body)?;
-    let db = &mut *state.db.lock().await;
-    let workspace_id = access::require_task_access(db, &user, id, Role::Write).await?;
+    let mut db = state.writer().await;
+    let (task, workspace_id) = access::require_task(&mut *db, &user, id, Role::Write).await?;
+    let mut tx = db.transaction().await?;
     let comment = toasty::create!(Comment {
         task_id: id,
         author_id: user.id,
         body,
-        created_at: auth::now_secs(),
-        edited_at: None,
+        created_at: time::now(),
     })
-    .exec(db)
+    .exec(&mut tx)
     .await?;
-
-    let task = Task::get_by_id(db, &id).await?;
-    let project_id = crate::models::List::get_by_id(db, &task.list_id)
-        .await?
-        .project_id;
-    activity::record(
-        db,
-        Event {
-            workspace_id,
-            project_id: Some(project_id),
-            task_id: Some(id),
-            actor_id: user.id,
-            kind: "comment_added",
-            data: serde_json::json!({ "title": task.title, "preview": comment.body.chars().take(120).collect::<String>() }),
-        },
+    revisions::record_comment(&mut tx, comment.id, user.id, &comment.body).await?;
+    audit::task_event(
+        &mut tx,
+        workspace_id,
+        task.project_id,
+        user.id,
+        "comment_added",
+        id,
+        serde_json::json!({ "title": task.title, "preview": comment.body.chars().take(120).collect::<String>() }),
     )
-    .await;
-    let mut out = views(db, vec![comment]).await?;
+    .await?;
+    tx.commit().await?;
+    let mut out = views(&mut *db, vec![comment]).await?;
     Ok((StatusCode::CREATED, Json(out.swap_remove(0))))
 }
 
@@ -196,20 +219,26 @@ pub async fn update_comment(
     Json(input): Json<CommentBody>,
 ) -> Result<Json<CommentView>, ApiError> {
     let body = validate_body(&input.body)?;
-    let db = &mut *state.db.lock().await;
-    let (mut comment, _) = load(db, &user, id, Role::Write).await?;
+    let mut db = state.writer().await;
+    let (mut comment, workspace_id) = load(&mut *db, &user, id, Role::Write).await?;
     if comment.author_id != user.id {
         return Err(ApiError::not_found());
     }
     if comment.body != body {
-        comment
-            .update()
-            .body(body)
-            .edited_at(Some(auth::now_secs()))
-            .exec(db)
-            .await?;
+        let mut tx = db.transaction().await?;
+        comment.update().body(body.clone()).exec(&mut tx).await?;
+        let revision = revisions::record_comment(&mut tx, id, user.id, &body).await?;
+        audit::record(
+            &mut tx,
+            Entry::admin(Some(user.id), "comment_edited")
+                .target("comment", id)
+                .in_workspace(workspace_id)
+                .data(serde_json::json!({ "revision_id": revision.id })),
+        )
+        .await?;
+        tx.commit().await?;
     }
-    let mut out = views(db, vec![comment]).await?;
+    let mut out = views(&mut *db, vec![comment]).await?;
     Ok(Json(out.swap_remove(0)))
 }
 
@@ -231,26 +260,31 @@ pub async fn delete_comment(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let (comment, workspace_id) = load(db, &user, id, Role::Write).await?;
+    let mut db = state.writer().await;
+    let (comment, workspace_id) = load(&mut *db, &user, id, Role::Write).await?;
     if comment.author_id != user.id
-        && access::require_access(db, &user, workspace_id, Role::Admin)
+        && access::require_access(&mut *db, &user, workspace_id, Role::Admin)
             .await
             .is_err()
     {
         return Err(ApiError::not_found());
     }
+    let mut tx = db.transaction().await?;
     Comment::filter_by_id(id)
         .update()
-        .deleted_at(Some(auth::now_secs()))
-        .deleted_by(Some(user.id))
-        .exec(db)
+        .deleted_at(Some(time::now()))
+        .exec(&mut tx)
         .await?;
+    audit::deleted(&mut tx, user.id, workspace_id, "comment", id, "").await?;
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// Used by Trash: the task a comment belongs to (live or not), for restore checks.
-pub(crate) async fn comment_task(db: &mut toasty::Db, id: uuid::Uuid) -> Result<Task, ApiError> {
+pub(crate) async fn comment_task(
+    db: &mut dyn toasty::Executor,
+    id: uuid::Uuid,
+) -> Result<Task, ApiError> {
     let comment = Comment::get_by_id(db, &id).await?;
     Ok(Task::get_by_id(db, &comment.task_id).await?)
 }

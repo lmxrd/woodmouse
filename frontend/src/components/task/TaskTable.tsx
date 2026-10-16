@@ -10,6 +10,7 @@ import { cn } from "../../lib/utils";
 import { LabelTag } from "../LabelTag";
 import { AvatarStack } from "../UserAvatar";
 import { Checkbox } from "../ui/checkbox";
+import { isDone } from "../../lib/task";
 
 interface Props {
   tasks: TaskResponse[];
@@ -33,7 +34,7 @@ function TaskLink({
       to="/w/$workspaceId/p/$projectId/t/$taskId"
       params={{ workspaceId, projectId, taskId: task.id }}
       search={(prev) => prev}
-      className={cn(task.is_completed && "text-muted-foreground line-through", className)}
+      className={cn(isDone(task) && "text-muted-foreground line-through", className)}
     >
       {task.title}
     </Link>
@@ -44,9 +45,7 @@ function Due({ task }: { task: TaskResponse }) {
   const { date } = useFormatters();
   if (task.due_date == null) return <span className="text-muted-foreground">—</span>;
   return (
-    <span
-      className={cn(isDueNow(task.due_date) && !task.is_completed && "font-medium text-signal")}
-    >
+    <span className={cn(isDueNow(task.due_date) && !isDone(task) && "font-medium text-signal")}>
       {date(task.due_date)}
     </span>
   );
@@ -55,7 +54,8 @@ function Due({ task }: { task: TaskResponse }) {
 /** Tasks as a table from `sm` up and as stacked rows on phones. */
 export function TaskTable(props: Props) {
   const { tasks, lists, workspaceId, projectId, sort, order, onSort, onToggleDone } = props;
-  const listName = (id: string) => lists.find((l) => l.id === id)?.name ?? "";
+  const listName = (id: string | null | undefined) =>
+    id ? (lists.find((l) => l.id === id)?.name ?? "") : "Inbox";
   const arrow = (column: TaskSort) => (sort === column ? (order === "asc" ? " ↑" : " ↓") : "");
   const header = (column: TaskSort, text: string) => (
     <th scope="col" className="px-2 py-2 text-left font-normal">
@@ -98,7 +98,7 @@ export function TaskTable(props: Props) {
               <td className="py-2.5 pl-4">
                 <Checkbox
                   aria-label={`Done: ${task.title}`}
-                  checked={task.is_completed}
+                  checked={isDone(task)}
                   onCheckedChange={(done) => onToggleDone(task, done === true)}
                 />
               </td>
@@ -139,7 +139,7 @@ export function TaskTable(props: Props) {
             <Checkbox
               className="mt-0.5"
               aria-label={`Done: ${task.title}`}
-              checked={task.is_completed}
+              checked={isDone(task)}
               onCheckedChange={(done) => onToggleDone(task, done === true)}
             />
             <div className="min-w-0 flex-1">

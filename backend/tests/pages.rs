@@ -156,7 +156,7 @@ async fn page_tree_create_move_and_rename() {
     assert_eq!(moved["ancestors"][1]["title"], "Untitled");
 
     // Reordering with an explicit position.
-    fx.patch(&budget, json!({ "position": 0.5 })).await;
+    fx.patch(&budget, json!({ "after_id": null })).await;
     let first = fx
         .tree()
         .await
@@ -265,11 +265,11 @@ async fn saving_the_same_content_does_not_touch_updated_at() {
     let page = fx.page("P", None).await;
     let doc = json!([{ "type": "paragraph", "spans": [text("hello")] }]);
     let (_, first) = fx.save(&page, doc.clone()).await;
-    let stamp = first["updated_at"].as_i64().unwrap();
+    let stamp = first["updated_at"].as_str().unwrap().to_string();
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     let (_, same) = fx.save(&page, doc).await;
     assert_eq!(
-        same["updated_at"].as_i64().unwrap(),
+        same["updated_at"].as_str().unwrap(),
         stamp,
         "unchanged content is not a change"
     );
@@ -279,7 +279,7 @@ async fn saving_the_same_content_does_not_touch_updated_at() {
             json!([{ "type": "paragraph", "spans": [text("hello!")] }]),
         )
         .await;
-    assert!(changed["updated_at"].as_i64().unwrap() > stamp);
+    assert!(changed["updated_at"].as_str().unwrap() > stamp.as_str());
     assert_eq!(changed["updated_by"]["email"], "admin@home.io");
 }
 
@@ -296,6 +296,7 @@ async fn permissions_and_workspace_isolation() {
                 name: "".to_string(),
                 password_hash: "x".to_string(),
                 super_admin: false,
+                active: true,
             })
             .exec(&mut db.clone())
             .await
@@ -312,7 +313,7 @@ async fn permissions_and_workspace_isolation() {
             toasty::create!(woodmouse::models::Session {
                 token: token.clone(),
                 user_id: user.id,
-                expires_at: 4_102_444_800
+                expires_at: common::far_future()
             })
             .exec(&mut db.clone())
             .await
@@ -404,6 +405,7 @@ async fn permissions_and_workspace_isolation() {
             name: "".to_string(),
             password_hash: "x".to_string(),
             super_admin: false,
+            active: true,
         })
         .exec(&mut fx.db.clone())
         .await
@@ -412,7 +414,7 @@ async fn permissions_and_workspace_isolation() {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: 4_102_444_800
+            expires_at: common::far_future()
         })
         .exec(&mut fx.db.clone())
         .await
@@ -629,18 +631,14 @@ async fn search_finds_tasks_and_respects_workspaces() {
         json!({ "name": "House" }),
     )
     .await;
-    let lists = json_of(
-        request(
-            &fx.app,
-            get(
-                &format!("/api/projects/{}/lists", project["id"].as_str().unwrap()),
-                Some(&fx.cookie),
-            ),
-        )
-        .await,
+    let list = post(
+        format!("/api/projects/{}/lists", project["id"].as_str().unwrap()),
+        json!({ "name": "Todo" }),
     )
-    .await;
-    let list = lists[0]["id"].as_str().unwrap();
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let task = post(
         format!("/api/lists/{list}/tasks"),
         json!({ "title": "Order oak worktop" }),
@@ -692,6 +690,7 @@ impl Fx {
             name: "".to_string(),
             password_hash: "x".to_string(),
             super_admin: false,
+            active: true,
         })
         .exec(db)
         .await
@@ -708,7 +707,7 @@ impl Fx {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: 4_102_444_800
+            expires_at: common::far_future()
         })
         .exec(db)
         .await
@@ -734,31 +733,32 @@ impl Fx {
 }
 
 #[tokio::test]
-async fn page_versions_start_with_a_new_editor_and_restore_keeps_the_replaced_content() {
+async fn page_saves_are_versions_and_restore_keeps_everything() {
     let fx = fixture().await;
     let page = fx.page("Notes", None).await;
     let other = fx.teammate("t@home.io").await;
 
-    // One person editing in a row makes no versions.
+    // Saves outside live editing are deliberate: each is a version holding the new content (and who
+    // saved it), after the one made with the page.
     fx.save_as(&fx.cookie, &page, "first").await;
     fx.save_as(&fx.cookie, &page, "second").await;
     let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
-    assert_eq!(list, json!([]));
-
-    // A different person's edit keeps what was there, credited to who wrote it.
-    fx.save_as(&other, &page, "third").await;
-    let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
-    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list.as_array().unwrap().len(), 3);
     assert_eq!(list[0]["saved_by"]["email"], "admin@home.io");
-    let rev = list[0]["id"].as_str().unwrap().to_string();
-    let detail = fx.json_get(&format!("/api/page-revisions/{rev}")).await;
+    let second = list[0]["id"].as_str().unwrap().to_string();
+    let detail = fx.json_get(&format!("/api/page-revisions/{second}")).await;
     assert_eq!(detail["blocks"][0]["spans"][0]["text"], "second");
 
-    // Restoring brings it back and keeps "third" as a version of its own.
+    fx.save_as(&other, &page, "third").await;
+    let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
+    assert_eq!(list.as_array().unwrap().len(), 4);
+    assert_eq!(list[0]["saved_by"]["email"], "t@home.io");
+
+    // Restoring writes the old content as a new version; nothing is lost.
     let res = request(
         &fx.app,
         post_json(
-            &format!("/api/page-revisions/{rev}/restore"),
+            &format!("/api/page-revisions/{second}/restore"),
             "{}",
             Some(&fx.cookie),
         ),
@@ -768,9 +768,9 @@ async fn page_versions_start_with_a_new_editor_and_restore_keeps_the_replaced_co
     let restored = json_of(res).await;
     assert_eq!(restored["blocks"][0]["spans"][0]["text"], "second");
     let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
-    assert_eq!(list.as_array().unwrap().len(), 2);
-    let newest = list[0]["id"].as_str().unwrap();
-    let detail = fx.json_get(&format!("/api/page-revisions/{newest}")).await;
+    assert_eq!(list.as_array().unwrap().len(), 5);
+    let third = list[1]["id"].as_str().unwrap();
+    let detail = fx.json_get(&format!("/api/page-revisions/{third}")).await;
     assert_eq!(detail["blocks"][0]["spans"][0]["text"], "third");
 }
 
@@ -789,13 +789,19 @@ async fn task_text_versions_keep_the_original_and_restore() {
         .await,
     )
     .await;
-    let lists = fx
-        .json_get(&format!(
-            "/api/projects/{}/lists",
-            project["id"].as_str().unwrap()
-        ))
-        .await;
-    let list = lists[0]["id"].as_str().unwrap();
+    let created = json_of(
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/projects/{}/lists", project["id"].as_str().unwrap()),
+                r#"{"name":"Todo"}"#,
+                Some(&fx.cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let list = created["id"].as_str().unwrap();
     let task = json_of(
         request(
             &fx.app,
@@ -826,12 +832,13 @@ async fn task_text_versions_keep_the_original_and_restore() {
     assert_eq!(edit(json!({ "priority": "high" })).await, StatusCode::OK);
 
     let list = fx.json_get(&format!("/api/tasks/{id}/revisions")).await;
-    // Only the original: the rest was one session by one person.
-    assert_eq!(list.as_array().unwrap().len(), 1);
-    assert_eq!(list[0]["title"], "Original");
-    assert!(list[0]["saved_at"].is_null());
+    // Every text save is a version holding the new text: creation and two renames.
+    assert_eq!(list.as_array().unwrap().len(), 3);
+    assert_eq!(list[0]["title"], "Renamed again");
+    assert_eq!(list[2]["title"], "Original");
+    assert!(list[2]["saved_at"].is_string());
 
-    let rev = list[0]["id"].as_str().unwrap();
+    let rev = list[2]["id"].as_str().unwrap();
     let res = request(
         &fx.app,
         post_json(
@@ -844,8 +851,8 @@ async fn task_text_versions_keep_the_original_and_restore() {
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(json_of(res).await["title"], "Original");
     let list = fx.json_get(&format!("/api/tasks/{id}/revisions")).await;
-    assert_eq!(list.as_array().unwrap().len(), 2);
-    assert_eq!(list[0]["title"], "Renamed again");
+    assert_eq!(list.as_array().unwrap().len(), 4);
+    assert_eq!(list[0]["title"], "Original");
 }
 
 #[tokio::test]
@@ -929,12 +936,15 @@ impl Fx {
             )
             .await;
         let project = project["id"].as_str().unwrap().to_string();
-        let lists = self
-            .json_get(&format!("/api/projects/{project}/lists"))
+        let (_, list) = self
+            .post(
+                &format!("/api/projects/{project}/lists"),
+                json!({ "name": "Todo" }),
+            )
             .await;
         let (_, task) = self
             .post(
-                &format!("/api/lists/{}/tasks", lists[0]["id"].as_str().unwrap()),
+                &format!("/api/lists/{}/tasks", list["id"].as_str().unwrap()),
                 json!({ "title": title }),
             )
             .await;

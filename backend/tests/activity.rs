@@ -79,10 +79,13 @@ async fn records_what_happens_and_scopes_the_feed() {
     patch(r#"{"title":"Order oak worktop"}"#.to_string()).await;
     patch(format!(r#"{{"list_id":"{doing}"}}"#)).await;
     patch(r#"{"is_completed":true}"#.to_string()).await;
-    patch(r#"{"is_completed":false,"priority":"high","due_date":1800000000}"#.to_string()).await;
+    patch(
+        r#"{"is_completed":false,"priority":"high","due_date":"2027-01-15T00:00:00Z"}"#.to_string(),
+    )
+    .await;
     patch(format!(r#"{{"assignee_ids":["{me}"]}}"#)).await;
     patch(r#"{"assignee_ids":[]}"#.to_string()).await;
-    patch(r#"{"position":9.5}"#.to_string()).await; // no feed-worthy change
+    patch(r#"{"after_id":null}"#.to_string()).await; // no feed-worthy change
 
     id_of(
         &app,
@@ -204,12 +207,15 @@ async fn records_what_happens_and_scopes_the_feed() {
     // Paging: limit and before.
     let first_page = feed("?limit=3".to_string()).await;
     assert_eq!(first_page.len(), 3);
-    let cursor = first_page.last().unwrap()["created_at"].as_i64().unwrap();
+    let cursor = first_page.last().unwrap()["created_at"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let older = feed(format!("?before={cursor}&limit=200")).await;
     assert!(
         older
             .iter()
-            .all(|e| e["created_at"].as_i64().unwrap() < cursor)
+            .all(|e| e["created_at"].as_str().unwrap() < cursor.as_str())
     );
 
     // Another workspace never sees these entries, even when asking for this project or task.

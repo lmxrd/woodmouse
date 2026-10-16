@@ -22,6 +22,7 @@ async fn member(
         name: "".to_string(),
         password_hash: "not-a-login-hash".to_string(),
         super_admin: false,
+        active: true,
     })
     .exec(&mut db.clone())
     .await
@@ -38,7 +39,7 @@ async fn member(
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: user.id,
-        expires_at: 4_102_444_800,
+        expires_at: common::far_future(),
     })
     .exec(&mut db.clone())
     .await
@@ -176,7 +177,7 @@ async fn comments_lifecycle() {
     assert_eq!(res.status(), StatusCode::OK);
     let edited = json(res).await;
     assert_eq!(edited["body"], "changed");
-    assert!(edited["edited_at"].is_i64());
+    assert!(edited["edited_at"].is_string());
 
     // The author deletes; others without admin cannot delete someone else's.
     let other = json(

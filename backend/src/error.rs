@@ -5,6 +5,7 @@ use axum::{
 };
 
 /// Application error type: converts to an HTTP response.
+#[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
     message: String,

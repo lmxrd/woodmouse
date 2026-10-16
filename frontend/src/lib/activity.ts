@@ -23,7 +23,7 @@ const KIND_PHRASE: Record<string, string> = {
 /** What happened, as the words after the actor's name; `quote` is an optional excerpt (a comment). */
 export function describeActivity(
   entry: ActivityView,
-  formatDay: (epochSeconds: number) => string,
+  formatDay: (day: string) => string,
 ): { text: string; quote?: string } {
   const d = entry.data;
   const title = str(d.title);
@@ -43,7 +43,7 @@ export function describeActivity(
     case "due_changed":
       return {
         text:
-          typeof d.to === "number"
+          typeof d.to === "string"
             ? `set the due date of "${title}" to ${formatDay(d.to)}`
             : `cleared the due date of "${title}"`,
       };

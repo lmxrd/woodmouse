@@ -73,7 +73,7 @@ pub async fn search(
     Path(workspace_id): Path<uuid::Uuid>,
     Query(params): Query<SearchParams>,
 ) -> Result<Json<Vec<SearchHit>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
     let workspaces: Vec<Workspace> = if params.all_workspaces == Some(true) {
         let all = Workspace::all().exec(db).await?;

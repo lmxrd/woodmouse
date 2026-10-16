@@ -5,10 +5,15 @@
 //!   GET  /api/auth/*     - bootstrap (first user), login/logout, me
 //!   /                    - embedded CSR frontend (SPA fallback)
 //!   /swagger-ui         - Swagger UI
+//!
+//! Commands: `woodmouse` serves; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
+//! consistent copy of the database (default `BACKUP_DIR`, or `backups`).
 
 // The embedded frontend bundle — a module of this binary, not the library,
 // so spec generation (cargo specs) never requires a built frontend.
 mod frontend;
+
+use std::future::IntoFuture;
 
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -33,7 +38,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&db_url)
         .await?;
 
-    ensure_schema(&mut db).await?;
+    // Bring the schema up to date. A database made before migrations existed (by `push_schema`) has the
+    // tables but no migration record: `mise run clean` starts it fresh.
+    let applied = woodmouse::migrations::MIGRATIONS.apply(&db).await?;
+    tracing::info!(
+        applied = applied.applied(),
+        already_applied = applied.skipped(),
+        "schema is up to date"
+    );
     woodmouse::search::ensure_index(&mut db)
         .await
         .map_err(|_| "could not create the search index")?;
@@ -56,8 +68,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let state = AppState::with_files(db, files);
 
+    match std::env::args().nth(1).as_deref() {
+        None | Some("serve") => {}
+        Some("check") => return run_check(&state).await,
+        Some("backup") => return run_backup(&state, std::env::args().nth(2)).await,
+        Some(other) => {
+            return Err(format!("unknown command `{other}` (try check or backup)").into());
+        }
+    }
+    woodmouse::jobs::spawn(state.clone());
+
     let (router, openapi) = routes::api(state.clone())
-        .with_state(state)
+        .with_state(state.clone())
         .split_for_parts();
 
     let app = router
@@ -75,74 +97,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("listening on http://{addr} (swagger-ui at /swagger-ui)");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
-
-    Ok(())
-}
-
-/// Creates the tables and indices straight from the models — the quick
-/// path. Real apps evolve a persistent schema with migrations instead.
-///
-/// toasty 0.11's `push_schema` is not idempotent (plain `CREATE TABLE`, no
-/// introspection), so a naive push on every start fails with "table already
-/// exists" against a database created by a previous run. Guard it: push
-/// only when none of the expected tables are present, and refuse on a
-/// partial set (schema drift — see AGENTS.md on moving to migrations).
-async fn ensure_schema(db: &mut toasty::Db) -> Result<(), Box<dyn std::error::Error>> {
-    let expected: Vec<String> = db
-        .schema()
-        .db
-        .tables
-        .iter()
-        .map(|t| t.name.clone())
-        .collect();
-    let placeholders = expected
-        .iter()
-        .enumerate()
-        .map(|(i, _)| format!("?{}", i + 1))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut query = toasty::sql::query(format!(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ({placeholders})"
-    ));
-    for name in &expected {
-        query = query.bind(name.clone());
-    }
-    let rows = query.exec(db).await?;
-    let existing = match &rows[0] {
-        toasty::stmt::Value::Record(rec) => match &rec[0] {
-            toasty::stmt::Value::I64(n) => *n as usize,
-            other => return Err(format!("unexpected sqlite_master result: {other:?}").into()),
-        },
-        other => return Err(format!("unexpected sqlite_master result: {other:?}").into()),
-    };
-
-    match existing {
-        0 => {
-            db.push_schema().await?;
-            tracing::info!(tables = expected.len(), "created database schema");
-        }
-        n if n == expected.len() => {
-            tracing::debug!(tables = n, "database schema already present");
-        }
-        n => {
-            return Err(format!(
-                "database schema drift: {n}/{} expected tables exist. \
-                 The quick path cannot migrate; move to toasty migrations \
-                 or remove the database file to start fresh",
-                expected.len()
-            )
-            .into());
+    // Connection info lets the login slow-down tell addresses apart (kept in memory only).
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = stopped.await;
+    })
+    .into_future();
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => result?,
+        () = shutdown_signal() => {
+            // Keep the last seconds of live typing, then let requests finish. Open WebSockets can keep
+            // the server from finishing, so give it a few seconds.
+            state.rooms.save_all(&state).await;
+            let _ = stop.send(());
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), &mut server).await;
         }
     }
     Ok(())
 }
 
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
+async fn run_check(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
+    let problems = woodmouse::integrity::check(&mut state.db())
         .await
-        .expect("failed to install Ctrl+C handler");
+        .map_err(|_| "the check failed")?;
+    for p in &problems {
+        println!("{} {}: {}", p.table, p.id, p.relation);
+    }
+    if problems.is_empty() {
+        println!("no problems found");
+        Ok(())
+    } else {
+        Err(format!("{} problem(s) found", problems.len()).into())
+    }
+}
+
+async fn run_backup(
+    state: &AppState,
+    dir: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = dir
+        .or_else(|| std::env::var("BACKUP_DIR").ok())
+        .unwrap_or_else(|| "backups".to_string());
+    let path = woodmouse::jobs::backup(state, std::path::Path::new(&dir))
+        .await
+        .map_err(|_| "the backup failed")?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// Resolves on Ctrl+C or SIGTERM (what a container runtime sends on stop).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install the SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
     tracing::info!("shutting down");
 }

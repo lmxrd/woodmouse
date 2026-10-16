@@ -84,7 +84,7 @@ pub async fn get_theme(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<ThemeView>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
     let workspace = Workspace::get_by_id(db, &id).await?;
     let mine = WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, id)
@@ -128,14 +128,14 @@ pub async fn set_workspace_theme(
 ) -> Result<Json<ThemeChoice>, ApiError> {
     valid(&input)?;
     let input = normalized(input);
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Admin).await?;
-    let mut workspace = Workspace::get_by_id(db, &id).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Admin).await?;
+    let mut workspace = Workspace::get_by_id(&mut *db, &id).await?;
     workspace
         .update()
         .theme_palette(input.palette.clone())
         .theme_accent(input.accent.clone())
-        .exec(db)
+        .exec(&mut *db)
         .await?;
     Ok(Json(input))
 }
@@ -163,11 +163,11 @@ pub async fn set_my_theme(
 ) -> Result<Json<ThemeChoice>, ApiError> {
     valid(&input)?;
     let input = normalized(input);
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Read).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Read).await?;
     let Some(mut member) = WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, id)
         .first()
-        .exec(db)
+        .exec(&mut *db)
         .await?
     else {
         return Err(ApiError::bad_request(
@@ -178,7 +178,7 @@ pub async fn set_my_theme(
         .update()
         .theme_palette(input.palette.clone())
         .theme_accent(input.accent.clone())
-        .exec(db)
+        .exec(&mut *db)
         .await?;
     Ok(Json(input))
 }

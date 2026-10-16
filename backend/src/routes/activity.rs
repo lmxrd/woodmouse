@@ -1,7 +1,9 @@
-//! Activity feeds for a workspace, a project, or a single task.
+//! Activity feeds for a workspace, a project, or a single task: the workspace-visible entries of the audit
+//! log.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
@@ -10,9 +12,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Activity, Role, User};
+use crate::models::{AuditLog, Role, User, Visibility};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
+use crate::time;
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(list_activity))
@@ -21,15 +24,18 @@ pub fn router() -> OpenApiRouter<AppState> {
 #[derive(Serialize, ToSchema)]
 pub struct ActivityView {
     pub id: uuid::Uuid,
+    /// What happened (`task_created`, `comment_added`, ...).
     pub kind: String,
     pub actor: Option<PublicUser>,
     pub project_id: Option<uuid::Uuid>,
+    /// The task it is about, if any.
     pub task_id: Option<uuid::Uuid>,
     /// What the UI needs to phrase the entry (task title, old and new values, ...).
     #[schema(value_type = Object)]
     pub data: serde_json::Value,
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime,
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -39,8 +45,10 @@ pub struct ActivityFilters {
     pub project_id: Option<uuid::Uuid>,
     /// Only this task's activity.
     pub task_id: Option<uuid::Uuid>,
-    /// Only entries older than this (Unix epoch seconds); pass the last entry's `created_at` to page.
-    pub before: Option<i64>,
+    /// Only entries older than this; pass the last entry's `created_at` to page.
+    #[serde(default, with = "time::utc_option")]
+    #[param(value_type = Option<String>, format = DateTime)]
+    pub before: Option<DateTime>,
     /// How many entries to return (default 50, at most 200).
     pub limit: Option<usize>,
 }
@@ -64,25 +72,45 @@ pub async fn list_activity(
     Path(id): Path<uuid::Uuid>,
     Query(filters): Query<ActivityFilters>,
 ) -> Result<Json<Vec<ActivityView>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
+    let wanted = filters.limit.unwrap_or(50).clamp(1, 200);
 
-    let mut entries: Vec<Activity> = if let Some(task_id) = filters.task_id {
-        Activity::filter_by_task_id(task_id).exec(db).await?
-    } else if let Some(project_id) = filters.project_id {
-        Activity::filter_by_project_id(project_id).exec(db).await?
-    } else {
-        Activity::filter_by_workspace_id(id).exec(db).await?
-    };
-    // Whatever index was used, never leak another workspace's entries.
-    entries.retain(|a| a.workspace_id == id);
-    if let Some(before) = filters.before {
-        entries.retain(|a| a.created_at < before);
+    // Newest first, in pages of the log, until enough entries match the project or task filter.
+    let mut matched: Vec<AuditLog> = vec![];
+    let mut before = filters.before;
+    loop {
+        let mut query = AuditLog::all()
+            .filter(AuditLog::fields().workspace_id().eq(id))
+            .filter(AuditLog::fields().visibility().eq(Visibility::Workspace));
+        if let Some(before) = before {
+            query = query.filter(AuditLog::fields().created_at().lt(before));
+        }
+        let mut page: Vec<AuditLog> = query
+            .order_by(AuditLog::fields().created_at().desc())
+            .limit(200)
+            .exec(db)
+            .await?;
+        let exhausted = page.len() < 200;
+        before = page.last().map(|e| e.created_at);
+        page.retain(|e| {
+            let data: serde_json::Value = serde_json::from_str(&e.data).unwrap_or_default();
+            filters.task_id.is_none_or(|t| {
+                e.target_type.as_deref() == Some("task") && e.target_id == Some(t)
+                    || data["task_id"].as_str() == Some(&t.to_string())
+            }) && filters
+                .project_id
+                .is_none_or(|p| data["project_id"].as_str() == Some(&p.to_string()))
+        });
+        matched.extend(page);
+        if matched.len() >= wanted || exhausted {
+            break;
+        }
     }
-    entries.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
-    entries.truncate(filters.limit.unwrap_or(50).clamp(1, 200));
+    matched.sort_by_key(|e| std::cmp::Reverse((e.created_at, e.id)));
+    matched.truncate(wanted);
 
-    let actor_ids: Vec<uuid::Uuid> = entries.iter().map(|a| a.actor_id).collect();
+    let actor_ids: Vec<uuid::Uuid> = matched.iter().filter_map(|a| a.actor_id).collect();
     let actors: Vec<User> = if actor_ids.is_empty() {
         vec![]
     } else {
@@ -92,19 +120,26 @@ pub async fn list_activity(
             .await?
     };
     Ok(Json(
-        entries
+        matched
             .into_iter()
-            .map(|a| ActivityView {
-                id: a.id,
-                kind: a.kind,
-                actor: actors
-                    .iter()
-                    .find(|u| u.id == a.actor_id)
-                    .map(PublicUser::from),
-                project_id: a.project_id,
-                task_id: a.task_id,
-                data: serde_json::from_str(&a.data).unwrap_or(serde_json::Value::Null),
-                created_at: a.created_at,
+            .map(|a| {
+                let data: serde_json::Value = serde_json::from_str(&a.data).unwrap_or_default();
+                ActivityView {
+                    id: a.id,
+                    kind: a.action,
+                    actor: a
+                        .actor_id
+                        .and_then(|id| actors.iter().find(|u| u.id == id))
+                        .map(PublicUser::from),
+                    project_id: data["project_id"]
+                        .as_str()
+                        .and_then(|s| uuid::Uuid::parse_str(s).ok()),
+                    task_id: (a.target_type.as_deref() == Some("task"))
+                        .then_some(a.target_id)
+                        .flatten(),
+                    data,
+                    created_at: a.created_at,
+                }
             })
             .collect(),
     ))

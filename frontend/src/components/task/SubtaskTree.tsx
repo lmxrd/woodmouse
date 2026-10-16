@@ -14,6 +14,7 @@ import { InlineAdd } from "../InlineAdd";
 import { AvatarStack } from "../UserAvatar";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
+import { isDone } from "../../lib/task";
 
 /** Subtasks of a task at any depth, as an indented tree with progress and inline adding. */
 export function SubtaskTree({
@@ -47,7 +48,7 @@ export function SubtaskTree({
 
   const rows = (parentId: string, depth: number): React.ReactNode =>
     childrenOf(parentId)
-      .filter((t) => !(hideCompleted && t.is_completed))
+      .filter((t) => !(hideCompleted && isDone(t)))
       .map((child) => (
         <SubtaskRow
           key={child.id}
@@ -162,7 +163,7 @@ function SubtaskRow({
         )}
         <Checkbox
           aria-label={`Completed: ${task.title}`}
-          checked={task.is_completed}
+          checked={isDone(task)}
           disabled={!editable}
           onCheckedChange={(checked) => onToggleCompleted(checked === true)}
         />
@@ -171,7 +172,7 @@ function SubtaskRow({
           onClick={onOpen}
           className={cn(
             "min-w-0 flex-1 truncate text-left text-sm hover:underline",
-            task.is_completed && "text-muted-foreground line-through",
+            isDone(task) && "text-muted-foreground line-through",
           )}
         >
           {task.title}

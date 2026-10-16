@@ -10,11 +10,13 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+use crate::audit::{self, Entry};
 use crate::auth;
 use crate::error::ApiError;
-use crate::models::{Invite, User};
+use crate::models::{User, UserInvite};
 use crate::routes::auth::{PublicUser, validate_password};
 use crate::state::AppState;
+use crate::time;
 
 pub fn public_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -34,14 +36,20 @@ pub struct AcceptInvite {
 }
 
 /// A valid (existing, unexpired) invite and the user it belongs to.
-async fn load_invite(db: &mut toasty::Db, token: &str) -> Result<(Invite, User), ApiError> {
-    let invite = Invite::get_by_token(db, token)
+async fn load_invite(
+    db: &mut dyn toasty::Executor,
+    token: &str,
+) -> Result<(UserInvite, User), ApiError> {
+    let invite = UserInvite::get_by_token(db, token)
         .await
         .map_err(|_| ApiError::not_found())?;
-    if invite.expires_at < auth::now_secs() {
+    if invite.expires_at < time::now() {
         return Err(ApiError::not_found());
     }
     let user = User::get_by_id(db, &invite.user_id).await?;
+    if !user.active {
+        return Err(ApiError::not_found());
+    }
     Ok((invite, user))
 }
 
@@ -60,7 +68,7 @@ pub async fn get_invite(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<InviteInfo>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let (_, user) = load_invite(db, &token).await?;
     Ok(Json(InviteInfo {
         name: user.name,
@@ -87,15 +95,23 @@ pub async fn accept_invite(
     Json(input): Json<AcceptInvite>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     validate_password(&input.password)?;
-    let db = &mut *state.db.lock().await;
-    let (_, mut user) = load_invite(db, &token).await?;
-
+    let mut db = state.writer().await;
+    let (_, mut user) = load_invite(&mut *db, &token).await?;
+    let mut tx = db.transaction().await?;
     user.update()
         .password_hash(auth::hash_password(&input.password)?)
-        .exec(db)
+        .exec(&mut tx)
         .await?;
-    Invite::filter_by_user_id(user.id).delete().exec(db).await?;
-
-    let (_, jar) = auth::create_session(db, user.id, state.secure_cookies).await?;
+    UserInvite::filter_by_user_id(user.id)
+        .delete()
+        .exec(&mut tx)
+        .await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "invite_accepted").target("user", user.id),
+    )
+    .await?;
+    let (_, jar) = auth::create_session(&mut tx, user.id, state.secure_cookies).await?;
+    tx.commit().await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
 }

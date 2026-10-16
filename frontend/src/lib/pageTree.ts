@@ -1,6 +1,6 @@
 import type { PageSummary } from "woodmouse-client";
 
-import { positionBetween } from "./position";
+import { afterIdAt } from "./position";
 
 export interface PageNode {
   page: PageSummary;
@@ -61,14 +61,14 @@ export function zoneAt(pointerY: number, top: number, height: number): DropZone 
 
 /**
  * What dropping page `dragged` on `target` changes: `before` and `after` make it a sibling at that spot,
- * `into` makes it the last child. `null` when nothing should happen (onto itself or below itself).
+ * `into` makes it the last child. `after_id` is the sibling it follows (`null`: first). `null` when nothing should happen (onto itself or below itself).
  */
 export function dropChange(
   pages: PageSummary[],
   dragged: string,
   target: string,
   zone: DropZone,
-): { parent_id: string | null; position?: number } | null {
+): { parent_id: string | null; after_id?: string | null } | null {
   if (subtreeIds(pages, dragged).has(target)) return null;
   const to = pages.find((p) => p.id === target);
   if (!to) return null;
@@ -78,5 +78,5 @@ export function dropChange(
     .filter((p) => (p.parent_id ?? null) === parent && p.id !== dragged)
     .sort((a, b) => a.position - b.position);
   const index = siblings.findIndex((p) => p.id === target) + (zone === "after" ? 1 : 0);
-  return { parent_id: parent, position: positionBetween(siblings, index) };
+  return { parent_id: parent, after_id: afterIdAt(siblings, index) };
 }

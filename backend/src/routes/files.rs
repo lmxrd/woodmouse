@@ -7,6 +7,7 @@ use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use toasty::stmt::in_list;
@@ -14,12 +15,13 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::activity::{self, Event};
-use crate::auth::{self, CurrentUser};
+use crate::audit::{self, Entry};
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, FileRef, List, Role, Task, User};
+use crate::models::{File, FileRef, Role, Task, User};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
+use crate::time;
 
 /// Bodies of other routes stay small; uploads get the configured limit plus a little for the
 /// multipart framing.
@@ -57,8 +59,9 @@ pub struct FileView {
     /// True for image types that can be shown inline (`/files/{id}/content`).
     pub previewable: bool,
     pub uploaded_by: Option<PublicUser>,
-    /// Unix epoch seconds.
-    pub created_at: i64,
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime,
     /// How many tasks the file is attached to (including trashed ones, which can come back).
     pub used_in: usize,
 }
@@ -85,7 +88,7 @@ pub struct FileFilters {
     pub unused: Option<bool>,
 }
 
-async fn views(db: &mut toasty::Db, files: Vec<File>) -> Result<Vec<FileView>, ApiError> {
+async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<FileView>, ApiError> {
     if files.is_empty() {
         return Ok(vec![]);
     }
@@ -119,13 +122,13 @@ async fn views(db: &mut toasty::Db, files: Vec<File>) -> Result<Vec<FileView>, A
         .collect())
 }
 
-async fn one_view(db: &mut toasty::Db, file: File) -> Result<FileView, ApiError> {
+async fn one_view(db: &mut dyn toasty::Executor, file: File) -> Result<FileView, ApiError> {
     Ok(views(db, vec![file]).await?.swap_remove(0))
 }
 
 /// A file the caller may read; returns it with its workspace.
 async fn load_file(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user: &User,
     id: uuid::Uuid,
     min_role: Role,
@@ -167,7 +170,7 @@ pub async fn list_files(
     Path(id): Path<uuid::Uuid>,
     Query(filters): Query<FileFilters>,
 ) -> Result<Json<Vec<FileView>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
     let mut files = File::filter_by_workspace_id(id).exec(db).await?;
     if let Some(q) = filters
@@ -209,10 +212,7 @@ pub async fn upload_file(
     Path(id): Path<uuid::Uuid>,
     mut multipart: Multipart,
 ) -> Result<Response, ApiError> {
-    {
-        let db = &mut *state.db.lock().await;
-        access::require_access(db, &user, id, Role::Write).await?;
-    }
+    access::require_access(&mut state.db(), &user, id, Role::Write).await?;
 
     let mut upload: Option<(String, Option<String>, Vec<u8>)> = None;
     let mut task_id: Option<uuid::Uuid> = None;
@@ -263,7 +263,8 @@ pub async fn upload_file(
             .to_string()
     });
 
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     if let Some(task_id) = task_id {
         let workspace = access::require_task_access(db, &user, task_id, Role::Write).await?;
         if workspace != id {
@@ -300,7 +301,7 @@ pub async fn upload_file(
         storage_backend: store.name().to_string(),
         storage_key: key.clone(),
         uploaded_by: user.id,
-        created_at: auth::now_secs(),
+        created_at: time::now(),
     })
     .exec(db)
     .await;
@@ -312,13 +313,9 @@ pub async fn upload_file(
         }
     };
     if let Some(task_id) = task_id {
-        toasty::create!(FileRef {
-            file_id: file.id,
-            task_id
-        })
-        .exec(db)
-        .await?;
-        record_attached(db, id, task_id, user.id, &file.name).await?;
+        let mut tx = db.transaction().await?;
+        attach(&mut tx, id, task_id, user.id, &file).await?;
+        tx.commit().await?;
     }
     let view = one_view(db, file).await?;
     Ok((StatusCode::CREATED, Json(view)).into_response())
@@ -342,10 +339,7 @@ pub async fn file_content(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
-    let file = {
-        let db = &mut *state.db.lock().await;
-        load_file(db, &user, id, Role::Read).await?
-    };
+    let file = { load_file(&mut state.db(), &user, id, Role::Read).await? };
     let store = state
         .files
         .store(&file.storage_backend)
@@ -428,64 +422,68 @@ pub async fn file_usage(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<FileUsage>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     load_file(db, &user, id, Role::Read).await?;
-    let refs = FileRef::filter_by_file_id(id).exec(db).await?;
+    let refs: Vec<FileRef> = FileRef::filter_by_file_id(id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|r| r.target_type == TASK)
+        .collect();
     if refs.is_empty() {
         return Ok(Json(vec![]));
     }
     let tasks = Task::all()
         .filter(in_list(
             Task::fields().id(),
-            refs.iter().map(|r| r.task_id).collect::<Vec<_>>(),
-        ))
-        .exec(db)
-        .await?;
-    let lists = List::all()
-        .filter(in_list(
-            List::fields().id(),
-            tasks.iter().map(|t| t.list_id).collect::<Vec<_>>(),
+            refs.iter().map(|r| r.target_id).collect::<Vec<_>>(),
         ))
         .exec(db)
         .await?;
     Ok(Json(
         tasks
             .into_iter()
-            .filter_map(|t| {
-                let project_id = lists.iter().find(|l| l.id == t.list_id)?.project_id;
-                Some(FileUsage {
-                    task_id: t.id,
-                    project_id,
-                    in_trash: t.deleted_at.is_some(),
-                    title: t.title,
-                })
+            .map(|t| FileUsage {
+                task_id: t.id,
+                project_id: t.project_id,
+                in_trash: t.deleted_at.is_some(),
+                title: t.title,
             })
             .collect(),
     ))
 }
 
-async fn record_attached(
-    db: &mut toasty::Db,
+/// `FileRef::target_type` of a task attachment.
+const TASK: &str = "task";
+
+/// Attach `file` to a task and record it in the feed. Call with the transaction of the change.
+async fn attach(
+    db: &mut dyn toasty::Executor,
     workspace_id: uuid::Uuid,
     task_id: uuid::Uuid,
     actor: uuid::Uuid,
-    file_name: &str,
+    file: &File,
 ) -> Result<(), ApiError> {
     let task = Task::get_by_id(db, &task_id).await?;
-    let project_id = List::get_by_id(db, &task.list_id).await?.project_id;
-    activity::record(
+    toasty::create!(FileRef {
+        file_id: file.id,
+        target_type: TASK.to_string(),
+        target_id: task_id,
+    })
+    .exec(db)
+    .await?;
+    audit::record(
         db,
-        Event {
-            workspace_id,
-            project_id: Some(project_id),
-            task_id: Some(task_id),
-            actor_id: actor,
-            kind: "file_attached",
-            data: serde_json::json!({ "title": task.title, "file": file_name }),
-        },
+        Entry::feed(workspace_id, actor, "file_attached")
+            .target("task", task_id)
+            .data(serde_json::json!({
+                "project_id": task.project_id,
+                "task_id": task_id,
+                "title": task.title,
+                "file": file.name,
+            })),
     )
-    .await;
-    Ok(())
+    .await
 }
 
 /// The files attached to a task.
@@ -506,9 +504,14 @@ pub async fn list_attachments(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<FileView>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
-    let refs = FileRef::filter_by_task_id(id).exec(db).await?;
+    let refs: Vec<FileRef> = FileRef::filter_by_target_id(id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|r| r.target_type == TASK)
+        .collect();
     if refs.is_empty() {
         return Ok(Json(vec![]));
     }
@@ -548,7 +551,8 @@ pub async fn attach_file(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<AttachFile>,
 ) -> Result<Json<FileView>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     let workspace_id = access::require_task_access(db, &user, id, Role::Write).await?;
     let file = File::get_by_id(db, &input.file_id).await?;
     if file.workspace_id != workspace_id {
@@ -558,15 +562,11 @@ pub async fn attach_file(
         .exec(db)
         .await?
         .iter()
-        .any(|r| r.task_id == id);
+        .any(|r| r.target_type == TASK && r.target_id == id);
     if !already {
-        toasty::create!(FileRef {
-            file_id: file.id,
-            task_id: id
-        })
-        .exec(db)
-        .await?;
-        record_attached(db, workspace_id, id, user.id, &file.name).await?;
+        let mut tx = db.transaction().await?;
+        attach(&mut tx, workspace_id, id, user.id, &file).await?;
+        tx.commit().await?;
     }
     Ok(Json(one_view(db, file).await?))
 }
@@ -592,13 +592,14 @@ pub async fn detach_file(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, file_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     access::require_task_access(db, &user, id, Role::Write).await?;
     let reference = FileRef::filter_by_file_id(file_id)
         .exec(db)
         .await?
         .into_iter()
-        .find(|r| r.task_id == id)
+        .find(|r| r.target_type == TASK && r.target_id == id)
         .ok_or_else(ApiError::not_found)?;
     reference.delete().exec(db).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -611,7 +612,10 @@ pub struct UnusedFiles {
     pub total_bytes: i64,
 }
 
-async fn find_unused(db: &mut toasty::Db, workspace_id: uuid::Uuid) -> Result<Vec<File>, ApiError> {
+async fn find_unused(
+    db: &mut dyn toasty::Executor,
+    workspace_id: uuid::Uuid,
+) -> Result<Vec<File>, ApiError> {
     let files = File::filter_by_workspace_id(workspace_id).exec(db).await?;
     if files.is_empty() {
         return Ok(vec![]);
@@ -650,7 +654,7 @@ pub async fn unused_files(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<UnusedFiles>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Admin).await?;
     let unused = find_unused(db, id).await?;
     Ok(Json(UnusedFiles {
@@ -684,7 +688,8 @@ pub async fn cleanup_files(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<CleanupResult>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     access::require_access(db, &user, id, Role::Admin).await?;
     let mut result = CleanupResult {
         deleted: 0,

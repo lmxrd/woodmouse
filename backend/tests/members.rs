@@ -156,10 +156,12 @@ async fn expired_and_reissued_invites() {
     assert_eq!(res.status(), StatusCode::CONFLICT);
 
     // An expired invite is dead.
-    let expired = toasty::create!(woodmouse::models::Invite {
+    let expired = toasty::create!(woodmouse::models::UserInvite {
         token: "expired-token".to_string(),
         user_id: user_id.parse::<uuid::Uuid>().unwrap(),
-        expires_at: 1,
+        expires_at: "2000-01-01T00:00:00"
+            .parse::<jiff::civil::DateTime>()
+            .unwrap(),
     })
     .exec(&mut db.clone())
     .await

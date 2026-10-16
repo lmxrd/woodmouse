@@ -4,18 +4,22 @@ import { listWorkspacesOptions } from "woodmouse-client/react-query";
 
 import { CalendarLinks } from "../components/calendarlinks/CalendarLinks";
 import { WorkspaceAppearance } from "../components/theme/WorkspaceAppearance";
+import { GeneralPanel } from "../components/settings/GeneralPanel";
 import { LabelsPanel } from "../components/settings/LabelsPanel";
 import { MembersPanel } from "../components/settings/MembersPanel";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 
 interface SettingsSearch {
-  tab?: "members" | "labels" | "calendar" | "appearance";
+  tab?: "members" | "labels" | "calendar" | "appearance" | "general";
 }
 
 export const Route = createFileRoute("/w/$workspaceId/settings")({
   validateSearch: (raw: Record<string, unknown>): SettingsSearch => ({
     tab:
-      raw.tab === "labels" || raw.tab === "calendar" || raw.tab === "appearance"
+      raw.tab === "labels" ||
+      raw.tab === "calendar" ||
+      raw.tab === "appearance" ||
+      raw.tab === "general"
         ? raw.tab
         : undefined,
   }),
@@ -40,7 +44,10 @@ function SettingsPage() {
             void navigate({
               search: {
                 tab:
-                  next === "labels" || next === "calendar" || next === "appearance"
+                  next === "labels" ||
+                  next === "calendar" ||
+                  next === "appearance" ||
+                  next === "general"
                     ? next
                     : undefined,
               },
@@ -53,10 +60,13 @@ function SettingsPage() {
             <TabsTrigger value="labels">Labels</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
+            <TabsTrigger value="general">General</TabsTrigger>
           </TabsList>
         </Tabs>
       </header>
-      {tab === "labels" ? (
+      {tab === "general" ? (
+        <GeneralPanel workspaceId={workspaceId} />
+      ) : tab === "labels" ? (
         <LabelsPanel workspaceId={workspaceId} />
       ) : tab === "appearance" ? (
         <WorkspaceAppearance workspaceId={workspaceId} />

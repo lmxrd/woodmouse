@@ -3,11 +3,11 @@ import { useDraggable } from "@dnd-kit/core";
 import type { TaskResponse } from "woodmouse-client";
 
 import { cn } from "../../lib/utils";
+import { isDone } from "../../lib/task";
 
 /** How a task chip looks: late tasks are orange, completed ones struck through and dim. */
 export function eventTone(task: TaskResponse, today: number, end: number): string {
-  if (task.is_completed)
-    return "border-l-muted-foreground bg-muted text-muted-foreground line-through";
+  if (isDone(task)) return "border-l-muted-foreground bg-muted text-muted-foreground line-through";
   if (end < today) return "border-l-signal bg-signal/15";
   return "border-l-primary bg-accent";
 }

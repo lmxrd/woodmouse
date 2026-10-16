@@ -10,6 +10,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { DATE_FORMATS, TIME_FORMATS, formatDateTime } from "../lib/format";
+import { browserTimezone } from "../lib/useDetectTimezone";
 import { CalendarLinks } from "./calendarlinks/CalendarLinks";
 import { AppearanceSection } from "./theme/AppearanceSection";
 import { Field } from "./Field";
@@ -154,6 +155,7 @@ function DisplaySection({ me }: { me: PublicUser }) {
           </Select>
         </Field>
       </div>
+      <TimezoneField me={me} onChange={(timezone) => update.mutate({ body: { timezone } })} />
       <Field label="Week starts on">
         <Select
           value={me.week_start}
@@ -177,6 +179,35 @@ function DisplaySection({ me }: { me: PublicUser }) {
         </span>
       </p>
     </Section>
+  );
+}
+
+/** The person's timezone: filled in from the browser at first sign-in, changeable here. */
+function TimezoneField({ me, onChange }: { me: PublicUser; onChange: (timezone: string) => void }) {
+  const zones = Intl.supportedValuesOf("timeZone");
+  const device = browserTimezone();
+  return (
+    <Field label="Timezone">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={me.timezone ?? undefined} onValueChange={onChange}>
+          <SelectTrigger aria-label="Timezone" className="w-64">
+            <SelectValue placeholder="Not set" />
+          </SelectTrigger>
+          <SelectContent>
+            {zones.map((zone) => (
+              <SelectItem key={zone} value={zone}>
+                {zone}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {device && device !== me.timezone ? (
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange(device)}>
+            Use this device's ({device})
+          </Button>
+        ) : null}
+      </div>
+    </Field>
   );
 }
 

@@ -15,7 +15,7 @@ export function WikiIndex({ workspaceId }: { workspaceId: string }) {
   const { canWrite } = useWorkspaceRole(workspaceId);
   const { createPage } = usePageActions(workspaceId);
   const { when } = useFormatters();
-  const recent = [...pages].sort((a, b) => b.updated_at - a.updated_at).slice(0, 5);
+  const recent = [...pages].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4 sm:p-8">

@@ -9,7 +9,7 @@ pub struct FeedTask {
     pub description: String,
     pub project: String,
     pub priority: &'static str,
-    /// Epoch seconds at the local midnight of the start date, as the app stores dates.
+    /// Epoch seconds of the start date at 00:00 UTC, as the app stores dates.
     pub start: Option<i64>,
     pub due: Option<i64>,
     pub completed: bool,
@@ -17,10 +17,8 @@ pub struct FeedTask {
     pub url: String,
 }
 
-/// The calendar date (year, month, day) a stored date means.
-///
-/// Dates are saved as the epoch second of local midnight in the saver's timezone, which the server does
-/// not know. The nearest UTC midnight is that same date for every timezone within 12 hours of UTC.
+/// The calendar date (year, month, day) a stored date means: dates are saved as 00:00 UTC of the day, so
+/// this is exact (the half-day offset only tolerates values that are a little off).
 pub fn date_of(epoch: i64) -> (i64, u32, u32) {
     civil_from_days((epoch + 43_200).div_euclid(86_400))
 }

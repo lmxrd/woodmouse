@@ -1,95 +1,166 @@
-//! Version history of page content and task text.
+//! Version history of tasks (title and description), wiki pages (title and blocks) and comments (body).
 //!
-//! A version is a full copy of what was there *before* an edit. One is kept when the edit starts a new
-//! editing session: someone else is editing, or the page was untouched for ten minutes. A long unbroken
-//! session also leaves one version an hour. Restoring always keeps the current content first, so a
-//! restore can be undone. Versions are never deleted (a page's or task's history goes with it only if
-//! the workspace is).
+//! A revision holds the content *after* a change and who made it, so the newest revision is the current
+//! content and says who edited it last and when. Tasks and comments save rarely: every save is a
+//! revision. Pages save every few seconds while someone types, so a page's newest revision is updated in
+//! place while one editing session lasts; a session ends after a pause of ten minutes or when someone
+//! else edits (unless the newest revision started less than two minutes ago, so people typing at the
+//! same time do not produce a revision per change of hands).
 //!
-//! Whole copies rather than deltas: pages and descriptions are a few kilobytes, a version is only taken
-//! once per session, and any version can be shown or restored without replaying a chain.
+//! Revisions are whole copies, not deltas: any version can be shown or restored on its own. Admins can
+//! redact a revision's content; the audit log keeps the record that an edit happened.
+
+use serde::{Deserialize, Serialize};
 
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::{Page, PageRevision, Task, TaskRevision};
+use crate::models::Revision;
+use crate::time;
 
 /// A pause this long (seconds) ends an editing session.
 const SESSION_GAP_SECS: i64 = 600;
-/// Another editor starts a new session only if the last version is at least this old, so people typing at
-/// the same time do not produce a version per change of hands.
-const MIN_BETWEEN_VERSIONS_SECS: i64 = 120;
-/// A session this long without a version gets one anyway.
-const MAX_BETWEEN_VERSIONS_SECS: i64 = 3600;
+/// A different editor continues the newest revision if it started less than this long ago.
+const SHARED_SESSION_SECS: i64 = 120;
 
-/// Keep the page's current `old` content as a version if this edit starts a new session (or `force`).
-pub async fn snapshot_page(
-    db: &mut toasty::Db,
-    page: &Page,
-    old: &[BlockData],
-    editor: uuid::Uuid,
-    force: bool,
-) -> Result<(), ApiError> {
-    if old.is_empty() {
-        return Ok(());
-    }
-    let now = crate::auth::now_secs();
-    let revisions = PageRevision::filter_by_page_id(page.id).exec(db).await?;
-    let newest = revisions.iter().max_by_key(|r| (r.created_at, r.id));
-    let json = serde_json::to_string(old).map_err(|_| ApiError::internal("encoding failed"))?;
-    if newest.is_some_and(|r| r.blocks == json) {
-        return Ok(());
-    }
-    let recent = newest.is_some_and(|r| now - r.created_at < MIN_BETWEEN_VERSIONS_SECS);
-    let due = force
-        || (!recent && (page.updated_by != editor || now - page.updated_at >= SESSION_GAP_SECS))
-        || newest.is_some_and(|r| now - r.created_at >= MAX_BETWEEN_VERSIONS_SECS);
-    if due {
-        toasty::create!(PageRevision {
-            page_id: page.id,
-            saved_at: page.updated_at,
-            saved_by: page.updated_by,
-            title: page.title.clone(),
-            blocks: json,
-            created_at: now,
-        })
-        .exec(db)
-        .await?;
-    }
-    Ok(())
+pub const TASK: &str = "task";
+pub const PAGE: &str = "page";
+pub const COMMENT: &str = "comment";
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TaskContent {
+    pub title: String,
+    pub description: String,
 }
 
-/// Keep the task's current title and description as a version if this edit starts a new session
-/// (the first ever edit always does, preserving the original text), or `force`.
-pub async fn snapshot_task(
-    db: &mut toasty::Db,
-    task: &Task,
-    editor: uuid::Uuid,
-    force: bool,
-) -> Result<(), ApiError> {
-    let now = crate::auth::now_secs();
-    let revisions = TaskRevision::filter_by_task_id(task.id).exec(db).await?;
-    let newest = revisions.iter().max_by_key(|r| (r.created_at, r.id));
-    if newest.is_some_and(|r| r.title == task.title && r.description == task.description) {
-        return Ok(());
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PageContent {
+    pub title: String,
+    pub blocks: Vec<BlockData>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CommentContent {
+    pub body: String,
+}
+
+fn encode<T: Serialize>(content: &T) -> Result<String, ApiError> {
+    serde_json::to_string(content).map_err(|_| ApiError::internal("encoding failed"))
+}
+
+/// Read a revision's content; `None` once redacted.
+pub fn content<T: for<'de> Deserialize<'de>>(revision: &Revision) -> Option<T> {
+    if revision.redacted_at.is_some() {
+        return None;
     }
-    let due = force
-        || newest.is_none()
-        || task.text_edited_by != Some(editor)
-        || task
-            .text_edited_at
-            .is_some_and(|at| now - at >= SESSION_GAP_SECS)
-        || newest.is_some_and(|r| now - r.created_at >= MAX_BETWEEN_VERSIONS_SECS);
-    if due {
-        toasty::create!(TaskRevision {
-            task_id: task.id,
-            saved_at: task.text_edited_at,
-            saved_by: task.text_edited_by,
-            title: task.title.clone(),
-            description: task.description.clone(),
-            created_at: now,
-        })
+    serde_json::from_str(&revision.content).ok()
+}
+
+/// All revisions of something, newest first.
+pub async fn of(
+    db: &mut dyn toasty::Executor,
+    target_id: uuid::Uuid,
+) -> Result<Vec<Revision>, ApiError> {
+    let mut revisions = Revision::filter_by_target_id(target_id).exec(db).await?;
+    revisions.sort_by_key(|r| std::cmp::Reverse((r.created_at, r.id)));
+    Ok(revisions)
+}
+
+/// The newest revision of something: its current content and last editor.
+pub async fn newest(
+    db: &mut dyn toasty::Executor,
+    target_id: uuid::Uuid,
+) -> Result<Option<Revision>, ApiError> {
+    Ok(of(db, target_id).await?.into_iter().next())
+}
+
+async fn insert(
+    db: &mut dyn toasty::Executor,
+    target_type: &'static str,
+    target_id: uuid::Uuid,
+    actor_id: uuid::Uuid,
+    content: String,
+) -> Result<Revision, ApiError> {
+    let now = time::now();
+    Ok(toasty::create!(Revision {
+        target_type: target_type.to_string(),
+        target_id,
+        actor_id,
+        created_at: now,
+        updated_at: now,
+        content,
+    })
+    .exec(db)
+    .await?)
+}
+
+/// Record a task's text after a change (or at creation).
+pub async fn record_task(
+    db: &mut dyn toasty::Executor,
+    task_id: uuid::Uuid,
+    actor_id: uuid::Uuid,
+    content: &TaskContent,
+) -> Result<Revision, ApiError> {
+    insert(db, TASK, task_id, actor_id, encode(content)?).await
+}
+
+/// Record a comment's body after a change (or at creation).
+pub async fn record_comment(
+    db: &mut dyn toasty::Executor,
+    comment_id: uuid::Uuid,
+    actor_id: uuid::Uuid,
+    body: &str,
+) -> Result<Revision, ApiError> {
+    insert(
+        db,
+        COMMENT,
+        comment_id,
+        actor_id,
+        encode(&CommentContent {
+            body: body.to_string(),
+        })?,
+    )
+    .await
+}
+
+/// Record a page's content after a save. Within one editing session the newest revision is updated in
+/// place; `new_session` (a restore, a save outside live editing) always starts a new one. Returns the
+/// revision and whether it is a new one.
+pub async fn record_page(
+    db: &mut dyn toasty::Executor,
+    page_id: uuid::Uuid,
+    actor_id: uuid::Uuid,
+    content: &PageContent,
+    new_session: bool,
+) -> Result<(Revision, bool), ApiError> {
+    let now = time::now();
+    let text = encode(content)?;
+    if !new_session && let Some(mut newest) = newest(db, page_id).await? {
+        let paused = time::seconds_between(newest.updated_at, now) >= SESSION_GAP_SECS;
+        let other_editor = newest.actor_id != actor_id
+            && time::seconds_between(newest.created_at, now) >= SHARED_SESSION_SECS;
+        if !paused && !other_editor && newest.redacted_at.is_none() {
+            newest
+                .update()
+                .content(text)
+                .updated_at(now)
+                .exec(db)
+                .await?;
+            return Ok((newest, false));
+        }
+    }
+    Ok((insert(db, PAGE, page_id, actor_id, text).await?, true))
+}
+
+/// Remove a revision's content (something sensitive was saved). The revision stays, marked redacted.
+pub async fn redact(
+    db: &mut dyn toasty::Executor,
+    mut revision: Revision,
+) -> Result<Revision, ApiError> {
+    revision
+        .update()
+        .content(String::new())
+        .redacted_at(Some(time::now()))
         .exec(db)
         .await?;
-    }
-    Ok(())
+    Ok(revision)
 }

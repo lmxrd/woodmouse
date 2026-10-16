@@ -1,23 +1,26 @@
-//! The wiki: a tree of pages per workspace, each a flat list of blocks (see [`crate::blocks`]).
+//! The wiki: a tree of pages per workspace, each a list of blocks stored as JSON on the page (see
+//! [`crate::blocks`]).
 
 use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::{self, CurrentUser};
-use crate::blocks::{BlockData, BlockKind, validate_blocks};
+use crate::audit;
+use crate::auth::CurrentUser;
+use crate::blocks::{BlockData, validate_blocks};
 use crate::error::ApiError;
-use crate::models::{Block, ContentLink, Page, Role, User};
-use crate::revisions;
+use crate::models::{Role, User, WikiPage};
+use crate::revisions::{self, PageContent};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
-use crate::trash;
+use crate::{ordering, pages, time, trash};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -35,9 +38,10 @@ pub struct PageSummary {
     pub id: uuid::Uuid,
     pub parent_id: Option<uuid::Uuid>,
     pub title: String,
-    pub position: f64,
-    /// Unix epoch seconds.
-    pub updated_at: i64,
+    pub position: i64,
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub updated_at: DateTime,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -52,11 +56,14 @@ pub struct PageDetail {
     pub workspace_id: uuid::Uuid,
     pub parent_id: Option<uuid::Uuid>,
     pub title: String,
-    pub position: f64,
-    /// Unix epoch seconds.
-    pub created_at: i64,
-    /// Unix epoch seconds of the last change to the title or content.
-    pub updated_at: i64,
+    pub position: i64,
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime,
+    /// The last change to the title or content.
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub updated_at: DateTime,
     pub updated_by: Option<PublicUser>,
     /// Send this back as `base_version` when saving content.
     pub version: i64,
@@ -79,8 +86,10 @@ pub struct UpdatePage {
     /// Move under another page; `null` moves to the top level.
     #[serde(default, deserialize_with = "double_option")]
     pub parent_id: Option<Option<uuid::Uuid>>,
-    /// Ordering among siblings. When moving without a position, the page goes last.
-    pub position: Option<f64>,
+    /// Place right after this sibling; `null` places first. When moving to another parent without
+    /// `after_id`, the page goes last.
+    #[serde(default, deserialize_with = "double_option")]
+    pub after_id: Option<Option<uuid::Uuid>>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -116,32 +125,11 @@ fn clean_title(title: &str) -> Result<String, ApiError> {
     })
 }
 
-fn block_data(block: &Block) -> Result<BlockData, ApiError> {
-    let corrupt = |what: &str| {
-        tracing::error!(block = %block.id, what, "stored block could not be read");
-        ApiError::internal("stored page content is unreadable")
-    };
-    Ok(BlockData {
-        kind: BlockKind::parse(&block.kind).ok_or_else(|| corrupt("kind"))?,
-        attrs: serde_json::from_str(&block.attrs).map_err(|_| corrupt("attrs"))?,
-        spans: serde_json::from_str(&block.spans).map_err(|_| corrupt("spans"))?,
-    })
-}
-
-pub(crate) async fn blocks_of(
-    db: &mut toasty::Db,
-    page_id: uuid::Uuid,
-) -> Result<Vec<BlockData>, ApiError> {
-    let mut rows = Block::filter_by_page_id(page_id).exec(db).await?;
-    rows.sort_by(|a, b| a.position.total_cmp(&b.position));
-    rows.iter().map(block_data).collect()
-}
-
 pub(crate) async fn live_pages(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     workspace_id: uuid::Uuid,
-) -> Result<Vec<Page>, ApiError> {
-    Ok(Page::filter_by_workspace_id(workspace_id)
+) -> Result<Vec<WikiPage>, ApiError> {
+    Ok(WikiPage::filter_by_workspace_id(workspace_id)
         .exec(db)
         .await?
         .into_iter()
@@ -149,9 +137,27 @@ pub(crate) async fn live_pages(
         .collect())
 }
 
-pub(crate) async fn detail(db: &mut toasty::Db, page: Page) -> Result<PageDetail, ApiError> {
-    let pages = live_pages(db, page.workspace_id).await?;
-    let by_id: HashMap<uuid::Uuid, &Page> = pages.iter().map(|p| (p.id, p)).collect();
+/// The ids and positions of the live children of `parent_id`, in order, leaving out `except`.
+fn siblings(
+    all: &[WikiPage],
+    parent_id: Option<uuid::Uuid>,
+    except: Option<uuid::Uuid>,
+) -> Vec<(uuid::Uuid, i64)> {
+    let mut found: Vec<(uuid::Uuid, i64)> = all
+        .iter()
+        .filter(|p| p.parent_id == parent_id && Some(p.id) != except)
+        .map(|p| (p.id, p.position))
+        .collect();
+    found.sort_by_key(|(id, position)| (*position, *id));
+    found
+}
+
+pub(crate) async fn detail(
+    db: &mut dyn toasty::Executor,
+    page: WikiPage,
+) -> Result<PageDetail, ApiError> {
+    let all = live_pages(db, page.workspace_id).await?;
+    let by_id: HashMap<uuid::Uuid, &WikiPage> = all.iter().map(|p| (p.id, p)).collect();
     let mut ancestors = vec![];
     let mut cursor = page.parent_id;
     while let Some(id) = cursor {
@@ -170,18 +176,19 @@ pub(crate) async fn detail(db: &mut toasty::Db, page: Page) -> Result<PageDetail
         .await
         .ok()
         .map(|u| PublicUser::from(&u));
+    let blocks = pages::blocks_of(&page)?;
     Ok(PageDetail {
         id: page.id,
         workspace_id: page.workspace_id,
         parent_id: page.parent_id,
-        title: page.title.clone(),
+        title: page.title,
         position: page.position,
         created_at: page.created_at,
         updated_at: page.updated_at,
         updated_by,
         version: page.version,
         ancestors,
-        blocks: blocks_of(db, page.id).await?,
+        blocks,
     })
 }
 
@@ -204,13 +211,12 @@ pub async fn list_pages(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<PageSummary>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
-    let mut pages = live_pages(db, id).await?;
-    pages.sort_by(|a, b| a.position.total_cmp(&b.position).then(a.id.cmp(&b.id)));
+    let mut all = live_pages(db, id).await?;
+    all.sort_by_key(|p| (p.position, p.id));
     Ok(Json(
-        pages
-            .into_iter()
+        all.into_iter()
             .map(|p| PageSummary {
                 id: p.id,
                 parent_id: p.parent_id,
@@ -224,11 +230,11 @@ pub async fn list_pages(
 
 /// A parent must be a live page of the same workspace.
 async fn check_parent(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     workspace_id: uuid::Uuid,
     parent_id: uuid::Uuid,
 ) -> Result<(), ApiError> {
-    let parent = Page::get_by_id(db, &parent_id).await?;
+    let parent = WikiPage::get_by_id(db, &parent_id).await?;
     if parent.deleted_at.is_some() || parent.workspace_id != workspace_id {
         return Err(ApiError::not_found());
     }
@@ -257,33 +263,46 @@ pub async fn create_page(
     Json(input): Json<CreatePage>,
 ) -> Result<(StatusCode, Json<PageDetail>), ApiError> {
     let title = clean_title(input.title.as_deref().unwrap_or(""))?;
-    let db = &mut *state.db.lock().await;
-    access::require_access(db, &user, id, Role::Write).await?;
+    let mut db = state.writer().await;
+    access::require_access(&mut *db, &user, id, Role::Write).await?;
     if let Some(parent_id) = input.parent_id {
-        check_parent(db, id, parent_id).await?;
+        check_parent(&mut *db, id, parent_id).await?;
     }
-    let siblings = live_pages(db, id).await?;
-    let position = siblings
-        .iter()
-        .filter(|p| p.parent_id == input.parent_id)
-        .map(|p| p.position)
-        .fold(0.0, f64::max)
-        + 1.0;
-    let now = auth::now_secs();
-    let page = toasty::create!(Page {
+    let all = live_pages(&mut *db, id).await?;
+    let position = ordering::append(
+        siblings(&all, input.parent_id, None)
+            .iter()
+            .map(|(_, p)| *p),
+    );
+    let now = time::now();
+    let mut tx = db.transaction().await?;
+    let page = toasty::create!(WikiPage {
         workspace_id: id,
         parent_id: input.parent_id,
-        title,
+        title: title.clone(),
         position,
+        content: crate::blocks::encode(&[]),
         created_by: user.id,
         created_at: now,
         updated_by: user.id,
         updated_at: now,
         version: 0,
     })
-    .exec(db)
+    .exec(&mut tx)
     .await?;
-    Ok((StatusCode::CREATED, Json(detail(db, page).await?)))
+    revisions::record_page(
+        &mut tx,
+        page.id,
+        user.id,
+        &PageContent {
+            title,
+            blocks: vec![],
+        },
+        true,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, Json(detail(&mut *db, page).await?)))
 }
 
 /// A page with its content and its path from the top of the tree.
@@ -304,7 +323,7 @@ pub async fn get_page(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<PageDetail>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let page = access::require_page_access(db, &user, id, Role::Read).await?;
     Ok(Json(detail(db, page).await?))
 }
@@ -331,46 +350,77 @@ pub async fn update_page(
     Json(input): Json<UpdatePage>,
 ) -> Result<Json<PageDetail>, ApiError> {
     let title = input.title.as_deref().map(clean_title).transpose()?;
-    let db = &mut *state.db.lock().await;
-    let mut page = access::require_page_access(db, &user, id, Role::Write).await?;
-    let all = live_pages(db, page.workspace_id).await?;
+    let mut db = state.writer().await;
+    let mut page = access::require_page_access(&mut *db, &user, id, Role::Write).await?;
+    let all = live_pages(&mut *db, page.workspace_id).await?;
 
-    let mut position = input.position;
-    let moving = input.parent_id.is_some_and(|p| p != page.parent_id);
-    if let Some(Some(parent_id)) = input.parent_id {
-        check_parent(db, page.workspace_id, parent_id).await?;
+    let target_parent = input.parent_id.unwrap_or(page.parent_id);
+    let moving = target_parent != page.parent_id;
+    if let Some(parent_id) = target_parent
+        && input.parent_id.is_some()
+    {
+        check_parent(&mut *db, page.workspace_id, parent_id).await?;
         if trash::page_subtree(&all, id).contains(&parent_id) {
             return Err(ApiError::bad_request("a page cannot go below itself"));
         }
     }
-    if moving && position.is_none() {
-        let target = input.parent_id.flatten();
-        position = Some(
-            all.iter()
-                .filter(|p| p.parent_id == target && p.id != id)
-                .map(|p| p.position)
-                .fold(0.0, f64::max)
-                + 1.0,
-        );
+
+    let mut tx = db.transaction().await?;
+    // Where it goes among its (new) siblings; neighbours are renumbered only when there is no room.
+    let mut position: Option<i64> = None;
+    if input.after_id.is_some() || moving {
+        let others = siblings(&all, target_parent, Some(id));
+        let placement = match input.after_id {
+            Some(after) => ordering::place(&others, after),
+            None => ordering::Placement {
+                position: ordering::append(others.iter().map(|(_, p)| *p)),
+                renumber: vec![],
+            },
+        };
+        for (sibling, new_position) in &placement.renumber {
+            WikiPage::filter_by_id(*sibling)
+                .update()
+                .position(*new_position)
+                .exec(&mut tx)
+                .await?;
+        }
+        position = Some(placement.position);
     }
 
-    if title.is_some() || input.parent_id.is_some() || position.is_some() {
+    let title_changed = title.as_ref().is_some_and(|t| *t != page.title);
+    if title_changed || moving || position.is_some() {
         let mut update = page.update();
-        if let Some(title) = &title {
+        if let Some(title) = &title
+            && title_changed
+        {
             update = update
                 .title(title.clone())
                 .updated_by(user.id)
-                .updated_at(auth::now_secs());
+                .updated_at(time::now());
         }
-        if let Some(parent) = input.parent_id {
-            update = update.parent_id(parent);
+        if input.parent_id.is_some() {
+            update = update.parent_id(target_parent);
         }
         if let Some(position) = position {
             update = update.position(position);
         }
-        update.exec(db).await?;
+        update.exec(&mut tx).await?;
     }
-    Ok(Json(detail(db, page).await?))
+    if title_changed {
+        revisions::record_page(
+            &mut tx,
+            id,
+            user.id,
+            &PageContent {
+                title: title.clone().unwrap_or_default(),
+                blocks: pages::blocks_of(&page)?,
+            },
+            false,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(Json(detail(&mut *db, page).await?))
 }
 
 /// Replace a page's content. Saving the content it already has changes nothing (not even `updated_at`).
@@ -397,8 +447,8 @@ pub async fn save_blocks(
 ) -> Result<Json<PageDetail>, ApiError> {
     validate_blocks(&input.blocks)?;
     let (page_detail, changed) = {
-        let db = &mut *state.db.lock().await;
-        let mut page = access::require_page_access(db, &user, id, Role::Write).await?;
+        let mut db = state.writer().await;
+        let mut page = access::require_page_access(&mut *db, &user, id, Role::Write).await?;
 
         if let Some(base) = input.base_version
             && base != page.version
@@ -408,10 +458,10 @@ pub async fn save_blocks(
                 "the page was changed by someone else since you opened it",
             ));
         }
-        let before = page.version;
-        write_blocks(db, &mut page, user.id, &input.blocks, false).await?;
-        let changed = page.version != before;
-        (detail(db, page).await?, changed)
+        let mut tx = db.transaction().await?;
+        let changed = pages::save_content(&mut tx, &mut page, user.id, &input.blocks, true).await?;
+        tx.commit().await?;
+        (detail(&mut *db, page).await?, changed)
     };
     // A save outside live editing replaces what the live document holds: everyone editing live reloads.
     if changed {
@@ -439,12 +489,11 @@ pub async fn delete_page(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
     let closing = {
-        let db = &mut *state.db.lock().await;
-        let page = access::require_page_access(db, &user, id, Role::Write).await?;
-        let all = live_pages(db, page.workspace_id).await?;
-        let closing = trash::page_subtree(&all, id);
+        let mut db = state.writer().await;
+        let page = access::require_page_access(&mut *db, &user, id, Role::Write).await?;
         let mut tx = db.transaction().await?;
-        trash::delete_page(&mut tx, &page, user.id, auth::now_secs()).await?;
+        let closing = trash::delete_page(&mut tx, &page, time::now()).await?;
+        audit::deleted(&mut tx, user.id, page.workspace_id, "page", id, &page.title).await?;
         tx.commit().await?;
         closing
     };
@@ -497,7 +546,7 @@ pub async fn ping_presence(
     body: Option<Json<PingPresence>>,
 ) -> Result<Json<Vec<Editor>>, ApiError> {
     let fallback = body.is_some_and(|Json(b)| b.fallback);
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     access::require_page_access(db, &user, id, Role::Write).await?;
     let others: Vec<(uuid::Uuid, bool)> = {
         let mut presence = state.presence.lock().unwrap_or_else(|e| e.into_inner());
@@ -520,82 +569,4 @@ pub async fn ping_presence(
         }
     }
     Ok(Json(editors))
-}
-
-/// Replace a page's content with `blocks` (a no-op when nothing differs), keeping a version of what was
-/// there when [`revisions::should_snapshot`] says so (or always, with `force_snapshot`).
-pub(crate) async fn write_blocks(
-    db: &mut toasty::Db,
-    page: &mut Page,
-    editor: uuid::Uuid,
-    blocks: &[BlockData],
-    force_snapshot: bool,
-) -> Result<(), ApiError> {
-    let mut blocks = blocks.to_vec();
-    crate::blocks::trim_trailing_empty(&mut blocks);
-    let blocks = &blocks[..];
-    let old = blocks_of(db, page.id).await?;
-    if old == blocks {
-        return Ok(());
-    }
-    revisions::snapshot_page(db, page, &old, editor, force_snapshot).await?;
-    let id = page.id;
-    let mut tx = db.transaction().await?;
-    Block::filter_by_page_id(id).delete().exec(&mut tx).await?;
-    for (i, block) in blocks.iter().enumerate() {
-        toasty::create!(Block {
-            page_id: id,
-            kind: block.kind.as_str().to_string(),
-            position: i as f64,
-            attrs: serde_json::to_string(&block.attrs)
-                .map_err(|_| ApiError::internal("encoding failed"))?,
-            spans: serde_json::to_string(&block.spans)
-                .map_err(|_| ApiError::internal("encoding failed"))?,
-        })
-        .exec(&mut tx)
-        .await?;
-    }
-    // The references the content makes, kept in step with it.
-    ContentLink::filter_by_source_page_id(id)
-        .delete()
-        .exec(&mut tx)
-        .await?;
-    for (kind, target) in references(blocks) {
-        toasty::create!(ContentLink {
-            source_page_id: id,
-            target_id: target,
-            target_kind: kind.to_string(),
-        })
-        .exec(&mut tx)
-        .await?;
-    }
-    tx.commit().await?;
-    crate::search::index_page_body(db, id, blocks).await?;
-    let next_version = page.version + 1;
-    page.update()
-        .updated_by(editor)
-        .updated_at(auth::now_secs())
-        .version(next_version)
-        .exec(db)
-        .await?;
-    Ok(())
-}
-
-/// The distinct pages and tasks a page's content refers to, as (`"page"` or `"task"`, id).
-fn references(blocks: &[BlockData]) -> Vec<(&'static str, uuid::Uuid)> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = vec![];
-    for span in blocks.iter().flat_map(|b| &b.spans) {
-        if let Some(m) = &span.mention
-            && seen.insert(m.task_id)
-        {
-            out.push(("task", m.task_id));
-        }
-        if let Some(p) = &span.page_link
-            && seen.insert(p.page_id)
-        {
-            out.push(("page", p.page_id));
-        }
-    }
-    out
 }

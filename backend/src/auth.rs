@@ -1,8 +1,13 @@
-//! Session auth: Argon2id password hashing and cookie-backed sessions.
+//! Session auth: Argon2id password hashing, cookie-backed sessions, and slowing down repeated failed
+//! logins.
 //!
 //! The session token is an opaque UUID stored in an httpOnly, SameSite=Lax
 //! cookie. Sessions live in the `sessions` table with an expiry; the
 //! [`CurrentUser`] extractor validates them on every request.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use argon2::password_hash::{PasswordHash, SaltString};
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
@@ -13,16 +18,10 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use crate::error::ApiError;
 use crate::models::{Session, User};
 use crate::state::AppState;
+use crate::time;
 
 pub const SESSION_COOKIE: &str = "woodmouse_session";
 const SESSION_TTL_SECS: i64 = 30 * 24 * 60 * 60;
-
-pub fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is before the unix epoch")
-        .as_secs() as i64
-}
 
 /// Hash a password with Argon2id and the crate's default (OWASP-recommended)
 /// parameters. The PHC string encodes salt and parameters.
@@ -48,7 +47,7 @@ pub fn verify_password(password: &str, phc: &str) -> bool {
 
 /// Create a session for `user_id` and the Set-Cookie jar for it.
 pub async fn create_session(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     user_id: uuid::Uuid,
     secure_cookies: bool,
 ) -> Result<(Session, CookieJar), ApiError> {
@@ -56,7 +55,7 @@ pub async fn create_session(
     let session = toasty::create!(Session {
         token,
         user_id,
-        expires_at: now_secs() + SESSION_TTL_SECS,
+        expires_at: time::add_seconds(time::now(), SESSION_TTL_SECS),
     })
     .exec(db)
     .await?;
@@ -65,7 +64,7 @@ pub async fn create_session(
     cookie.set_path("/");
     cookie.set_http_only(true);
     cookie.set_same_site(SameSite::Lax);
-    cookie.set_max_age(time::Duration::seconds(SESSION_TTL_SECS));
+    cookie.set_max_age(::time::Duration::seconds(SESSION_TTL_SECS));
     if secure_cookies {
         cookie.set_secure(true);
     }
@@ -75,15 +74,43 @@ pub async fn create_session(
 }
 
 /// Delete a session by its token (logout). Unknown tokens are fine.
-pub async fn delete_session(db: &mut toasty::Db, token: &str) -> Result<(), ApiError> {
+pub async fn delete_session(db: &mut dyn toasty::Executor, token: &str) -> Result<(), ApiError> {
     if let Ok(session) = Session::get_by_token(db, token).await {
         session.delete().exec(db).await?;
     }
     Ok(())
 }
 
+/// End every session of a user (when they are disabled, or change their password elsewhere).
+pub async fn delete_sessions_of(
+    db: &mut dyn toasty::Executor,
+    user_id: uuid::Uuid,
+    except_token: Option<&str>,
+) -> Result<(), ApiError> {
+    for session in Session::filter_by_user_id(user_id).exec(db).await? {
+        if Some(session.token.as_str()) != except_token {
+            session.delete().exec(db).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove sessions that have expired (a daily job).
+pub async fn delete_expired_sessions(db: &mut dyn toasty::Executor) -> Result<usize, ApiError> {
+    let now = time::now();
+    let expired = Session::all()
+        .filter(Session::fields().expires_at().lt(now))
+        .exec(db)
+        .await?;
+    let count = expired.len();
+    for session in expired {
+        session.delete().exec(db).await?;
+    }
+    Ok(count)
+}
+
 /// The authenticated user, extracted from the session cookie. Rejects with
-/// 401 when the request carries no valid (unexpired) session.
+/// 401 when the request carries no valid (unexpired) session, or the account is disabled.
 pub struct CurrentUser {
     pub user: User,
     /// Session token, so handlers (logout) can invalidate it.
@@ -102,23 +129,111 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Err(ApiError::unauthorized());
         };
 
-        let db = &mut *state.db.lock().await;
+        let db = &mut state.db();
         let session = Session::get_by_token(db, &token)
             .await
             .map_err(|_| ApiError::unauthorized())?;
 
-        if now_secs() > session.expires_at {
-            let _ = session.delete().exec(db).await;
+        if time::now() > session.expires_at {
             return Err(ApiError::unauthorized());
         }
 
         let user = User::get_by_id(db, &session.user_id)
             .await
             .map_err(|_| ApiError::unauthorized())?;
+        if !user.active {
+            return Err(ApiError::unauthorized());
+        }
 
         Ok(CurrentUser {
             user,
             session_token: token,
         })
+    }
+}
+
+/// Failed logins that count towards slowing down.
+const WINDOW: Duration = Duration::from_secs(15 * 60);
+/// Failures allowed in the window before attempts are delayed.
+const FREE_FAILURES: usize = 5;
+/// The longest a login attempt is made to wait.
+const MAX_DELAY: Duration = Duration::from_secs(30);
+
+/// Recent failed logins per email and per network address, kept in memory only (the address is never
+/// stored). After [`FREE_FAILURES`] failures within [`WINDOW`], each further attempt for that email or
+/// from that address waits longer (1s, 2s, 4s, ... up to [`MAX_DELAY`]). There is no lockout, so nobody
+/// can lock someone else out.
+#[derive(Default)]
+pub struct LoginLimits {
+    failures: Mutex<HashMap<String, Vec<Instant>>>,
+}
+
+impl LoginLimits {
+    fn keys(email: &str, address: Option<&str>) -> Vec<String> {
+        let mut keys = vec![format!("email:{}", email.trim().to_lowercase())];
+        if let Some(address) = address {
+            keys.push(format!("addr:{address}"));
+        }
+        keys
+    }
+
+    /// How long this attempt has to wait before it is checked.
+    pub fn delay(&self, email: &str, address: Option<&str>) -> Duration {
+        let now = Instant::now();
+        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        let worst = Self::keys(email, address)
+            .iter()
+            .map(|key| {
+                let list = failures.entry(key.clone()).or_default();
+                list.retain(|t| now.duration_since(*t) < WINDOW);
+                list.len()
+            })
+            .max()
+            .unwrap_or(0);
+        if worst < FREE_FAILURES {
+            return Duration::ZERO;
+        }
+        let steps = (worst - FREE_FAILURES).min(10) as u32;
+        Duration::from_secs(1u64 << steps).min(MAX_DELAY)
+    }
+
+    pub fn failed(&self, email: &str, address: Option<&str>) {
+        let now = Instant::now();
+        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        for key in Self::keys(email, address) {
+            failures.entry(key).or_default().push(now);
+        }
+        // Forget keys with nothing recent, so the map stays small.
+        failures.retain(|_, list| list.iter().any(|t| now.duration_since(*t) < WINDOW));
+    }
+
+    pub fn succeeded(&self, email: &str) {
+        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
+        failures.remove(&format!("email:{}", email.trim().to_lowercase()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failures_slow_down_after_five() {
+        let limits = LoginLimits::default();
+        for _ in 0..5 {
+            assert_eq!(limits.delay("a@b.c", Some("1.2.3.4")), Duration::ZERO);
+            limits.failed("a@b.c", Some("1.2.3.4"));
+        }
+        assert_eq!(limits.delay("a@b.c", None), Duration::from_secs(1));
+        limits.failed("a@b.c", None);
+        assert_eq!(limits.delay("A@B.C", None), Duration::from_secs(2));
+        // The address alone also counts.
+        assert_eq!(
+            limits.delay("other@b.c", Some("1.2.3.4")),
+            Duration::from_secs(1)
+        );
+        // Success clears the email's count.
+        limits.succeeded("a@b.c");
+        assert_eq!(limits.delay("a@b.c", None), Duration::ZERO);
     }
 }

@@ -5,7 +5,7 @@ import type { PageSummary } from "woodmouse-client";
 import { listPagesOptions } from "woodmouse-client/react-query";
 
 import { pageExportUrl } from "../../lib/api";
-import { positionBetween } from "../../lib/position";
+import { afterIdAt } from "../../lib/position";
 import { subtreeIds } from "../../lib/pageTree";
 import { ActionMenu } from "../ActionMenu";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -40,7 +40,7 @@ export function PageMenu({
     .sort((a, b) => a.position - b.position);
   const index = siblings.findIndex((p) => p.id === page.id);
   const others = siblings.filter((p) => p.id !== page.id);
-  const reorder = (to: number) => movePage(page.id, { position: positionBetween(others, to) });
+  const reorder = (to: number) => movePage(page.id, { after_id: afterIdAt(others, to) });
   const subpages = subtreeIds(pages, page.id).size - 1;
 
   return (

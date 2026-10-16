@@ -7,19 +7,19 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
-use crate::auth::{self, CurrentUser};
+use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::ical::{self, FeedTask};
-use crate::models::{
-    CalendarLink, List, Priority, Project, Role, Task, TaskAssignee, User, Workspace,
-};
+use crate::models::{CalendarLink, Priority, Project, Role, Task, TaskAssignee, User, Workspace};
 use crate::state::AppState;
+use crate::time;
 
 /// Links are shown to the owner only; the feed itself is the public part.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -79,17 +79,23 @@ pub struct CalendarLinkView {
     pub mode: String,
     /// The feed's path on this server; put the server's address in front of it.
     pub path: String,
-    /// Unix epoch seconds.
-    pub created_at: i64,
-    /// Unix epoch seconds; absent if no calendar app has fetched it yet.
-    pub last_used_at: Option<i64>,
+    #[serde(with = "time::utc")]
+    #[schema(value_type = String, format = DateTime)]
+    pub created_at: DateTime,
+    /// Absent if no calendar app has fetched it yet.
+    #[serde(with = "time::utc_option")]
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub last_used_at: Option<DateTime>,
 }
 
 fn feed_path(secret: &str) -> String {
     format!("/api/calendar/{secret}.ics")
 }
 
-async fn view_of(db: &mut toasty::Db, link: &CalendarLink) -> Result<CalendarLinkView, ApiError> {
+async fn view_of(
+    db: &mut dyn toasty::Executor,
+    link: &CalendarLink,
+) -> Result<CalendarLinkView, ApiError> {
     let workspace_name = match link.workspace_id {
         Some(id) => Workspace::get_by_id(db, &id).await.ok().map(|w| w.name),
         None => None,
@@ -143,7 +149,7 @@ pub async fn list_calendar_links(
     CurrentUser { user, .. }: CurrentUser,
     Query(filter): Query<LinkFilter>,
 ) -> Result<Json<Vec<CalendarLinkView>>, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let db = &mut state.db();
     let mut links: Vec<CalendarLink> = CalendarLink::filter_by_user_id(user.id)
         .exec(db)
         .await?
@@ -189,7 +195,8 @@ pub async fn create_calendar_link(
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<CreateLink>,
 ) -> Result<(StatusCode, Json<CalendarLinkView>), ApiError> {
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     let (workspace_id, project_id, default_name) = match input.scope {
         LinkScope::User => (None, None, "My tasks".to_string()),
         LinkScope::Workspace => {
@@ -232,7 +239,7 @@ pub async fn create_calendar_link(
             uuid::Uuid::new_v4().simple(),
             uuid::Uuid::new_v4().simple()
         ),
-        created_at: auth::now_secs(),
+        created_at: time::now(),
     })
     .exec(db)
     .await?;
@@ -256,15 +263,13 @@ pub async fn revoke_calendar_link(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     let mut link = CalendarLink::get_by_id(db, &id).await?;
     if link.user_id != user.id || link.revoked_at.is_some() {
         return Err(ApiError::not_found());
     }
-    link.update()
-        .revoked_at(Some(auth::now_secs()))
-        .exec(db)
-        .await?;
+    link.update().revoked_at(Some(time::now())).exec(db).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -282,8 +287,9 @@ pub async fn revoke_calendar_links(
     CurrentUser { user, .. }: CurrentUser,
     Query(filter): Query<LinkFilter>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let now = auth::now_secs();
+    let mut db = state.writer().await;
+    let db = &mut *db;
+    let now = time::now();
     for mut link in CalendarLink::filter_by_user_id(user.id)
         .exec(db)
         .await?
@@ -305,7 +311,7 @@ struct Source {
 
 /// The tasks a link shows, with their projects.
 async fn tasks_for(
-    db: &mut toasty::Db,
+    db: &mut dyn toasty::Executor,
     link: &CalendarLink,
     owner: &User,
 ) -> Result<Vec<Source>, ApiError> {
@@ -341,26 +347,15 @@ async fn tasks_for(
         if project_ids.is_empty() {
             return Ok(vec![]);
         }
-        let lists = List::all()
-            .filter(in_list(List::fields().project_id(), project_ids))
+        tasks = Task::all()
+            .filter(in_list(Task::fields().project_id(), project_ids))
+            .filter(Task::fields().deleted_at().is_none())
             .exec(db)
             .await?;
-        let list_ids: Vec<uuid::Uuid> = lists
-            .into_iter()
-            .filter(|l| l.deleted_at.is_none())
-            .map(|l| l.id)
-            .collect();
-        if !list_ids.is_empty() {
-            tasks = Task::all()
-                .filter(in_list(Task::fields().list_id(), list_ids))
-                .filter(Task::fields().deleted_at().is_none())
-                .exec(db)
-                .await?;
-        }
     }
 
-    // Resolve each task's list and project once; keep only what the owner can still see.
-    let mut lists: HashMap<uuid::Uuid, List> = HashMap::new();
+    // Resolve each task's project once; keep only what the owner can still see. (A deleted list or parent
+    // deletes its tasks with it, so a live task is never in one.)
     let mut known: HashMap<uuid::Uuid, Project> = projects.into_iter().map(|p| (p.id, p)).collect();
     let mut allowed: HashMap<uuid::Uuid, bool> = HashMap::new();
     let mut out = vec![];
@@ -368,17 +363,10 @@ async fn tasks_for(
         if task.start_date.is_none() && task.due_date.is_none() {
             continue;
         }
-        if let std::collections::hash_map::Entry::Vacant(slot) = lists.entry(task.list_id) {
-            slot.insert(List::get_by_id(db, &task.list_id).await?);
+        if let std::collections::hash_map::Entry::Vacant(slot) = known.entry(task.project_id) {
+            slot.insert(Project::get_by_id(db, &task.project_id).await?);
         }
-        let list = &lists[&task.list_id];
-        if list.deleted_at.is_some() {
-            continue;
-        }
-        if let std::collections::hash_map::Entry::Vacant(slot) = known.entry(list.project_id) {
-            slot.insert(Project::get_by_id(db, &list.project_id).await?);
-        }
-        let project = &known[&list.project_id];
+        let project = &known[&task.project_id];
         if project.deleted_at.is_some() {
             continue;
         }
@@ -401,6 +389,11 @@ async fn tasks_for(
         }
     }
     Ok(out)
+}
+
+/// Epoch seconds of a stored UTC date-time.
+fn epoch(dt: DateTime) -> i64 {
+    time::timestamp(dt).as_second()
 }
 
 /// Where the app is reached from, for the links inside events.
@@ -440,7 +433,8 @@ pub async fn feed(
 ) -> Result<Response, ApiError> {
     let secret = token.strip_suffix(".ics").unwrap_or(&token);
     let base = public_base(&headers);
-    let db = &mut *state.db.lock().await;
+    let mut db = state.writer().await;
+    let db = &mut *db;
     let Ok(mut link) = CalendarLink::get_by_secret(db, secret).await else {
         return Err(ApiError::not_found());
     };
@@ -448,6 +442,9 @@ pub async fn feed(
         return Err(ApiError::not_found());
     }
     let owner = User::get_by_id(db, &link.user_id).await?;
+    if !owner.active {
+        return Err(ApiError::not_found());
+    }
     // The owner must still be able to see what the link shows.
     let visible = match (LinkScope::parse(&link.scope), link.workspace_id) {
         (Some(LinkScope::User), _) => true,
@@ -458,10 +455,10 @@ pub async fn feed(
         return Err(ApiError::not_found());
     }
     let tasks = tasks_for(db, &link, &owner).await?;
-    let now = auth::now_secs();
+    let now = time::now();
     if link
         .last_used_at
-        .is_none_or(|t| now - t >= USED_RESOLUTION_SECS)
+        .is_none_or(|t| time::seconds_between(t, now) >= USED_RESOLUTION_SECS)
     {
         link.update().last_used_at(Some(now)).exec(db).await?;
     }
@@ -486,13 +483,13 @@ pub async fn feed(
                 title: task.title,
                 description: task.description,
                 project: project_name,
-                start: task.start_date,
-                due: task.due_date,
-                completed: task.is_completed,
+                start: task.start_date.map(epoch),
+                due: task.due_date.map(epoch),
+                completed: task.completed_at.is_some(),
             },
         )
         .collect();
-    let body = ical::calendar(&link.name, &feed, now);
+    let body = ical::calendar(&link.name, &feed, epoch(now));
     Ok((
         StatusCode::OK,
         [

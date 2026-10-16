@@ -5,6 +5,7 @@ import { addDays } from "../../lib/calendar";
 import type { Zoom } from "../../lib/projectSearch";
 import { PX_PER_DAY, barBox, progressOf, type Span } from "../../lib/timeline";
 import { cn } from "../../lib/utils";
+import { isDone } from "../../lib/task";
 
 type Mode = "move" | "start" | "end";
 
@@ -54,7 +55,7 @@ export function TimelineBar({
   const shown = drag ? previewSpan(span, drag.mode, drag.delta) : span;
   const { x, width } = barBox(shown, from, zoom);
   const progress = progressOf(task);
-  const late = !task.is_completed && shown.end < today;
+  const late = !isDone(task) && shown.end < today;
 
   const begin = (mode: Mode) => (e: React.PointerEvent) => {
     if (!draggable || e.pointerType === "touch") return;
@@ -107,7 +108,7 @@ export function TimelineBar({
           "absolute top-[9px] size-[14px] rotate-45 touch-none border",
           late
             ? "border-signal bg-signal"
-            : task.is_completed
+            : isDone(task)
               ? "border-muted-foreground bg-muted-foreground"
               : "border-primary bg-primary",
           derived && "bg-transparent",
@@ -127,7 +128,7 @@ export function TimelineBar({
         "absolute top-[6px] flex h-[20px] touch-none overflow-hidden border",
         late
           ? "border-signal bg-signal/20"
-          : task.is_completed
+          : isDone(task)
             ? "border-muted-foreground bg-muted"
             : "border-primary bg-accent",
         derived && "border-dashed bg-transparent",
@@ -139,7 +140,7 @@ export function TimelineBar({
       <div
         className={cn(
           "h-full",
-          late ? "bg-signal" : task.is_completed ? "bg-muted-foreground" : "bg-primary",
+          late ? "bg-signal" : isDone(task) ? "bg-muted-foreground" : "bg-primary",
         )}
         style={{ width: `${progress * 100}%`, opacity: derived ? 0.35 : 1 }}
       />

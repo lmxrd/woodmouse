@@ -308,3 +308,97 @@ pub fn trim_trailing_empty(blocks: &mut Vec<BlockData>) {
         blocks.pop();
     }
 }
+
+/// The version of the stored content format (`WikiPage.content`, page revisions).
+pub const CONTENT_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize)]
+struct Envelope {
+    version: u32,
+    blocks: Vec<BlockData>,
+}
+
+/// A page's blocks as stored: `{"version": 1, "blocks": [...]}`.
+pub fn encode(blocks: &[BlockData]) -> String {
+    #[derive(Serialize)]
+    struct Out<'a> {
+        version: u32,
+        blocks: &'a [BlockData],
+    }
+    serde_json::to_string(&Out {
+        version: CONTENT_VERSION,
+        blocks,
+    })
+    .unwrap_or_else(|_| r#"{"version":1,"blocks":[]}"#.to_string())
+}
+
+/// Read stored content. Older versions are upgraded here when the format changes; there is only one so
+/// far. Empty text is an empty page.
+pub fn decode(text: &str) -> Result<Vec<BlockData>, ApiError> {
+    if text.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    let envelope: Envelope = serde_json::from_str(text).map_err(|e| {
+        tracing::error!(%e, "stored page content is unreadable");
+        ApiError::internal("stored page content is unreadable")
+    })?;
+    match envelope.version {
+        CONTENT_VERSION => Ok(envelope.blocks),
+        other => {
+            tracing::error!(version = other, "unknown page content version");
+            Err(ApiError::internal(
+                "stored page content has an unknown version",
+            ))
+        }
+    }
+}
+
+/// The page's text without formatting, one block per line (search).
+pub fn plain_text(blocks: &[BlockData]) -> String {
+    blocks
+        .iter()
+        .map(BlockData::plain_text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The distinct pages and tasks the blocks refer to, as (`"page"` or `"task"`, id).
+pub fn references(blocks: &[BlockData]) -> Vec<(&'static str, uuid::Uuid)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = vec![];
+    for span in blocks.iter().flat_map(|b| &b.spans) {
+        if let Some(m) = &span.mention
+            && seen.insert(m.task_id)
+        {
+            out.push(("task", m.task_id));
+        }
+        if let Some(p) = &span.page_link
+            && seen.insert(p.page_id)
+        {
+            out.push(("page", p.page_id));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod content_tests {
+    use super::*;
+
+    #[test]
+    fn content_round_trips_with_its_version() {
+        let blocks = vec![BlockData {
+            kind: BlockKind::Paragraph,
+            attrs: Attrs::default(),
+            spans: vec![Span {
+                text: Some("hi".into()),
+                ..Default::default()
+            }],
+        }];
+        let text = encode(&blocks);
+        assert!(text.starts_with(r#"{"version":1,"#), "{text}");
+        assert_eq!(decode(&text).unwrap(), blocks);
+        assert_eq!(decode("").unwrap(), vec![]);
+        assert!(decode(r#"{"version":99,"blocks":[]}"#).is_err());
+    }
+}

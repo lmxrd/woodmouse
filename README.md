@@ -13,8 +13,8 @@ file server is needed in production.
 Woodmouse is a self-hosted task manager for a household or small team.
 
 - **Workspaces** hold projects, files and members. Roles are admin, write and read.
-- **Projects** contain lists, and start with an **Inbox** list for unorganized tasks (it can't be deleted; move
-  tasks out of it when you've sorted them). A project has four views: a **board** (one column per list plus a
+- **Projects** contain lists. A task in no list is in the project's **Inbox** (the first board column; quick adds
+  go there, and you move tasks out of it when you've sorted them). A project has four views: a **board** (one column per list plus a
   Done column), a **list view** with filters and sorting, a **calendar** (month or week; drag tasks to
   reschedule, quick-add on a day, an unscheduled panel, an agenda on phones) and a **timeline** (Gantt: bars
   from start to due date, subtasks nested, parents derived from their subtasks, dependency arrows from
@@ -68,10 +68,16 @@ Woodmouse is a self-hosted task manager for a household or small team.
   as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
   items are never found. Task comments are searched too (a match shows as its task). The `@` and `[[` pickers use the same search.
 - **My tasks** shows everything assigned to you across a workspace, grouped by due date.
-- **Trash**: nothing is permanently deleted. Deleting a project, list, task, comment, label or view moves it
-  (with what it contains) to the trash, where members with write access can restore it. The only permanent
-  deletion is the admin's unused-files cleanup.
-- **Settings** (per workspace) manage members and labels. **Account** (per user) edits your display name,
+- **Trash**: nothing is permanently deleted. Deleting a project, list, task, comment, label, view or page moves it
+  (with what it contains) to the trash, where members with write access can restore it. A deleted workspace
+  disappears for everyone and only the site's super admin can bring it back. The only permanent deletions are
+  expired login sessions and the admin's unused-files cleanup.
+- **History and audit**: every save of a task or comment, and page saves grouped by editing session, keep an
+  earlier version you can view and restore. The super admin can read the site-wide **audit log** (sign-ins,
+  role changes, deletions, edits; it records who and when, never an IP address) and remove the content of a
+  version where something sensitive was saved. Disabling an account blocks it but keeps everything it made.
+- **Settings** (per workspace) manage the name and description, members and labels, and (for admins) deleting the
+  workspace. **Account** (per user) edits your display name,
   email and password, and how dates and times are shown (date format, 12 or 24 hour clock, and the first day
   of the week). Items from the
   last seven days show relative times ("2 h ago"); older ones show the date and time in your format.
@@ -98,9 +104,19 @@ The backend reads these environment variables (all optional):
 | `STORAGE_BACKEND`  | `local`                | Where new uploads are stored; `local` is the only backend for now    |
 | `PUBLIC_URL`       | from the request       | Address of the app for links inside calendar events (e.g. `https://tasks.example.com`) |
 | `MAX_UPLOAD_MB`    | `25`                   | Largest accepted upload                                              |
+| `BACKUP_DIR`       | `backups` (manual only)| Where backups go; when set the server also writes one a day and keeps the newest 14 |
 
 Files are stored behind a small `FileStore` trait (`backend/src/storage.rs`) and each file records which backend
 holds it, so another store (for example a Nextcloud/WebDAV share) can be added later, and several can coexist.
+
+### Backups and checks
+
+- `woodmouse backup [DIR]` (or the super admin's `POST /api/admin/backup`) writes a consistent copy of the
+  database with SQLite's `VACUUM INTO`, safe while the server runs. Uploaded files are not part of it: back up
+  `DATA_DIR` too (database and files together are the whole state).
+- `woodmouse check` (or `GET /api/admin/integrity`) reports rows that point at something that no longer exists.
+- The schema evolves through migrations in `backend/toasty/`, applied at startup. On SIGTERM the server saves
+  any pages being edited live before it exits.
 
 ### Behind a reverse proxy
 
@@ -125,7 +141,7 @@ spec by `mise run gen:client`.
 | `mise run build`         | Generate client from spec, build frontend, then backend with the bundle embedded|
 | `mise run check`         | Each stack's checks (clippy/fmt, lint/types)       |
 | `mise run fix`           | Each stack's auto-fixes                             |
-| `mise run clean`         | Delete the local dev database and uploaded files (the schema is recreated on next start; there are no migrations yet) |
+| `mise run clean`         | Delete the local dev database and uploaded files (the schema is recreated from the migrations on next start) |
 
 For development, run both dev servers: vite on :5173 with the API on :8000
 (vite proxies `/api` to the backend, so cookies stay same-origin). `cargo build` in `backend/` requires `frontend/dist`

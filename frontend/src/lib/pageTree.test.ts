@@ -8,7 +8,7 @@ const page = (id: string, parent_id: string | null, position: number): PageSumma
   parent_id,
   position,
   title: id,
-  updated_at: 0,
+  updated_at: "2026-10-16T00:00:00Z",
 });
 const pages = [page("c", "a", 2), page("b", null, 2), page("a", null, 1), page("d", "c", 1)];
 
@@ -31,10 +31,10 @@ describe("page tree", () => {
 
 describe("dropping a page", () => {
   // a(1) b(2) at the top; c(2) and its child d below a.
-  it("puts it before or after a sibling with a position between the neighbours", () => {
-    expect(dropChange(pages, "b", "a", "before")).toEqual({ parent_id: null, position: 0 });
-    expect(dropChange(pages, "a", "b", "after")).toEqual({ parent_id: null, position: 3 });
-    expect(dropChange(pages, "d", "c", "before")).toEqual({ parent_id: "a", position: 1 });
+  it("puts it before or after a sibling by naming the sibling it follows", () => {
+    expect(dropChange(pages, "b", "a", "before")).toEqual({ parent_id: null, after_id: null });
+    expect(dropChange(pages, "a", "b", "after")).toEqual({ parent_id: null, after_id: "b" });
+    expect(dropChange(pages, "d", "c", "before")).toEqual({ parent_id: "a", after_id: null });
   });
 
   it("nests into the target as its last child", () => {

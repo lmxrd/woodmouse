@@ -16,7 +16,7 @@ const PAGE = 50;
 export function ActivityPage({ workspaceId }: { workspaceId: string }) {
   const { project } = route.useSearch();
   const navigate = route.useNavigate();
-  const { date } = useFormatters();
+  const { dateOf } = useFormatters();
   const [limit, setLimit] = useState(PAGE);
   const [now] = useState(() => Date.now());
   const { data: projects } = useQuery(listProjectsOptions({ path: { workspace_id: workspaceId } }));
@@ -25,10 +25,10 @@ export function ActivityPage({ workspaceId }: { workspaceId: string }) {
   );
 
   const dayLabel = (entry: ActivityView) => {
-    const d = new Date(entry.created_at * 1000);
+    const d = new Date(entry.created_at);
     const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
     const days = Math.round((startOfDay(new Date(now)) - startOfDay(d)) / 86_400_000);
-    return days === 0 ? "Today" : days === 1 ? "Yesterday" : date(entry.created_at);
+    return days === 0 ? "Today" : days === 1 ? "Yesterday" : dateOf(entry.created_at);
   };
 
   const groups: { label: string; entries: ActivityView[] }[] = [];
