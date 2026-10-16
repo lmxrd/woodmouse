@@ -7,7 +7,7 @@ import { searchOptions } from "woodmouse-client/react-query";
 
 import { cn } from "../../../lib/utils";
 import { BulletItem, Callout, Divider, NumberedItem, Numbering, Quote, TodoItem } from "./blocks";
-import { PageLink, TaskMention } from "./inline";
+import { PageLink, References, TaskMention } from "./inline";
 import { suggestionExtension } from "./suggestion";
 
 /** Browsers ignore whitespace and control characters inside a URL scheme, so compare without them. */
@@ -124,6 +124,8 @@ export interface EditorContext {
   queryClient: QueryClient;
   /** Only the block types and rendering, without the pickers (for showing content, not editing it). */
   readOnly?: boolean;
+  /** The document is shared live: undo is the collaboration extension's, so the editor's own is off. */
+  live?: boolean;
 }
 
 /** The extensions of the page editor: the stored block types, markdown shortcuts and the pickers. */
@@ -131,6 +133,7 @@ export function editorExtensions({
   workspaceId,
   queryClient,
   readOnly = false,
+  live = false,
 }: EditorContext): Extensions {
   const find = (q: string, kind: "page" | "task") =>
     queryClient.fetchQuery({
@@ -148,6 +151,7 @@ export function editorExtensions({
       listKeymap: false,
       horizontalRule: false,
       underline: false,
+      undoRedo: live ? false : undefined,
       link: {
         openOnClick: false,
         autolink: true,
@@ -170,6 +174,7 @@ export function editorExtensions({
     Callout,
     Divider,
     Numbering,
+    References,
     TaskMention,
     PageLink,
     ...(readOnly ? [] : pickers()),
@@ -204,7 +209,7 @@ export function editorExtensions({
             .chain()
             .focus()
             .insertContentAt(range, [
-              { type: "taskMention", attrs: { id: hit.id, label: hit.title, shown: hit.title } },
+              { type: "taskMention", attrs: { id: hit.id, label: hit.title } },
               { type: "text", text: " " },
             ])
             .run(),
@@ -221,7 +226,7 @@ export function editorExtensions({
             .chain()
             .focus()
             .insertContentAt(range, [
-              { type: "pageLink", attrs: { id: hit.id, label: hit.title, shown: hit.title } },
+              { type: "pageLink", attrs: { id: hit.id, label: hit.title } },
               { type: "text", text: " " },
             ])
             .run(),

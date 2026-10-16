@@ -1,14 +1,12 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { resolve } from "woodmouse-client";
 import {
   getPageOptions,
   getPageQueryKey,
   pageBacklinksOptions,
 } from "woodmouse-client/react-query";
 
-import { lookupOf, referencedIds } from "../../lib/editorBlocks";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Backlinks } from "./Backlinks";
 import { PageEditor } from "./PageEditor";
@@ -32,24 +30,13 @@ export function WikiPage({ workspaceId, pageId }: { workspaceId: string; pageId:
     refetchOnReconnect: false,
   });
 
-  // Mentions and links show their target's current title, looked up before the editor opens. The
-  // content is read only once, so this runs for the version that was loaded (and again after a restore).
-  const ids = page ? referencedIds(page.blocks) : { pageIds: [], taskIds: [] };
-  const hasRefs = ids.pageIds.length + ids.taskIds.length > 0;
-  const refsQuery = useQuery({
-    queryKey: ["resolved-refs", pageId, reloads],
-    queryFn: async () => {
-      const { data } = await resolve({
-        path: { id: workspaceId },
-        body: { page_ids: ids.pageIds, task_ids: ids.taskIds },
-      });
-      return data ? lookupOf(data) : undefined;
-    },
-    enabled: !!page && hasRefs,
-    gcTime: 0,
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-  });
+  // The server rebuilt the live document (a restore, or a save without live sync): fetch the page again
+  // and open the editor afresh.
+  const reload = useCallback(() => {
+    void queryClient
+      .invalidateQueries({ queryKey: getPageQueryKey({ path: { id: pageId } }) })
+      .then(() => setReloads((n) => n + 1));
+  }, [queryClient, pageId]);
   const { data: backlinks = [] } = useQuery(pageBacklinksOptions({ path: { id: pageId } }));
 
   if (isError) {
@@ -62,9 +49,7 @@ export function WikiPage({ workspaceId, pageId }: { workspaceId: string; pageId:
       </div>
     );
   }
-  if (!page || (hasRefs && refsQuery.isPending)) {
-    return <div className="mx-auto max-w-3xl p-8 text-muted-foreground">Loading…</div>;
-  }
+  if (!page) return <div className="mx-auto max-w-3xl p-8 text-muted-foreground">Loading…</div>;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-8">
@@ -110,7 +95,7 @@ export function WikiPage({ workspaceId, pageId }: { workspaceId: string; pageId:
         workspaceId={workspaceId}
         editable={canWrite}
         saveRef={saveRef}
-        refs={refsQuery.data}
+        onReload={reload}
       />
       <Backlinks workspaceId={workspaceId} backlinks={backlinks} />
       <PageHistory

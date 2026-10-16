@@ -6,6 +6,9 @@ use tokio::sync::Mutex;
 
 use crate::storage::FileStores;
 
+/// Who has which page open for editing: page id -> user id -> (last ping, editing without live sync).
+pub type PresenceMap = HashMap<uuid::Uuid, HashMap<uuid::Uuid, (Instant, bool)>>;
+
 /// Shared application state.
 ///
 /// Toasty's query methods take `&mut Db`, so the handle sits behind a tokio
@@ -18,8 +21,10 @@ pub struct AppState {
     pub secure_cookies: bool,
     /// Where uploaded files live.
     pub files: Arc<FileStores>,
-    /// Who has which page open for editing (page id -> user id -> last ping). Lives in memory only.
-    pub presence: Arc<std::sync::Mutex<HashMap<uuid::Uuid, HashMap<uuid::Uuid, Instant>>>>,
+    /// Who has which page open for editing (page id -> user id -> last ping, and whether they edit without live sync). Lives in memory only.
+    /// The live editing rooms (see `live`).
+    pub rooms: Arc<crate::live::Rooms>,
+    pub presence: Arc<std::sync::Mutex<PresenceMap>>,
 }
 
 impl AppState {
@@ -34,6 +39,7 @@ impl AppState {
             secure_cookies: std::env::var("WOODMOUSE_SECURE_COOKIES").is_ok_and(|v| v != "0"),
             files: Arc::new(files),
             presence: Arc::default(),
+            rooms: Arc::default(),
         }
     }
 }

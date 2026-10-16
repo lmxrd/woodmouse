@@ -3,6 +3,7 @@ pub mod activity;
 pub mod auth;
 pub mod blocks;
 pub mod error;
+pub mod live;
 pub mod markdown;
 pub mod models;
 pub mod openapi;

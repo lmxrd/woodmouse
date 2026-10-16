@@ -1,0 +1,223 @@
+[
+  {
+    "name": "everything",
+    "update_base64": "AUcBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEEUGxhbigAAQAFbGV2ZWwBfQKHAQADCXBhcmFncmFwaAcAAQcGBAABCAZwbGFpbiCGAQ4EYm9sZAJ7fYYBDwZpdGFsaWMCe32EARALYm9sZCBpdGFsaWOGARsEYm9sZARudWxshgEcBml0YWxpYwRudWxshgEdBGxpbmtxeyJocmVmIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS9hIiwidGFyZ2V0IjoiX2JsYW5rIiwicmVsIjoibm9vcGVuZXIgbm9yZWZlcnJlciBub2ZvbGxvdyIsImNsYXNzIjpudWxsLCJ0aXRsZSI6bnVsbH2GAR4EYm9sZAJ7fYQBHwUgc2l0ZYYBJARsaW5rBG51bGyGASUEYm9sZARudWxshwEIAwt0YXNrTWVudGlvbigAAScCaWQBdyQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEoAAEnBWxhYmVsAXcJT3JkZXIgb2FrhwEnAwhwYWdlTGluaygAASoCaWQBdyQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDIoAAEqBWxhYmVsAXcGQnVkZ2V0hwEqBgQAAS0FbGluZTGHAS0DCWhhcmRCcmVha4cBMwYEAAE0BWxpbmUyhgE5BGNvZGUCe32EAToFIG1vbm+GAT8EY29kZQRudWxshgFABnN0cmlrZQJ7fYQBQQUgZ29uZYYBRgZzdHJpa2UEbnVsbIcBBwMIdG9kb0l0ZW0HAAFIBgQAAUkEZG9uZSgAAUgGaW5kZW50AX0BKAABSAdjaGVja2VkAXiHAUgDCHRvZG9JdGVtBwABUAYEAAFRBG9wZW4oAAFQBmluZGVudAF9ACgAAVAHY2hlY2tlZAF5hwFQAwpidWxsZXRJdGVtBwABWAYEAAFZAWEoAAFYBmluZGVudAF9AIcBWAMKYnVsbGV0SXRlbQcAAVwGBAABXQRkZWVwKAABXAZpbmRlbnQBfQKHAVwDDG51bWJlcmVkSXRlbQcAAWMGBAABZANvbmUoAAFjBmluZGVudAF9AIcBYwMFcXVvdGUHAAFpBgQAAWoGcXVvdGVkhwFpAwljb2RlQmxvY2sHAAFxBgQAAXINZm4gbWFpbigpIHsKfSgAAXEIbGFuZ3VhZ2UBdwRydXN0hwFxAwljb2RlQmxvY2sHAAGBAQYEAAGCAQpwbGFpbiBjb2RlhwGBAQMHY2FsbG91dAcAAY0BBgQAAY4BB2NhcmVmdWwoAAGNAQR0b25lAXcGZGFuZ2VyhwGNAQMHZGl2aWRlcgA=",
+    "blocks": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 2
+        },
+        "spans": [
+          {
+            "text": "Plan"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "plain "
+          },
+          {
+            "marks": [
+              "bold",
+              "italic"
+            ],
+            "text": "bold italic"
+          },
+          {
+            "marks": [
+              "bold"
+            ],
+            "link": "https://example.com/a",
+            "text": " site"
+          },
+          {
+            "mention": {
+              "task_id": "00000000-0000-0000-0000-000000000001",
+              "label": "Order oak"
+            }
+          },
+          {
+            "page_link": {
+              "page_id": "00000000-0000-0000-0000-000000000002",
+              "label": "Budget"
+            }
+          },
+          {
+            "text": "line1\nline2"
+          },
+          {
+            "marks": [
+              "code"
+            ],
+            "text": " mono"
+          },
+          {
+            "marks": [
+              "strike"
+            ],
+            "text": " gone"
+          }
+        ]
+      },
+      {
+        "type": "todo_item",
+        "attrs": {
+          "indent": 1,
+          "checked": true
+        },
+        "spans": [
+          {
+            "text": "done"
+          }
+        ]
+      },
+      {
+        "type": "todo_item",
+        "attrs": {
+          "checked": false
+        },
+        "spans": [
+          {
+            "text": "open"
+          }
+        ]
+      },
+      {
+        "type": "bullet_item",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "a"
+          }
+        ]
+      },
+      {
+        "type": "bullet_item",
+        "attrs": {
+          "indent": 2
+        },
+        "spans": [
+          {
+            "text": "deep"
+          }
+        ]
+      },
+      {
+        "type": "numbered_item",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "one"
+          }
+        ]
+      },
+      {
+        "type": "quote",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "quoted"
+          }
+        ]
+      },
+      {
+        "type": "code",
+        "attrs": {
+          "language": "rust"
+        },
+        "spans": [
+          {
+            "text": "fn main() {\n}"
+          }
+        ]
+      },
+      {
+        "type": "code",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "plain code"
+          }
+        ]
+      },
+      {
+        "type": "callout",
+        "attrs": {
+          "tone": "danger"
+        },
+        "spans": [
+          {
+            "text": "careful"
+          }
+        ]
+      },
+      {
+        "type": "divider",
+        "attrs": {}
+      }
+    ]
+  },
+  {
+    "name": "empty_paragraphs_in_the_middle",
+    "update_base64": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQZiZWZvcmWHAQADCXBhcmFncmFwaIcBCAMJcGFyYWdyYXBoBwABCQYEAAEKBWFmdGVyAA==",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "before"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "attrs": {},
+        "spans": []
+      },
+      {
+        "type": "paragraph",
+        "attrs": {},
+        "spans": [
+          {
+            "text": "after"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "empty_page",
+    "update_base64": "AQEBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAA=",
+    "blocks": []
+  },
+  {
+    "name": "unusual_link_formats",
+    "update_base64": "AQsBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rc3siaHJlZiI6Im9ic2lkaWFuOi8vb3Blbj92YXVsdD14IiwidGFyZ2V0IjoiX2JsYW5rIiwicmVsIjoibm9vcGVuZXIgbm9yZWZlcnJlciBub2ZvbGxvdyIsImNsYXNzIjpudWxsLCJ0aXRsZSI6bnVsbH2EAQIDYXBwhgEFBGxpbmsEbnVsbIYBBgRsaW5raHsiaHJlZiI6Im1haWx0bzphQGIuYyIsInRhcmdldCI6Il9ibGFuayIsInJlbCI6Im5vb3BlbmVyIG5vcmVmZXJyZXIgbm9mb2xsb3ciLCJjbGFzcyI6bnVsbCwidGl0bGUiOm51bGx9hAEHBSBtYWlshgEMBGxpbmsEbnVsbIYBDQRsaW5rZ3siaHJlZiI6Ii93LzEvd2lraS8yIiwidGFyZ2V0IjoiX2JsYW5rIiwicmVsIjoibm9vcGVuZXIgbm9yZWZlcnJlciBub2ZvbGxvdyIsImNsYXNzIjpudWxsLCJ0aXRsZSI6bnVsbH2EAQ4JIHJlbGF0aXZlhgEXBGxpbmsEbnVsbAA=",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "attrs": {},
+        "spans": [
+          {
+            "link": "obsidian://open?vault=x",
+            "text": "app"
+          },
+          {
+            "link": "mailto:a@b.c",
+            "text": " mail"
+          },
+          {
+            "link": "/w/1/wiki/2",
+            "text": " relative"
+          }
+        ]
+      }
+    ]
+  }
+]

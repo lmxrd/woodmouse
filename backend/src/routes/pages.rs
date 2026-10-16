@@ -396,19 +396,28 @@ pub async fn save_blocks(
     Json(input): Json<SaveBlocks>,
 ) -> Result<Json<PageDetail>, ApiError> {
     validate_blocks(&input.blocks)?;
-    let db = &mut *state.db.lock().await;
-    let mut page = access::require_page_access(db, &user, id, Role::Write).await?;
+    let (page_detail, changed) = {
+        let db = &mut *state.db.lock().await;
+        let mut page = access::require_page_access(db, &user, id, Role::Write).await?;
 
-    if let Some(base) = input.base_version
-        && base != page.version
-        && !input.force
-    {
-        return Err(ApiError::conflict(
-            "the page was changed by someone else since you opened it",
-        ));
+        if let Some(base) = input.base_version
+            && base != page.version
+            && !input.force
+        {
+            return Err(ApiError::conflict(
+                "the page was changed by someone else since you opened it",
+            ));
+        }
+        let before = page.version;
+        write_blocks(db, &mut page, user.id, &input.blocks, false).await?;
+        let changed = page.version != before;
+        (detail(db, page).await?, changed)
+    };
+    // A save outside live editing replaces what the live document holds: everyone editing live reloads.
+    if changed {
+        state.rooms.reset(&state, id).await;
     }
-    write_blocks(db, &mut page, user.id, &input.blocks, false).await?;
-    Ok(Json(detail(db, page).await?))
+    Ok(Json(page_detail))
 }
 
 /// Delete a page and the pages below it (soft delete: they move to Trash together).
@@ -429,11 +438,22 @@ pub async fn delete_page(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let page = access::require_page_access(db, &user, id, Role::Write).await?;
-    let mut tx = db.transaction().await?;
-    trash::delete_page(&mut tx, &page, user.id, auth::now_secs()).await?;
-    tx.commit().await?;
+    let closing = {
+        let db = &mut *state.db.lock().await;
+        let page = access::require_page_access(db, &user, id, Role::Write).await?;
+        let all = live_pages(db, page.workspace_id).await?;
+        let closing = trash::page_subtree(&all, id);
+        let mut tx = db.transaction().await?;
+        trash::delete_page(&mut tx, &page, user.id, auth::now_secs()).await?;
+        tx.commit().await?;
+        closing
+    };
+    for page_id in closing {
+        state
+            .rooms
+            .close(page_id, crate::live::close::DELETED)
+            .await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -441,6 +461,15 @@ pub async fn delete_page(
 #[derive(Serialize, ToSchema)]
 pub struct Editor {
     pub user: PublicUser,
+    /// They are editing without live sync (manual saves), so their saves replace the live version.
+    pub fallback: bool,
+}
+
+#[derive(Deserialize, ToSchema, Default)]
+pub struct PingPresence {
+    /// True when editing without live sync.
+    #[serde(default)]
+    pub fallback: bool,
 }
 
 /// How long after its last ping an editor still counts as present.
@@ -454,6 +483,7 @@ const PRESENCE_SECS: u64 = 30;
     tag = "wiki",
     security(("session_cookie" = [])),
     params(("id" = uuid::Uuid, Path, description = "Page id")),
+    request_body(content = PingPresence, description = "Optional"),
     responses(
         (status = 200, description = "Other current editors", body = Vec<Editor>),
         (status = 401, description = "Not logged in"),
@@ -464,22 +494,28 @@ pub async fn ping_presence(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
+    body: Option<Json<PingPresence>>,
 ) -> Result<Json<Vec<Editor>>, ApiError> {
+    let fallback = body.is_some_and(|Json(b)| b.fallback);
     let db = &mut *state.db.lock().await;
     access::require_page_access(db, &user, id, Role::Write).await?;
-    let others: Vec<uuid::Uuid> = {
+    let others: Vec<(uuid::Uuid, bool)> = {
         let mut presence = state.presence.lock().unwrap_or_else(|e| e.into_inner());
         let now = std::time::Instant::now();
         let page = presence.entry(id).or_default();
-        page.insert(user.id, now);
-        page.retain(|_, seen| now.duration_since(*seen).as_secs() < PRESENCE_SECS);
-        page.keys().copied().filter(|u| *u != user.id).collect()
+        page.insert(user.id, (now, fallback));
+        page.retain(|_, (seen, _)| now.duration_since(*seen).as_secs() < PRESENCE_SECS);
+        page.iter()
+            .filter(|(u, _)| **u != user.id)
+            .map(|(u, (_, f))| (*u, *f))
+            .collect()
     };
     let mut editors = vec![];
-    for other in others {
+    for (other, fallback) in others {
         if let Ok(u) = User::get_by_id(db, &other).await {
             editors.push(Editor {
                 user: PublicUser::from(&u),
+                fallback,
             });
         }
     }
@@ -495,6 +531,9 @@ pub(crate) async fn write_blocks(
     blocks: &[BlockData],
     force_snapshot: bool,
 ) -> Result<(), ApiError> {
+    let mut blocks = blocks.to_vec();
+    crate::blocks::trim_trailing_empty(&mut blocks);
+    let blocks = &blocks[..];
     let old = blocks_of(db, page.id).await?;
     if old == blocks {
         return Ok(());

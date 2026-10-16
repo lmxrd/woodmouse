@@ -164,10 +164,16 @@ pub async fn restore_page_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<PageDetail>, ApiError> {
-    let db = &mut *state.db.lock().await;
-    let (revision, mut page) = load_page_revision(db, &user, id, Role::Write).await?;
-    write_blocks(db, &mut page, user.id, &page_blocks(&revision)?, true).await?;
-    Ok(Json(detail(db, page).await?))
+    let (restored, page_id) = {
+        let db = &mut *state.db.lock().await;
+        let (revision, mut page) = load_page_revision(db, &user, id, Role::Write).await?;
+        write_blocks(db, &mut page, user.id, &page_blocks(&revision)?, true).await?;
+        let page_id = page.id;
+        (detail(db, page).await?, page_id)
+    };
+    // Everyone editing live gets the restored content.
+    state.rooms.reset(&state, page_id).await;
+    Ok(Json(restored))
 }
 
 /// The earlier title and description of a task, newest first.

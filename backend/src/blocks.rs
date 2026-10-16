@@ -297,3 +297,14 @@ pub fn validate_blocks(blocks: &[BlockData]) -> Result<(), ApiError> {
     }
     blocks.iter().try_for_each(BlockData::validate)
 }
+
+/// Drop empty paragraphs at the end. The editor keeps one after a divider or code block so there is
+/// somewhere to click; it is not content.
+pub fn trim_trailing_empty(blocks: &mut Vec<BlockData>) {
+    while blocks
+        .last()
+        .is_some_and(|b| b.kind == BlockKind::Paragraph && b.spans.is_empty())
+    {
+        blocks.pop();
+    }
+}

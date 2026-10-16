@@ -21,7 +21,7 @@ export default defineConfig({
     proxy: {
       // Same-origin cookies in development: the SPA talks to /api on the
       // vite origin and vite forwards it to the backend.
-      "/api": "http://localhost:8000",
+      "/api": { target: "http://localhost:8000", ws: true },
     },
   },
 });

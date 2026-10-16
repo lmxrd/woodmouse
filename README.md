@@ -37,9 +37,12 @@ Woodmouse is a self-hosted task manager for a household or small team.
 - **Wiki**: a tree of pages per workspace (the sidebar shows three levels, the Wiki overview all of them).
   Pages are built from blocks (text, headings, bulleted, numbered and to-do lists, quotes, callouts, code,
   dividers) with markdown shortcuts, a `/` menu, a floating toolbar, `@` to mention a task and `[[` to link
-  a page; external links can use any URL format. Edits save automatically. If someone else is editing the
-  same page you are told, and a save based on an outdated version is refused so nothing is silently
-  overwritten (keep yours or load theirs). Deleted pages go to the trash with their subpages.
+  a page; external links can use any URL format. Pages are **edited live** with everyone else who has them
+  open: changes and cursors show up as people type, and the server saves the page a couple of seconds after
+  the last edit (history, links, search and export all keep working from the saved page). If the live
+  connection cannot be made, the page falls back to **manual mode**: autosave is off, a Save button appears,
+  a stale save is refused with a keep-mine/load-theirs choice, and everyone else with the page open is
+  warned that someone is editing without live sync (saving replaces the live version). Deleted pages go to the trash with their subpages.
 - **Links between notes and tasks**: a page's `@task` mentions and `[[page]]` links are recorded on every
   save, so a page shows "Referenced by" the pages that link to it and a task shows "Mentioned in". Links
   hold ids, and show the target's current title (the stored label is only a fallback); a link to something
@@ -86,6 +89,13 @@ The backend reads these environment variables (all optional):
 
 Files are stored behind a small `FileStore` trait (`backend/src/storage.rs`) and each file records which backend
 holds it, so another store (for example a Nextcloud/WebDAV share) can be added later, and several can coexist.
+
+### Behind a reverse proxy
+
+Live editing uses a WebSocket (`/api/pages/<id>/live`), so a proxy in front of the app must pass WebSocket
+upgrades through (nginx: `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`;
+Caddy and Traefik do this by default). The app keeps live documents in memory, so run one instance. Without
+a working WebSocket, pages still work in manual mode.
 
 ### API
 

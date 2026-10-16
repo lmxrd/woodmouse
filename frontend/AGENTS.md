@@ -58,3 +58,8 @@
   (filters, sort, dates, zoom, search) is a validated search param (`validateSearch`; project views share
   `lib/projectSearch.ts` and `ProjectFilters`), never local state, so a link always reproduces the view.
   Write explicit values (not "today" or a default that can change); update with `replace: true`.
+
+- Wiki editor: `PageEditor` picks live editing (`LiveBody`: Yjs + y-websocket + TipTap collaboration; the
+  server saves) or, if the socket cannot connect, `ManualBody` (no autosave, Save button, version check).
+  Mentions and page links save only `id` and `label`; their current titles come from `useReferences` via the
+  `References` extension storage, never from node attributes (attributes sync to everyone and are saved).

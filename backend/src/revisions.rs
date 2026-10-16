@@ -15,6 +15,9 @@ use crate::models::{Page, PageRevision, Task, TaskRevision};
 
 /// A pause this long (seconds) ends an editing session.
 const SESSION_GAP_SECS: i64 = 600;
+/// Another editor starts a new session only if the last version is at least this old, so people typing at
+/// the same time do not produce a version per change of hands.
+const MIN_BETWEEN_VERSIONS_SECS: i64 = 120;
 /// A session this long without a version gets one anyway.
 const MAX_BETWEEN_VERSIONS_SECS: i64 = 3600;
 
@@ -36,9 +39,9 @@ pub async fn snapshot_page(
     if newest.is_some_and(|r| r.blocks == json) {
         return Ok(());
     }
+    let recent = newest.is_some_and(|r| now - r.created_at < MIN_BETWEEN_VERSIONS_SECS);
     let due = force
-        || page.updated_by != editor
-        || now - page.updated_at >= SESSION_GAP_SECS
+        || (!recent && (page.updated_by != editor || now - page.updated_at >= SESSION_GAP_SECS))
         || newest.is_some_and(|r| now - r.created_at >= MAX_BETWEEN_VERSIONS_SECS);
     if due {
         toasty::create!(PageRevision {

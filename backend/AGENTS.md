@@ -71,3 +71,13 @@
 - References: `ContentLink` rows (page -> page or task) are rewritten from the blocks inside `write_blocks`, so
   they can never disagree with the content. `routes/references.rs` serves backlinks and `resolve` (current
   titles, deleted flag); links in content store ids, the label is a display fallback only.
+- Live editing (`src/live/`, `routes/live.rs`): a page opened for editing has a `Room` holding a yrs `Doc`
+  (an `XmlFragment` named `default`, laid out as the editor's collaboration extension writes it). Connections
+  speak the y-websocket protocol; the hub follows `yrs-warp` (MIT), ported to axum and the current `yrs`.
+  `convert.rs` turns the document into blocks (and back, to seed a room); the frontend test
+  `yjsFixtures.test.ts` writes `tests/fixtures/editor_docs.json` from the real editor schema and
+  `tests/live_convert.rs` reads it, so the two cannot drift (regenerate with `pnpm vitest run -u
+  src/lib/yjsFixtures.test.ts` after changing node types or attributes). ~2s after the last edit the room
+  saves through `write_blocks` (attributed to the last editor); the Yjs state is kept in `PageDoc` with an
+  `epoch` that changes whenever the document is rebuilt from blocks (REST save, restore): sockets then close
+  with 4001 and clients reload. Never hold the db lock while calling `Rooms` (rooms take the db lock inside).

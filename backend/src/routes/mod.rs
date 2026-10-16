@@ -8,6 +8,7 @@ pub mod history;
 pub mod invites;
 pub mod labels;
 pub mod lists;
+pub mod live;
 pub mod members;
 pub mod pages;
 pub mod projects;
@@ -62,6 +63,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(saved_views::router())
         .merge(pages::router())
         .merge(history::router())
+        .merge(live::router())
         .merge(references::router())
         .merge(export::router())
         .merge(search::router())

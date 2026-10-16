@@ -570,3 +570,21 @@ pub struct ContentLink {
     /// `page` or `task`.
     pub target_kind: String,
 }
+
+/// The live editing state of a page: its Yjs document, so that a restart does not lose what clients still
+/// hold. `epoch` names the document's lineage; it changes whenever the document is rebuilt from the blocks
+/// (after a save outside live editing, or a restore), which tells clients to start over instead of merging
+/// two unrelated histories.
+#[derive(Debug, toasty::Model)]
+pub struct PageDoc {
+    #[key]
+    pub page_id: uuid::Uuid,
+
+    pub epoch: String,
+
+    /// The document as a Yjs update, base64.
+    pub state: String,
+
+    /// Unix epoch seconds.
+    pub updated_at: i64,
+}
