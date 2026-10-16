@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,11 +14,11 @@ import { userLabel } from "../lib/user";
 import { useWorkspaceRole } from "../lib/useWorkspaceRole";
 import { NotificationBell } from "./notifications/NotificationBell";
 import { cn } from "../lib/utils";
-import { InlineAdd } from "./InlineAdd";
 import { UserAvatar } from "./UserAvatar";
 import { PageTree } from "./wiki/PageTree";
 import { usePageActions } from "./wiki/usePageActions";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,8 @@ export function Sidebar({
   })?.pageId;
   const workspace = workspaces?.find((w) => w.id === workspaceId);
   const { canWrite } = useWorkspaceRole(workspaceId);
+  const [addingProject, setAddingProject] = useState(false);
+  const [newProject, setNewProject] = useState("");
 
   const createProject = useMutation({
     ...createProjectMutation(),
@@ -141,7 +144,52 @@ export function Sidebar({
       </nav>
 
       <nav className="flex flex-col text-sm" aria-label="Projects">
-        <p className="label-mono mb-1.5 text-muted-foreground">Projects</p>
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="label-mono text-muted-foreground">Projects</p>
+          {canWrite ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="New project"
+              aria-expanded={addingProject}
+              onClick={() => setAddingProject((open) => !open)}
+            >
+              +
+            </Button>
+          ) : null}
+        </div>
+        {addingProject ? (
+          <form
+            className="mb-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = newProject.trim();
+              if (name)
+                createProject.mutate({ path: { workspace_id: workspaceId }, body: { name } });
+              setNewProject("");
+              setAddingProject(false);
+            }}
+          >
+            <Input
+              autoFocus
+              value={newProject}
+              placeholder="Project name"
+              aria-label="Project name"
+              onChange={(e) => setNewProject(e.target.value)}
+              onBlur={() => {
+                setNewProject("");
+                setAddingProject(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setNewProject("");
+                  setAddingProject(false);
+                }
+              }}
+            />
+          </form>
+        ) : null}
         {projects?.map((project) => (
           <Link
             key={project.id}
@@ -154,14 +202,6 @@ export function Sidebar({
             {project.name}
           </Link>
         ))}
-        <InlineAdd
-          className="mt-2"
-          label="New project"
-          placeholder="Project name"
-          onSubmit={(name) =>
-            createProject.mutate({ path: { workspace_id: workspaceId }, body: { name } })
-          }
-        />
       </nav>
 
       <nav className="flex flex-col text-sm" aria-label="Wiki">
