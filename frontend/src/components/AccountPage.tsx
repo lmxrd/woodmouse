@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import type { PublicUser } from "woodmouse-client";
 import {
   changePasswordMutation,
@@ -21,32 +20,37 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 
 const TIME_LABEL = { "24h": "24 hour", "12h": "12 hour" } as const;
 
-/** The signed-in user's own settings: profile, password, and how dates and times are shown. */
-export function AccountPage() {
+/** Profile, and how dates, times and the timezone are shown. */
+export function AccountSection() {
   const { data: me } = useQuery(meOptions());
   if (!me) return null;
   return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-8 sm:px-6">
-      <header className="flex flex-col gap-1">
-        <Link to="/" className="label-mono text-muted-foreground hover:text-foreground">
-          ← Back
-        </Link>
-        <h1 className="font-display text-3xl font-bold">Account</h1>
-      </header>
+    <>
       <ProfileSection key={me.id + me.email + me.name} me={me} />
       <DisplaySection me={me} />
-      <Section title="Appearance">
-        <AppearanceSection />
-      </Section>
-      <Section title="Calendar links">
-        <CalendarLinks scopes={["user", "project", "workspace"]} />
-      </Section>
-      <PasswordSection />
-    </main>
+    </>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** Light, dark or follow the device, and the person's own palette per workspace. */
+export function AppearanceSettings() {
+  return (
+    <Section title="Appearance">
+      <AppearanceSection />
+    </Section>
+  );
+}
+
+/** The person's calendar feeds. */
+export function CalendarSettings() {
+  return (
+    <Section title="Calendar links">
+      <CalendarLinks scopes={["user", "project", "workspace"]} />
+    </Section>
+  );
+}
+
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-4 border border-border bg-card p-5">
       <h2 className="label-mono text-muted-foreground">{title}</h2>
@@ -211,7 +215,7 @@ function TimezoneField({ me, onChange }: { me: PublicUser; onChange: (timezone: 
   );
 }
 
-function PasswordSection() {
+export function PasswordSection() {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const change = useMutation({

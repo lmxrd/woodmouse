@@ -134,10 +134,11 @@ async fn deleted_workspaces_are_restored_by_the_super_admin() {
             .status(),
         StatusCode::NOT_FOUND
     );
-    let deleted =
-        json_of(request(&app, get("/api/admin/workspaces/deleted", Some(&admin))).await).await;
-    assert_eq!(deleted.as_array().unwrap().len(), 1);
-    assert_eq!(deleted[0]["name"], "Home");
+    let all = json_of(request(&app, get("/api/admin/workspaces", Some(&admin))).await).await;
+    assert_eq!(all.as_array().unwrap().len(), 1);
+    assert_eq!(all[0]["name"], "Home");
+    assert!(all[0]["deleted_at"].is_string());
+    assert_eq!(all[0]["members"], 1);
 
     let res = request(
         &app,
@@ -240,4 +241,94 @@ async fn the_integrity_check_finds_orphans_and_redaction_removes_content() {
     .await;
     assert_eq!(detail["redacted"], true);
     assert_eq!(detail["blocks"], json!([]));
+}
+
+#[tokio::test]
+async fn the_super_admin_creates_edits_and_reinvites_users() {
+    let (app, _) = app_with_db().await;
+    let admin = bootstrap_admin(&app).await;
+    let ws = create_workspace(&app, &admin, "Home").await;
+
+    let res = request(
+        &app,
+        post_json(
+            "/api/admin/users",
+            &format!(
+                r#"{{"name":"Sara","email":"Sara@Home.io","global_role":"read","memberships":[{{"workspace_id":"{ws}","role":"write"}}]}}"#
+            ),
+            Some(&admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created = json_of(res).await;
+    let id = created["user"]["id"].as_str().unwrap().to_string();
+    assert_eq!(created["user"]["email"], "sara@home.io");
+    assert_eq!(created["user"]["pending"], true);
+    assert_eq!(created["user"]["global_role"], "read");
+    assert_eq!(created["user"]["memberships"][0]["workspace_name"], "Home");
+    assert_eq!(created["user"]["memberships"][0]["role"], "write");
+    let token = created["invite_token"].as_str().unwrap().to_string();
+
+    // The same email twice is a conflict.
+    let res = request(
+        &app,
+        post_json(
+            "/api/admin/users",
+            r#"{"email":"sara@home.io"}"#,
+            Some(&admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    // A fresh invite replaces the old one.
+    let res = request(
+        &app,
+        post_json(&format!("/api/admin/users/{id}/invite"), "{}", Some(&admin)),
+    )
+    .await;
+    let fresh = json_of(res).await["invite_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(fresh, token);
+    assert_eq!(
+        request(&app, get(&format!("/api/invites/{token}"), None))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+
+    // Rename and change the email.
+    let res = request(
+        &app,
+        patch_json(
+            &format!("/api/admin/users/{id}"),
+            r#"{"name":"Sara W","email":"sara.w@home.io"}"#,
+            Some(&admin),
+        ),
+    )
+    .await;
+    let updated = json_of(res).await;
+    assert_eq!(updated["name"], "Sara W");
+    assert_eq!(updated["email"], "sara.w@home.io");
+
+    // Once they accept, they have a password and no more invites.
+    let res = request(
+        &app,
+        post_json(
+            &format!("/api/invites/{fresh}/accept"),
+            r#"{"password":"a good password"}"#,
+            None,
+        ),
+    )
+    .await;
+    assert!(res.status().is_success());
+    let res = request(
+        &app,
+        post_json(&format!("/api/admin/users/{id}/invite"), "{}", Some(&admin)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
 }

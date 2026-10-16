@@ -27,6 +27,11 @@ description = "Delete the local dev database and uploaded files (recreated from 
 dir = "backend"
 run = "rm -rf woodmouse.db woodmouse.db-shm woodmouse.db-wal data"
 
+[tasks.seed]
+description = "Fill an empty dev database with mock data (run `mise run clean` first to start over)"
+dir = "backend"
+run = "cargo run -- seed"
+
 [tasks."check:backend"]
 description = "Run backend checks (rustfmt, clippy)"
 dir = "backend"

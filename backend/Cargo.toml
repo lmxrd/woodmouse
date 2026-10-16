@@ -10,6 +10,8 @@ axum = { version = "0.8", features = ["multipart", "ws"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync"] }
 tower-http = { version = "0.7", features = ["trace"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 argon2 = "0.5"
@@ -39,6 +41,4 @@ base64 = "0.23.1"
 jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
 
 [dev-dependencies]
-http-body-util = "0.1"
 tokio-tungstenite = "0.30.0"
-tower = { version = "0.5", features = ["util"] }

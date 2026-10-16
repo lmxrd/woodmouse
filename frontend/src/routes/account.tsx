@@ -1,9 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { AccountPage } from "../components/AccountPage";
-import { requireLogin } from "../lib/auth";
-
+/** The old address of the account page. */
 export const Route = createFileRoute("/account")({
-  beforeLoad: ({ context }) => requireLogin(context.queryClient),
-  component: AccountPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/account", replace: true });
+  },
 });

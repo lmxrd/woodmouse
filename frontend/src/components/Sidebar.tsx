@@ -220,19 +220,14 @@ export function Sidebar({
 
       <div className="mt-auto flex items-center gap-2 text-sm text-muted-foreground">
         <Link
-          to="/account"
+          to="/settings/account"
           onClick={onNavigate}
-          aria-label="Your account"
+          aria-label="Settings"
           className="flex min-w-0 flex-1 items-center gap-2 hover:text-foreground"
         >
           <UserAvatar name={me ? userLabel(me) : ""} size="md" />
           <span className="min-w-0 flex-1 truncate">{me ? userLabel(me) : ""}</span>
         </Link>
-        {me?.super_admin ? (
-          <Link to="/admin" onClick={onNavigate} className="hover:text-foreground">
-            Site admin
-          </Link>
-        ) : null}
         <Button variant="ghost" size="xs" onClick={() => logout.mutate({})}>
           Log out
         </Button>

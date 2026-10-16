@@ -154,17 +154,10 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
             <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 sm:px-6">
               <FileThumb file={file} />
               <div className="min-w-0 flex-1 basis-48">
-                <a
-                  href={fileContentUrl(file.id)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block truncate text-sm font-medium hover:underline"
-                  download={file.previewable ? undefined : file.name}
-                >
-                  {file.name}
-                </a>
+                <p className="truncate text-sm font-medium">{file.name}</p>
                 <p className="label-mono text-muted-foreground">
-                  {formatBytes(file.size)} · {when(file.created_at)}
+                  {formatBytes(file.size)} · {file.used_in}{" "}
+                  {file.used_in === 1 ? "reference" : "references"} · {when(file.created_at)}
                   {file.uploaded_by ? ` · ${userLabel(file.uploaded_by)}` : ""}
                 </p>
               </div>
@@ -178,10 +171,14 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
                   aria-expanded={expanded === file.id}
                   onClick={() => setExpanded(expanded === file.id ? null : file.id)}
                 >
-                  Used in {file.used_in} {file.used_in === 1 ? "task" : "tasks"}{" "}
-                  {expanded === file.id ? "▴" : "▾"}
+                  Where used {expanded === file.id ? "▴" : "▾"}
                 </Button>
               )}
+              <Button variant="outline" size="sm" asChild>
+                <a href={fileContentUrl(file.id)} download={file.name}>
+                  Download
+                </a>
+              </Button>
             </div>
             {expanded === file.id ? <FileUsage fileId={file.id} workspaceId={workspaceId} /> : null}
           </li>

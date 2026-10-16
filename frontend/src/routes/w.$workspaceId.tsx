@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 
 import { MobileNav } from "../components/MobileNav";
 import { Sidebar } from "../components/Sidebar";
@@ -14,6 +14,9 @@ export const Route = createFileRoute("/w/$workspaceId")({
 function WorkspaceLayout() {
   const { workspaceId } = Route.useParams();
   const [searching, setSearching] = useState(false);
+  // The part of the app being shown (project, wiki, files, ...): changing it fades the new one in, while
+  // moving within it (another task, another page) keeps the screen steady.
+  const section = useLocation({ select: (l) => l.pathname.split("/").slice(3, 5).join("/") });
   // ⌘K (or Ctrl+K) opens the search from anywhere in the workspace.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -33,7 +36,10 @@ function WorkspaceLayout() {
         onSearch={() => setSearching(true)}
       />
       <MobileNav workspaceId={workspaceId} onSearch={() => setSearching(true)} />
-      <main className="min-w-0">
+      <main
+        key={section.startsWith("p/") ? section : section.split("/")[0]}
+        className="min-w-0 animate-in fade-in duration-150"
+      >
         <Outlet />
       </main>
       <SearchPalette workspaceId={workspaceId} open={searching} onOpenChange={setSearching} />

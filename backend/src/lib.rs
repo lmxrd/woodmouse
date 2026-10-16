@@ -16,6 +16,7 @@ pub mod pages;
 pub mod revisions;
 pub mod routes;
 pub mod search;
+pub mod seed;
 pub mod state;
 pub mod storage;
 pub mod time;

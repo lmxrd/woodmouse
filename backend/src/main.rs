@@ -6,7 +6,7 @@
 //!   /                    - embedded CSR frontend (SPA fallback)
 //!   /swagger-ui         - Swagger UI
 //!
-//! Commands: `woodmouse` serves; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
+//! Commands: `woodmouse` serves; `woodmouse seed` fills an empty database with mock data; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
 //! consistent copy of the database (default `BACKUP_DIR`, or `backups`).
 
 // The embedded frontend bundle — a module of this binary, not the library,
@@ -72,6 +72,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None | Some("serve") => {}
         Some("check") => return run_check(&state).await,
         Some("backup") => return run_backup(&state, std::env::args().nth(2)).await,
+        Some("seed") => {
+            let router = routes::api(state.clone())
+                .with_state(state)
+                .split_for_parts()
+                .0;
+            return woodmouse::seed::run(router).await.map_err(Into::into);
+        }
         Some(other) => {
             return Err(format!("unknown command `{other}` (try check or backup)").into());
         }
@@ -118,6 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(10), &mut server).await;
         }
     }
+    // Leave the database file complete, with an empty write-ahead log.
+    woodmouse::jobs::checkpoint(&state).await;
     Ok(())
 }
 

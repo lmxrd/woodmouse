@@ -6,6 +6,8 @@
 - `mise run dev:backend` — API server (http://localhost:8000); hot reload
   via watchexec (restarts when `backend/src` or Cargo files change)
 - `mise run dev:frontend` — frontend dev server
+- `mise run seed` — fill an empty dev database with mock data (people, projects, tasks, wiki);
+  sign in as `admin@woodmouse.test`, `sara@woodmouse.test` or `ola@woodmouse.test` (see `backend/src/seed.rs`)
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
 - `mise run fix` — each stack's auto-fixes

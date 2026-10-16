@@ -31,6 +31,19 @@ pub async fn backup(state: &AppState, dir: &Path) -> Result<PathBuf, ApiError> {
     Ok(path)
 }
 
+/// Move everything in the write-ahead log into the database file and empty the log. Run when the server
+/// stops, so the database file alone is complete and the `-wal` file holds nothing.
+pub async fn checkpoint(state: &AppState) {
+    let mut db = state.writer().await;
+    match toasty::sql::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .exec(&mut *db)
+        .await
+    {
+        Ok(_) => tracing::info!("database checkpointed"),
+        Err(e) => tracing::warn!(%e, "could not checkpoint the database"),
+    }
+}
+
 /// Keep only the newest [`KEEP_BACKUPS`] backups in `dir`.
 fn prune_backups(dir: &Path) {
     let Ok(read) = std::fs::read_dir(dir) else {

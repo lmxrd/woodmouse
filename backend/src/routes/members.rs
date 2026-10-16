@@ -73,7 +73,7 @@ fn member_of(user: &User, role: Role) -> Member {
 }
 
 /// Replace any outstanding invite of the user with a fresh one; returns its token.
-async fn issue_invite(
+pub(crate) async fn issue_invite(
     db: &mut dyn toasty::Executor,
     user_id: uuid::Uuid,
 ) -> Result<String, ApiError> {

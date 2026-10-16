@@ -13,14 +13,26 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsAccountRouteImport } from './routes/settings.account'
+import { Route as SettingsAdminRouteImport } from './routes/settings.admin'
+import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
+import { Route as SettingsCalendarRouteImport } from './routes/settings.calendar'
+import { Route as SettingsPasswordRouteImport } from './routes/settings.password'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
+import { Route as SettingsAdminAuditRouteImport } from './routes/settings.admin.audit'
+import { Route as SettingsAdminMaintenanceRouteImport } from './routes/settings.admin.maintenance'
+import { Route as SettingsAdminUsersRouteImport } from './routes/settings.admin.users'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
 import { Route as WWorkspaceIdActivityRouteImport } from './routes/w.$workspaceId.activity'
 import { Route as WWorkspaceIdFilesRouteImport } from './routes/w.$workspaceId.files'
 import { Route as WWorkspaceIdMyTasksRouteImport } from './routes/w.$workspaceId.my-tasks'
 import { Route as WWorkspaceIdSettingsRouteImport } from './routes/w.$workspaceId.settings'
 import { Route as WWorkspaceIdTrashRouteImport } from './routes/w.$workspaceId.trash'
+import { Route as SettingsAdminWorkspacesIndexRouteImport } from './routes/settings.admin.workspaces.index'
+import { Route as SettingsAdminWorkspacesWorkspaceIdRouteImport } from './routes/settings.admin.workspaces.$workspaceId'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
 import { Route as WWorkspaceIdTTaskIdRouteImport } from './routes/w.$workspaceId.t.$taskId'
 import { Route as WWorkspaceIdWikiIndexRouteImport } from './routes/w.$workspaceId.wiki.index'
@@ -47,15 +59,66 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
   id: '/invite/$token',
   path: '/invite/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAccountRoute = SettingsAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAdminRoute = SettingsAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsCalendarRoute = SettingsCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsPasswordRoute = SettingsPasswordRouteImport.update({
+  id: '/password',
+  path: '/password',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const WWorkspaceIdRoute = WWorkspaceIdRouteImport.update({
   id: '/w/$workspaceId',
   path: '/w/$workspaceId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAdminAuditRoute = SettingsAdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => SettingsAdminRoute,
+} as any)
+const SettingsAdminMaintenanceRoute =
+  SettingsAdminMaintenanceRouteImport.update({
+    id: '/maintenance',
+    path: '/maintenance',
+    getParentRoute: () => SettingsAdminRoute,
+  } as any)
+const SettingsAdminUsersRoute = SettingsAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => SettingsAdminRoute,
 } as any)
 const WWorkspaceIdIndexRoute = WWorkspaceIdIndexRouteImport.update({
   id: '/',
@@ -87,6 +150,18 @@ const WWorkspaceIdTrashRoute = WWorkspaceIdTrashRouteImport.update({
   path: '/trash',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
+const SettingsAdminWorkspacesIndexRoute =
+  SettingsAdminWorkspacesIndexRouteImport.update({
+    id: '/workspaces/',
+    path: '/workspaces/',
+    getParentRoute: () => SettingsAdminRoute,
+  } as any)
+const SettingsAdminWorkspacesWorkspaceIdRoute =
+  SettingsAdminWorkspacesWorkspaceIdRouteImport.update({
+    id: '/workspaces/$workspaceId',
+    path: '/workspaces/$workspaceId',
+    getParentRoute: () => SettingsAdminRoute,
+  } as any)
 const WWorkspaceIdPProjectIdRoute = WWorkspaceIdPProjectIdRouteImport.update({
   id: '/p/$projectId',
   path: '/p/$projectId',
@@ -119,17 +194,29 @@ export interface FileRoutesByFullPath {
   '/account': typeof AccountRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/invite/$token': typeof InviteTokenRoute
+  '/settings/account': typeof SettingsAccountRoute
+  '/settings/admin': typeof SettingsAdminRouteWithChildren
+  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/calendar': typeof SettingsCalendarRoute
+  '/settings/password': typeof SettingsPasswordRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
+  '/settings/': typeof SettingsIndexRoute
+  '/settings/admin/audit': typeof SettingsAdminAuditRoute
+  '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
+  '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
   '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
   '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
   '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
   '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
+  '/settings/admin/workspaces/$workspaceId': typeof SettingsAdminWorkspacesWorkspaceIdRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
   '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
+  '/settings/admin/workspaces/': typeof SettingsAdminWorkspacesIndexRoute
   '/w/$workspaceId/wiki/': typeof WWorkspaceIdWikiIndexRoute
   '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
@@ -139,15 +226,26 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/settings/account': typeof SettingsAccountRoute
+  '/settings/admin': typeof SettingsAdminRouteWithChildren
+  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/calendar': typeof SettingsCalendarRoute
+  '/settings/password': typeof SettingsPasswordRoute
+  '/settings': typeof SettingsIndexRoute
+  '/settings/admin/audit': typeof SettingsAdminAuditRoute
+  '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
+  '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
   '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
   '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
   '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
   '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
+  '/settings/admin/workspaces/$workspaceId': typeof SettingsAdminWorkspacesWorkspaceIdRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
   '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
+  '/settings/admin/workspaces': typeof SettingsAdminWorkspacesIndexRoute
   '/w/$workspaceId/wiki': typeof WWorkspaceIdWikiIndexRoute
   '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
@@ -157,17 +255,29 @@ export interface FileRoutesById {
   '/account': typeof AccountRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/invite/$token': typeof InviteTokenRoute
+  '/settings/account': typeof SettingsAccountRoute
+  '/settings/admin': typeof SettingsAdminRouteWithChildren
+  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/calendar': typeof SettingsCalendarRoute
+  '/settings/password': typeof SettingsPasswordRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
+  '/settings/': typeof SettingsIndexRoute
+  '/settings/admin/audit': typeof SettingsAdminAuditRoute
+  '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
+  '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
   '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
   '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
   '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
   '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
+  '/settings/admin/workspaces/$workspaceId': typeof SettingsAdminWorkspacesWorkspaceIdRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
   '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
+  '/settings/admin/workspaces/': typeof SettingsAdminWorkspacesIndexRoute
   '/w/$workspaceId/wiki/': typeof WWorkspaceIdWikiIndexRoute
   '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
 }
@@ -178,17 +288,29 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/login'
+    | '/settings'
     | '/invite/$token'
+    | '/settings/account'
+    | '/settings/admin'
+    | '/settings/appearance'
+    | '/settings/calendar'
+    | '/settings/password'
     | '/w/$workspaceId'
+    | '/settings/'
+    | '/settings/admin/audit'
+    | '/settings/admin/maintenance'
+    | '/settings/admin/users'
     | '/w/$workspaceId/activity'
     | '/w/$workspaceId/files'
     | '/w/$workspaceId/my-tasks'
     | '/w/$workspaceId/settings'
     | '/w/$workspaceId/trash'
     | '/w/$workspaceId/'
+    | '/settings/admin/workspaces/$workspaceId'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
     | '/w/$workspaceId/wiki/$pageId'
+    | '/settings/admin/workspaces/'
     | '/w/$workspaceId/wiki/'
     | '/w/$workspaceId/p/$projectId/t/$taskId'
   fileRoutesByTo: FileRoutesByTo
@@ -198,15 +320,26 @@ export interface FileRouteTypes {
     | '/admin'
     | '/login'
     | '/invite/$token'
+    | '/settings/account'
+    | '/settings/admin'
+    | '/settings/appearance'
+    | '/settings/calendar'
+    | '/settings/password'
+    | '/settings'
+    | '/settings/admin/audit'
+    | '/settings/admin/maintenance'
+    | '/settings/admin/users'
     | '/w/$workspaceId/activity'
     | '/w/$workspaceId/files'
     | '/w/$workspaceId/my-tasks'
     | '/w/$workspaceId/settings'
     | '/w/$workspaceId/trash'
     | '/w/$workspaceId'
+    | '/settings/admin/workspaces/$workspaceId'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
     | '/w/$workspaceId/wiki/$pageId'
+    | '/settings/admin/workspaces'
     | '/w/$workspaceId/wiki'
     | '/w/$workspaceId/p/$projectId/t/$taskId'
   id:
@@ -215,17 +348,29 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/login'
+    | '/settings'
     | '/invite/$token'
+    | '/settings/account'
+    | '/settings/admin'
+    | '/settings/appearance'
+    | '/settings/calendar'
+    | '/settings/password'
     | '/w/$workspaceId'
+    | '/settings/'
+    | '/settings/admin/audit'
+    | '/settings/admin/maintenance'
+    | '/settings/admin/users'
     | '/w/$workspaceId/activity'
     | '/w/$workspaceId/files'
     | '/w/$workspaceId/my-tasks'
     | '/w/$workspaceId/settings'
     | '/w/$workspaceId/trash'
     | '/w/$workspaceId/'
+    | '/settings/admin/workspaces/$workspaceId'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/t/$taskId'
     | '/w/$workspaceId/wiki/$pageId'
+    | '/settings/admin/workspaces/'
     | '/w/$workspaceId/wiki/'
     | '/w/$workspaceId/p/$projectId/t/$taskId'
   fileRoutesById: FileRoutesById
@@ -235,6 +380,7 @@ export interface RootRouteChildren {
   AccountRoute: typeof AccountRoute
   AdminRoute: typeof AdminRoute
   LoginRoute: typeof LoginRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   InviteTokenRoute: typeof InviteTokenRoute
   WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren
 }
@@ -269,6 +415,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/invite/$token': {
       id: '/invite/$token'
       path: '/invite/$token'
@@ -276,12 +429,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/account': {
+      id: '/settings/account'
+      path: '/account'
+      fullPath: '/settings/account'
+      preLoaderRoute: typeof SettingsAccountRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/admin': {
+      id: '/settings/admin'
+      path: '/admin'
+      fullPath: '/settings/admin'
+      preLoaderRoute: typeof SettingsAdminRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/appearance': {
+      id: '/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/calendar': {
+      id: '/settings/calendar'
+      path: '/calendar'
+      fullPath: '/settings/calendar'
+      preLoaderRoute: typeof SettingsCalendarRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/password': {
+      id: '/settings/password'
+      path: '/password'
+      fullPath: '/settings/password'
+      preLoaderRoute: typeof SettingsPasswordRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/w/$workspaceId': {
       id: '/w/$workspaceId'
       path: '/w/$workspaceId'
       fullPath: '/w/$workspaceId'
       preLoaderRoute: typeof WWorkspaceIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/settings/admin/audit': {
+      id: '/settings/admin/audit'
+      path: '/audit'
+      fullPath: '/settings/admin/audit'
+      preLoaderRoute: typeof SettingsAdminAuditRouteImport
+      parentRoute: typeof SettingsAdminRoute
+    }
+    '/settings/admin/maintenance': {
+      id: '/settings/admin/maintenance'
+      path: '/maintenance'
+      fullPath: '/settings/admin/maintenance'
+      preLoaderRoute: typeof SettingsAdminMaintenanceRouteImport
+      parentRoute: typeof SettingsAdminRoute
+    }
+    '/settings/admin/users': {
+      id: '/settings/admin/users'
+      path: '/users'
+      fullPath: '/settings/admin/users'
+      preLoaderRoute: typeof SettingsAdminUsersRouteImport
+      parentRoute: typeof SettingsAdminRoute
     }
     '/w/$workspaceId/': {
       id: '/w/$workspaceId/'
@@ -325,6 +541,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdTrashRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
+    '/settings/admin/workspaces/': {
+      id: '/settings/admin/workspaces/'
+      path: '/workspaces'
+      fullPath: '/settings/admin/workspaces/'
+      preLoaderRoute: typeof SettingsAdminWorkspacesIndexRouteImport
+      parentRoute: typeof SettingsAdminRoute
+    }
+    '/settings/admin/workspaces/$workspaceId': {
+      id: '/settings/admin/workspaces/$workspaceId'
+      path: '/workspaces/$workspaceId'
+      fullPath: '/settings/admin/workspaces/$workspaceId'
+      preLoaderRoute: typeof SettingsAdminWorkspacesWorkspaceIdRouteImport
+      parentRoute: typeof SettingsAdminRoute
+    }
     '/w/$workspaceId/p/$projectId': {
       id: '/w/$workspaceId/p/$projectId'
       path: '/p/$projectId'
@@ -362,6 +592,49 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface SettingsAdminRouteChildren {
+  SettingsAdminAuditRoute: typeof SettingsAdminAuditRoute
+  SettingsAdminMaintenanceRoute: typeof SettingsAdminMaintenanceRoute
+  SettingsAdminUsersRoute: typeof SettingsAdminUsersRoute
+  SettingsAdminWorkspacesWorkspaceIdRoute: typeof SettingsAdminWorkspacesWorkspaceIdRoute
+  SettingsAdminWorkspacesIndexRoute: typeof SettingsAdminWorkspacesIndexRoute
+}
+
+const SettingsAdminRouteChildren: SettingsAdminRouteChildren = {
+  SettingsAdminAuditRoute: SettingsAdminAuditRoute,
+  SettingsAdminMaintenanceRoute: SettingsAdminMaintenanceRoute,
+  SettingsAdminUsersRoute: SettingsAdminUsersRoute,
+  SettingsAdminWorkspacesWorkspaceIdRoute:
+    SettingsAdminWorkspacesWorkspaceIdRoute,
+  SettingsAdminWorkspacesIndexRoute: SettingsAdminWorkspacesIndexRoute,
+}
+
+const SettingsAdminRouteWithChildren = SettingsAdminRoute._addFileChildren(
+  SettingsAdminRouteChildren,
+)
+
+interface SettingsRouteChildren {
+  SettingsAccountRoute: typeof SettingsAccountRoute
+  SettingsAdminRoute: typeof SettingsAdminRouteWithChildren
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsCalendarRoute: typeof SettingsCalendarRoute
+  SettingsPasswordRoute: typeof SettingsPasswordRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAccountRoute: SettingsAccountRoute,
+  SettingsAdminRoute: SettingsAdminRouteWithChildren,
+  SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsCalendarRoute: SettingsCalendarRoute,
+  SettingsPasswordRoute: SettingsPasswordRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
 
 interface WWorkspaceIdPProjectIdRouteChildren {
   WWorkspaceIdPProjectIdTTaskIdRoute: typeof WWorkspaceIdPProjectIdTTaskIdRoute
@@ -412,6 +685,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccountRoute: AccountRoute,
   AdminRoute: AdminRoute,
   LoginRoute: LoginRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   InviteTokenRoute: InviteTokenRoute,
   WWorkspaceIdRoute: WWorkspaceIdRouteWithChildren,
 }

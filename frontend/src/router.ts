@@ -11,6 +11,8 @@ export interface RouterContext {
 export const router = createRouter({
   routeTree,
   context: { queryClient },
+  // Load a route's code as soon as a link is hovered or focused, so opening it feels instant.
+  defaultPreload: "intent",
 });
 
 declare module "@tanstack/react-router" {

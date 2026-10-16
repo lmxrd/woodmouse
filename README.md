@@ -76,7 +76,10 @@ Woodmouse is a self-hosted task manager for a household or small team.
   earlier version you can view and restore. The super admin can read the site-wide **audit log** (sign-ins,
   role changes, deletions, edits; it records who and when, never an IP address) and remove the content of a
   version where something sensitive was saved. Disabling an account blocks it but keeps everything it made.
-- **Settings** (per workspace) manage the name and description, members and labels, and (for admins) deleting the
+- **Settings** (per person, from the sidebar's user link): account, appearance, calendar links and password; the
+  super admin also gets **Site admin** there: users (create with an invite link, edit, disable), all workspaces
+  (create, open any workspace's settings, restore deleted ones), the audit log and maintenance.
+- **Workspace settings** manage the name and description, members and labels, and (for admins) deleting the
   workspace. **Account** (per user) edits your display name,
   email and password, and how dates and times are shown (date format, 12 or 24 hour clock, and the first day
   of the week). Items from the
