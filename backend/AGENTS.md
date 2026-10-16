@@ -87,3 +87,6 @@
   `ical::date_of` takes the nearest UTC midnight (right for timezones within 12h of UTC). `mode` is `read` only;
   it is reserved for CalDAV write access later. Handler names must be unique across modules (they become client
   operation ids): hence `list_calendar_links`, not `list_links`.
+- Themes (`routes/themes.rs`): workspace palette/accent on `Workspace`, a member's own choice on
+  `WorkspaceMember`, light/dark mode on `User.theme_mode`. The palette list is validated here and defined for
+  display in the frontend (`themes.ts`); keep them in step.

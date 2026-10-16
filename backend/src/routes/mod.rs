@@ -19,6 +19,7 @@ pub mod search;
 pub mod subtasks;
 pub mod task_links;
 pub mod tasks;
+pub mod themes;
 pub mod trash;
 pub mod workspaces;
 
@@ -69,6 +70,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(references::router())
         .merge(export::router())
         .merge(calendar::router())
+        .merge(themes::router())
         .merge(search::router())
         .merge(files::router(max_upload_bytes))
         .merge(task_links::router())

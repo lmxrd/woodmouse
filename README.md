@@ -60,6 +60,10 @@ Woodmouse is a self-hosted task manager for a household or small team.
   Calendar settings tab, or a project's menu. A link stops working while its owner cannot see what it shows.
   Set `PUBLIC_URL` if the server is reached through a different address than the one in the browser (the links
   inside events use it).
+- **Themes**: four colour palettes (Paper and pine, Slate, Mono, Lavender), each in light and dark, plus any accent
+  colour. Admins set a workspace's palette and accent (workspace settings, Appearance tab); each member can use
+  their own for a workspace from their account page, where light, dark or follow-the-device is also chosen
+  once for the whole account.
 - **Search**: ⌘K (or Ctrl+K) searches page and task titles and text with SQLite full-text search (words match
   as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
   items are never found. Task comments are searched too (a match shows as its task). The `@` and `[[` pickers use the same search.

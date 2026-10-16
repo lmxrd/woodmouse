@@ -3,17 +3,21 @@ import { useQuery } from "@tanstack/react-query";
 import { listWorkspacesOptions } from "woodmouse-client/react-query";
 
 import { CalendarLinks } from "../components/calendarlinks/CalendarLinks";
+import { WorkspaceAppearance } from "../components/theme/WorkspaceAppearance";
 import { LabelsPanel } from "../components/settings/LabelsPanel";
 import { MembersPanel } from "../components/settings/MembersPanel";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 
 interface SettingsSearch {
-  tab?: "members" | "labels" | "calendar";
+  tab?: "members" | "labels" | "calendar" | "appearance";
 }
 
 export const Route = createFileRoute("/w/$workspaceId/settings")({
   validateSearch: (raw: Record<string, unknown>): SettingsSearch => ({
-    tab: raw.tab === "labels" || raw.tab === "calendar" ? raw.tab : undefined,
+    tab:
+      raw.tab === "labels" || raw.tab === "calendar" || raw.tab === "appearance"
+        ? raw.tab
+        : undefined,
   }),
   component: SettingsPage,
 });
@@ -34,7 +38,12 @@ function SettingsPage() {
           value={tab}
           onValueChange={(next) =>
             void navigate({
-              search: { tab: next === "labels" || next === "calendar" ? next : undefined },
+              search: {
+                tab:
+                  next === "labels" || next === "calendar" || next === "appearance"
+                    ? next
+                    : undefined,
+              },
             })
           }
           className="mt-3"
@@ -43,11 +52,14 @@ function SettingsPage() {
             <TabsTrigger value="members">Members</TabsTrigger>
             <TabsTrigger value="labels">Labels</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
+            <TabsTrigger value="appearance">Appearance</TabsTrigger>
           </TabsList>
         </Tabs>
       </header>
       {tab === "labels" ? (
         <LabelsPanel workspaceId={workspaceId} />
+      ) : tab === "appearance" ? (
+        <WorkspaceAppearance workspaceId={workspaceId} />
       ) : tab === "calendar" ? (
         <div className="mx-auto max-w-2xl p-4 sm:p-6">
           <CalendarLinks workspaceId={workspaceId} scopes={["workspace", "project"]} />

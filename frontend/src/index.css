@@ -4,7 +4,7 @@
 @import "@fontsource-variable/geist-mono";
 @import "@fontsource-variable/bricolage-grotesque";
 
-/* `dark:` follows a `.dark` class, not the OS setting; the theme is light only for now. */
+/* `dark:` follows the `.dark` class on the root element, set by applyTheme (see src/lib/themes.ts). */
 @custom-variant dark (&:is(.dark *));
 
 /*
@@ -19,26 +19,32 @@
 :root {
   --radius: 0rem;
 
+  /* Paper and pine, light: the fallback. The palettes in src/lib/themes.ts replace these and the accent
+     defaults below; `--accent-color` (set from the chosen accent) overrides the palette's own accent. */
   --background: #e8ebe5;
   --foreground: #17231e;
   --card: #fafbf8;
   --card-foreground: #17231e;
   --popover: #fafbf8;
   --popover-foreground: #17231e;
-  --primary: #1f4d3a;
-  --primary-foreground: #ffffff;
   --secondary: #17231e;
   --secondary-foreground: #fafbf8;
   --muted: #dde2d9;
   --muted-foreground: #5d6b63;
-  --accent: #d3e2d8;
-  --accent-foreground: #1f4d3a;
   --destructive: #b42318;
   --border: #c8cec4;
   --input: #c8cec4;
-  --ring: #1f4d3a;
-  --pine: #1f4d3a;
   --signal: #e4570f;
+  --accent-default: #1f4d3a;
+  --on-accent-default: #ffffff;
+
+  --primary: var(--accent-color, var(--accent-default));
+  --primary-foreground: var(--on-accent-color, var(--on-accent-default));
+  --ring: var(--primary);
+  --pine: var(--primary);
+  /* Hover and selected rows: a wash of the accent over the background. */
+  --accent: color-mix(in srgb, var(--primary) 16%, var(--background));
+  --accent-foreground: var(--foreground);
 }
 
 @theme inline {
@@ -294,7 +300,7 @@
   border-left-color: var(--primary);
 }
 .wiki-editor [data-block="callout"][data-tone="warning"] {
-  border-left-color: #e4570f;
+  border-left-color: var(--signal);
 }
 .wiki-editor [data-block="callout"][data-tone="success"] {
   border-left-color: #2f7d4f;

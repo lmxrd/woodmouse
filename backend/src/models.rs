@@ -48,6 +48,9 @@ pub struct User {
     /// First day of the week in calendars, `monday` or `sunday`; `None` means the default (`monday`).
     pub week_start: Option<String>,
 
+    /// Light, dark or follow the device: `light`, `dark` or `system`; `None` means `system`.
+    pub theme_mode: Option<String>,
+
     /// Argon2id hash (PHC string format).
     pub password_hash: String,
 
@@ -99,6 +102,12 @@ pub struct Workspace {
     pub id: uuid::Uuid,
 
     pub name: String,
+
+    /// The workspace's colour palette (one of `themes::PALETTES`); `None` means the default.
+    pub theme_palette: Option<String>,
+
+    /// The workspace's accent colour as `#rrggbb`; `None` means the palette's own.
+    pub theme_accent: Option<String>,
 }
 
 /// A user's membership in a workspace. In v1 this is the only access
@@ -117,6 +126,12 @@ pub struct WorkspaceMember {
     pub workspace_id: uuid::Uuid,
 
     pub role: Role,
+
+    /// This member's own palette for the workspace; `None` means the workspace's.
+    pub theme_palette: Option<String>,
+
+    /// This member's own accent colour for the workspace; `None` means the workspace's.
+    pub theme_accent: Option<String>,
 }
 
 /// Task priority. Variant order defines the urgency order.

@@ -63,3 +63,9 @@
   server saves) or, if the socket cannot connect, `ManualBody` (no autosave, Save button, version check).
   Mentions and page links save only `id` and `label`; their current titles come from `useReferences` via the
   `References` extension storage, never from node attributes (attributes sync to everyone and are saved).
+
+- Themes: colours live in `src/lib/themes.ts` (palettes in light and dark, turned into CSS at startup) and are
+  read through the semantic tokens in `index.css`; never hardcode colours in components. `useTheme` (in
+  `RootLayout`) applies the person's own choice for the workspace or else the workspace's, plus their light/dark
+  mode; `--accent-color` (set from the chosen accent) overrides the palette's own accent. A new palette goes
+  in the `PALETTES` list and the backend's `themes::PALETTES`.

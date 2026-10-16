@@ -46,6 +46,8 @@ pub struct PublicUser {
     pub time_format: String,
     /// `monday` or `sunday`.
     pub week_start: String,
+    /// `light`, `dark` or `system` (follow the device).
+    pub theme_mode: String,
 }
 
 impl From<&User> for PublicUser {
@@ -67,6 +69,10 @@ impl From<&User> for PublicUser {
                 .week_start
                 .clone()
                 .unwrap_or_else(|| WEEK_STARTS[0].to_string()),
+            theme_mode: user
+                .theme_mode
+                .clone()
+                .unwrap_or_else(|| crate::routes::themes::MODES[2].to_string()),
         }
     }
 }
@@ -244,6 +250,8 @@ pub struct UpdateMe {
     pub time_format: Option<String>,
     /// `monday` or `sunday`.
     pub week_start: Option<String>,
+    /// `light`, `dark` or `system`.
+    pub theme_mode: Option<String>,
 }
 
 /// Edit your own profile and display preferences.
@@ -282,6 +290,12 @@ pub async fn update_me(
         return Err(ApiError::bad_request("unknown week start"));
     }
 
+    if let Some(mode) = &input.theme_mode
+        && !crate::routes::themes::MODES.contains(&mode.as_str())
+    {
+        return Err(ApiError::bad_request("unknown theme mode"));
+    }
+
     let db = &mut *state.db.lock().await;
     let email = match &input.email {
         Some(email) => {
@@ -304,6 +318,7 @@ pub async fn update_me(
         || input.date_format.is_some()
         || input.time_format.is_some()
         || input.week_start.is_some()
+        || input.theme_mode.is_some()
     {
         let mut update = current.update();
         if let Some(name) = &input.name {
@@ -320,6 +335,9 @@ pub async fn update_me(
         }
         if let Some(week_start) = input.week_start {
             update = update.week_start(Some(week_start));
+        }
+        if let Some(mode) = input.theme_mode {
+            update = update.theme_mode(Some(mode));
         }
         update.exec(db).await?;
     }
