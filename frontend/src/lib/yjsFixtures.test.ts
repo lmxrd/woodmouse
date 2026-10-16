@@ -52,6 +52,7 @@ const docs: Record<string, BlockData[]> = {
     { type: "code", attrs: {}, spans: [{ text: "plain code" }] },
     { type: "callout", attrs: { tone: "danger" }, spans: [{ text: "careful" }] },
     { type: "divider", attrs: {} },
+    { type: "file", attrs: { file_id: ID1, label: "oak.png" }, spans: [] },
   ],
   empty_paragraphs_in_the_middle: [
     { type: "paragraph", attrs: {}, spans: [{ text: "before" }] },

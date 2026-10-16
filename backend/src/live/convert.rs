@@ -41,6 +41,7 @@ fn node_kind(tag: &str) -> Option<BlockKind> {
         "quote" => BlockKind::Quote,
         "callout" => BlockKind::Callout,
         "divider" => BlockKind::Divider,
+        "fileBlock" => BlockKind::File,
         _ => return None,
     })
 }
@@ -56,6 +57,7 @@ fn node_tag(kind: BlockKind) -> &'static str {
         BlockKind::Quote => "quote",
         BlockKind::Callout => "callout",
         BlockKind::Divider => "divider",
+        BlockKind::File => "fileBlock",
     }
 }
 
@@ -144,9 +146,17 @@ fn block_of<T: ReadTxn>(txn: &T, element: &XmlElementRef) -> Option<BlockData> {
                 any_string(element.get_attribute(txn, "tone")).unwrap_or_else(|| "info".into()),
             )
         }
+        BlockKind::File => {
+            attrs.file_id = any_string(element.get_attribute(txn, "fileId"))
+                .and_then(|s| uuid::Uuid::parse_str(&s).ok());
+            attrs.label = any_string(element.get_attribute(txn, "label"));
+        }
         _ => {}
     }
-    if kind == BlockKind::Divider {
+    if kind == BlockKind::File && attrs.file_id.is_none() {
+        return None;
+    }
+    if kind == BlockKind::Divider || kind == BlockKind::File {
         return Some(BlockData {
             kind,
             attrs,
@@ -284,6 +294,12 @@ pub fn seed_doc(doc: &Doc, blocks: &[BlockData]) {
         }
         if let Some(tone) = &a.tone {
             element.insert_attribute(&mut txn, "tone", tone.as_str());
+        }
+        if let Some(file_id) = a.file_id {
+            element.insert_attribute(&mut txn, "fileId", file_id.to_string());
+        }
+        if let Some(label) = &a.label {
+            element.insert_attribute(&mut txn, "label", label.as_str());
         }
 
         // Consecutive text goes into one XmlText with the marks as formatting, like the editor does.

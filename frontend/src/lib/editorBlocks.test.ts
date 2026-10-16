@@ -22,6 +22,7 @@ const blocks: BlockData[] = [
   { type: "code", attrs: { language: "rust" }, spans: [{ text: "fn main() {}\n" }] },
   { type: "callout", attrs: { tone: "warning" }, spans: [{ text: "careful" }] },
   { type: "divider", attrs: {} },
+  { type: "file", attrs: { file_id: "f1", label: "oak.png" }, spans: [] },
   { type: "paragraph", attrs: {}, spans: [] },
 ];
 

@@ -5,7 +5,7 @@
 use crate::audit::{self, Entry};
 use crate::blocks::{self, BlockData};
 use crate::error::ApiError;
-use crate::models::{ContentLink, WikiPage};
+use crate::models::{ContentLink, File, FileRef, WikiPage};
 use crate::revisions::{self, PageContent};
 use crate::time;
 
@@ -57,6 +57,27 @@ pub async fn save_content(
     }
     crate::search::index_page_body(db, id, &new).await?;
 
+    // Files the content shows are attached to the page, so they count as used (never cleaned up) and
+    // appear in its attachments. The reference follows the content: removing the block detaches the
+    // file, while a file attached by hand stays until it is detached.
+    let shown = blocks::files(&new);
+    for file_id in &shown {
+        let Ok(file) = File::get_by_id(db, file_id).await else {
+            continue;
+        };
+        if file.workspace_id == workspace_id {
+            attach_file(db, id, workspace_id, &title, &file, editor, true).await?;
+        }
+    }
+    for reference in FileRef::filter_by_target_id(id).exec(db).await? {
+        if reference.target_type == PAGE
+            && reference.embedded
+            && !shown.contains(&reference.file_id)
+        {
+            detach_file(db, page, reference.file_id, editor).await?;
+        }
+    }
+
     let (revision, created) = revisions::record_page(
         db,
         id,
@@ -75,5 +96,79 @@ pub async fn save_content(
         )
         .await?;
     }
+    Ok(true)
+}
+
+/// `FileRef::target_type` of a wiki page.
+pub const PAGE: &str = "page";
+
+/// Attach a library file to a page and record it in the activity feed. `embedded` marks a file the
+/// page's content itself shows, whose reference then follows the content. Returns whether it was
+/// newly attached (attaching twice is harmless and records nothing). Call with the transaction of the
+/// change.
+pub async fn attach_file(
+    db: &mut dyn toasty::Executor,
+    page_id: uuid::Uuid,
+    workspace_id: uuid::Uuid,
+    page_title: &str,
+    file: &File,
+    actor: uuid::Uuid,
+    embedded: bool,
+) -> Result<bool, ApiError> {
+    let already = FileRef::filter_by_file_id(file.id)
+        .exec(db)
+        .await?
+        .iter()
+        .any(|r| r.target_type == PAGE && r.target_id == page_id);
+    if already {
+        return Ok(false);
+    }
+    toasty::create!(FileRef {
+        file_id: file.id,
+        target_type: PAGE.to_string(),
+        target_id: page_id,
+        embedded,
+    })
+    .exec(db)
+    .await?;
+    audit::record(
+        db,
+        Entry::feed(workspace_id, actor, "page_file_attached")
+            .target("page", page_id)
+            .data(
+                serde_json::json!({ "title": page_title, "file": file.name, "file_id": file.id }),
+            ),
+    )
+    .await?;
+    Ok(true)
+}
+
+/// Detach a file from a page and record it. Returns whether it was attached.
+pub async fn detach_file(
+    db: &mut dyn toasty::Executor,
+    page: &WikiPage,
+    file_id: uuid::Uuid,
+    actor: uuid::Uuid,
+) -> Result<bool, ApiError> {
+    let Some(reference) = FileRef::filter_by_file_id(file_id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .find(|r| r.target_type == PAGE && r.target_id == page.id)
+    else {
+        return Ok(false);
+    };
+    reference.delete().exec(db).await?;
+    let name = File::get_by_id(db, &file_id)
+        .await
+        .map(|f| f.name)
+        .unwrap_or_default();
+    audit::record(
+        db,
+        Entry::feed(page.workspace_id, actor, "page_file_detached")
+            .target("page", page.id)
+            .data(serde_json::json!({ "title": page.title, "file": name, "file_id": file_id })),
+    )
+    .await?;
     Ok(true)
 }

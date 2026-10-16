@@ -749,6 +749,12 @@ name = "target_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
+[[schema.tables.columns]]
+id = { table = 10, index = 3 }
+name = "embedded"
+ty = "Bool"
+storage_ty = "Boolean"
+
 [[schema.tables.indices]]
 id = { table = 10, index = 0 }
 name = "index_file_refs_by_file_id_and_target_type_and_target_id"

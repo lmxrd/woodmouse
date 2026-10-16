@@ -38,6 +38,9 @@ pub enum BlockKind {
     Callout,
     /// No spans.
     Divider,
+    /// A file from the workspace library shown in the page (an image inline, anything else as a link):
+    /// `attrs.file_id`, with `attrs.label` as its name when the page was saved. No spans.
+    File,
 }
 
 impl BlockKind {
@@ -53,6 +56,7 @@ impl BlockKind {
             Self::Quote => "quote",
             Self::Callout => "callout",
             Self::Divider => "divider",
+            Self::File => "file",
         }
     }
 
@@ -83,6 +87,10 @@ pub struct Attrs {
     pub checked: Option<bool>,
     pub language: Option<String>,
     pub tone: Option<String>,
+    /// `file` blocks: the library file.
+    pub file_id: Option<uuid::Uuid>,
+    /// `file` blocks: the file's name when it was inserted, shown if the file is gone.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -151,6 +159,12 @@ impl BlockData {
     pub fn validate(&self) -> Result<(), ApiError> {
         let a = &self.attrs;
         let allowed = |ok: bool, what: &str| if ok { Ok(()) } else { Err(bad(what)) };
+        if self.kind != BlockKind::File {
+            allowed(
+                a.file_id.is_none() && a.label.is_none(),
+                "only file blocks take a file",
+            )?;
+        }
         match self.kind {
             BlockKind::Heading => {
                 allowed(
@@ -205,6 +219,22 @@ impl BlockData {
                         && a.language.is_none(),
                     "unexpected callout attribute",
                 )?;
+            }
+            BlockKind::File => {
+                allowed(a.file_id.is_some(), "a file block needs file_id")?;
+                allowed(
+                    a.label.as_ref().is_none_or(|l| l.chars().count() <= 300),
+                    "file label is too long",
+                )?;
+                allowed(
+                    a.level.is_none()
+                        && a.indent.is_none()
+                        && a.checked.is_none()
+                        && a.language.is_none()
+                        && a.tone.is_none(),
+                    "unexpected file attribute",
+                )?;
+                allowed(self.spans.is_empty(), "a file block has no content")?;
             }
             BlockKind::Paragraph | BlockKind::Quote | BlockKind::Divider => {
                 allowed(*a == Attrs::default(), "this block takes no attributes")?;
@@ -277,6 +307,9 @@ impl BlockData {
 
     /// The block's text without formatting (search, previews). Mentions and links contribute their label.
     pub fn plain_text(&self) -> String {
+        if self.kind == BlockKind::File {
+            return self.attrs.label.clone().unwrap_or_default();
+        }
         self.spans
             .iter()
             .map(|s| {
@@ -376,6 +409,17 @@ pub fn references(blocks: &[BlockData]) -> Vec<(&'static str, uuid::Uuid)> {
             && seen.insert(p.page_id)
         {
             out.push(("page", p.page_id));
+        }
+    }
+    out
+}
+
+/// The distinct library files the blocks show.
+pub fn files(blocks: &[BlockData]) -> Vec<uuid::Uuid> {
+    let mut out: Vec<uuid::Uuid> = vec![];
+    for id in blocks.iter().filter_map(|b| b.attrs.file_id) {
+        if !out.contains(&id) {
+            out.push(id);
         }
     }
     out

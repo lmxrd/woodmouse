@@ -443,6 +443,11 @@ pub struct FileRef {
 
     #[key]
     pub target_id: uuid::Uuid,
+
+    /// Page attachments only: the page's content shows the file (a file block), so the reference
+    /// follows the content and removing the block detaches it. Attached by hand it stays until
+    /// it is detached. Always false for tasks.
+    pub embedded: bool,
 }
 
 /// Who may see an audit entry: the workspace's activity feed (and the audit) or the audit only.

@@ -16,6 +16,7 @@ const NODE_OF: Record<BlockKind, string> = {
   quote: "quote",
   callout: "callout",
   divider: "divider",
+  file: "fileBlock",
 };
 const KIND_OF = Object.fromEntries(Object.entries(NODE_OF).map(([k, v]) => [v, k])) as Record<
   string,
@@ -72,6 +73,12 @@ export function toBlocks(doc: JSONContent): BlockData[] {
     if (type === "code" && a.language) attrs.language = a.language;
     if (type === "callout") attrs.tone = a.tone ?? "info";
     if (type === "divider") return [{ type, attrs }];
+    if (type === "file") {
+      if (!a.fileId) return [];
+      attrs.file_id = a.fileId;
+      if (a.label) attrs.label = a.label;
+      return [{ type, attrs, spans: [] }];
+    }
     if (type === "code") {
       // Code is one plain text span, never marked.
       const text = (node.content ?? []).map((n) => n.text ?? "").join("");
@@ -124,6 +131,8 @@ export function fromBlocks(blocks: BlockData[]): JSONContent {
       node.attrs = { indent: attrs.indent ?? 0 };
     else if (block.type === "code") node.attrs = { language: attrs.language ?? null };
     else if (block.type === "callout") node.attrs = { tone: attrs.tone ?? "info" };
+    else if (block.type === "file")
+      node.attrs = { fileId: attrs.file_id ?? null, label: attrs.label ?? "" };
     if (children.length) node.content = children;
     return node;
   });

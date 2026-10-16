@@ -12,6 +12,8 @@ import type { NodeType } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
+import { fileContentUrl } from "../../../lib/api";
+
 /**
  * The block types the stored format has beyond paragraph, heading and code (which StarterKit
  * provides). Every block is a top-level node: lists are flat items with an `indent`, as stored.
@@ -289,6 +291,89 @@ export const Divider = Node.create({
   renderHTML: () => ["hr"],
   addInputRules() {
     return [nodeInputRule({ find: /^(?:---|___\s|\*\*\*\s)$/, type: this.type })];
+  },
+});
+
+/** Image types the server serves inline (anything else is only ever offered as a download). */
+const IMAGE_NAME = /\.(png|jpe?g|gif|webp)$/i;
+
+/**
+ * A library file shown in the page: an image inline, anything else as a download link. The stored block
+ * keeps the file's id and its name as it was when inserted (the name is only a fallback).
+ */
+export const FileBlock = Node.create({
+  name: "fileBlock",
+  group: "block",
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      fileId: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-file"),
+        renderHTML: (attrs) => ({ "data-file": attrs.fileId }),
+      },
+      label: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-label") ?? "",
+        renderHTML: (attrs) => ({ "data-label": attrs.label }),
+      },
+    };
+  },
+  parseHTML: () => [{ tag: 'div[data-block="fileBlock"]' }],
+  renderHTML: ({ HTMLAttributes }) => [
+    "div",
+    mergeAttributes(HTMLAttributes, { "data-block": "fileBlock" }),
+  ],
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement("div");
+      dom.setAttribute("data-block", "fileBlock");
+      const render = (current: typeof node) => {
+        const id = String(current.attrs.fileId ?? "");
+        const label = String(current.attrs.label || "file");
+        const url = fileContentUrl(id);
+        dom.setAttribute("data-file", id);
+        dom.replaceChildren();
+        const link = (child: HTMLElement) => {
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          a.contentEditable = "false";
+          if (!IMAGE_NAME.test(label)) a.download = label;
+          a.append(child);
+          return a;
+        };
+        const card = () => {
+          const span = document.createElement("span");
+          span.className = "file-card";
+          span.textContent = label;
+          return span;
+        };
+        if (IMAGE_NAME.test(label)) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = label;
+          img.loading = "lazy";
+          // Not an image after all (or gone): show it as a file.
+          img.onerror = () => dom.replaceChildren(link(card()));
+          dom.append(link(img));
+        } else {
+          dom.append(link(card()));
+        }
+      };
+      render(node);
+      return {
+        dom,
+        update: (updated) => {
+          if (updated.type !== node.type) return false;
+          render(updated);
+          return true;
+        },
+      };
+    };
   },
 });
 

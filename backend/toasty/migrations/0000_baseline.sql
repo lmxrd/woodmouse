@@ -132,6 +132,7 @@ CREATE TABLE "file_refs" (
     "file_id" BLOB NOT NULL,
     "target_type" TEXT NOT NULL,
     "target_id" BLOB NOT NULL,
+    "embedded" BOOLEAN NOT NULL DEFAULT 0,
     PRIMARY KEY ("file_id", "target_type", "target_id")
 );
 -- #[toasty::breakpoint]

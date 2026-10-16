@@ -6,7 +6,18 @@ import type { SearchHit } from "woodmouse-client";
 import { searchOptions } from "woodmouse-client/react-query";
 
 import { cn } from "../../../lib/utils";
-import { BulletItem, Callout, Divider, NumberedItem, Numbering, Quote, TodoItem } from "./blocks";
+import { PICK_FILE_EVENT } from "../useFileLibraryPicker";
+import {
+  BulletItem,
+  Callout,
+  Divider,
+  FileBlock,
+  NumberedItem,
+  Numbering,
+  Quote,
+  TodoItem,
+} from "./blocks";
+import { FileDrop, chooseAndInsertFiles } from "./files";
 import { PageLink, References, TaskMention } from "./inline";
 import { suggestionExtension } from "./suggestion";
 
@@ -19,7 +30,7 @@ interface SlashItem {
   title: string;
   hint: string;
   keywords: string;
-  run: (editor: Editor, range: Range) => void;
+  run: (editor: Editor, range: Range, workspaceId: string) => void;
 }
 
 const block = (run: (chain: ReturnType<Editor["chain"]>) => { run: () => boolean }) => {
@@ -94,6 +105,24 @@ const SLASH_ITEMS: SlashItem[] = [
     hint: "A horizontal rule",
     keywords: "hr line rule",
     run: block((c) => c.insertContent({ type: "divider" })),
+  },
+  {
+    title: "Image or file",
+    hint: "Upload and show it in the page",
+    keywords: "upload picture photo attachment image file",
+    run: (editor, range, workspaceId) => {
+      editor.chain().focus().deleteRange(range).run();
+      chooseAndInsertFiles(editor, workspaceId);
+    },
+  },
+  {
+    title: "File from library",
+    hint: "Show a file that is already uploaded",
+    keywords: "existing attachment image file library",
+    run: (editor, range) => {
+      editor.chain().focus().deleteRange(range).run();
+      editor.view.dom.dispatchEvent(new CustomEvent(PICK_FILE_EVENT));
+    },
   },
   {
     title: "Mention a task",
@@ -173,11 +202,12 @@ export function editorExtensions({
     Quote,
     Callout,
     Divider,
+    FileBlock,
     Numbering,
     References,
     TaskMention,
     PageLink,
-    ...(readOnly ? [] : pickers()),
+    ...(readOnly ? [] : [FileDrop.configure({ workspaceId }), ...pickers()]),
   ];
 
   function pickers(): Extensions {
@@ -190,7 +220,7 @@ export function editorExtensions({
           const q = query.toLowerCase();
           return SLASH_ITEMS.filter((i) => `${i.title} ${i.keywords}`.toLowerCase().includes(q));
         },
-        onPick: (editor, range, item) => item.run(editor, range),
+        onPick: (editor, range, item) => item.run(editor, range, workspaceId),
         render: (item) => (
           <span className="flex min-w-0 flex-col leading-tight">
             <span>{item.title}</span>

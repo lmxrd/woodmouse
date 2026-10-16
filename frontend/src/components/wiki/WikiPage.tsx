@@ -8,6 +8,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
+import { Attachments } from "../task/Attachments";
 import { Backlinks } from "./Backlinks";
 import { PageEditor } from "./PageEditor";
 import { PageHistory } from "./PageHistory";
@@ -97,6 +98,7 @@ export function WikiPage({ workspaceId, pageId }: { workspaceId: string; pageId:
         saveRef={saveRef}
         onReload={reload}
       />
+      <Attachments pageId={page.id} workspaceId={workspaceId} editable={canWrite} />
       <Backlinks workspaceId={workspaceId} backlinks={backlinks} />
       <PageHistory
         pageId={page.id}

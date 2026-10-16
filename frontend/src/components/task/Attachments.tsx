@@ -3,9 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FileView } from "woodmouse-client";
 import {
   attachFileMutation,
+  attachPageFileMutation,
   detachFileMutation,
+  detachPageFileMutation,
   listAttachmentsOptions,
   listFilesOptions,
+  listPageAttachmentsOptions,
 } from "woodmouse-client/react-query";
 
 import { fileContentUrl } from "../../lib/api";
@@ -16,21 +19,45 @@ import { useUploader } from "../files/useUploader";
 import { Button } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
-/** Files attached to a task: upload (or drop) new ones, attach from the library, or detach. */
+/**
+ * Files attached to a task or a wiki page: upload (or drop) new ones, attach from the library, or
+ * detach. Exactly one of `taskId` and `pageId`.
+ */
 export function Attachments({
   taskId,
+  pageId,
   workspaceId,
   editable,
 }: {
-  taskId: string;
+  taskId?: string;
+  pageId?: string;
   workspaceId: string;
   editable: boolean;
 }) {
   const queryClient = useQueryClient();
-  const { data: attachments } = useQuery(listAttachmentsOptions({ path: { id: taskId } }));
+  const targetId = taskId ?? pageId ?? "";
+  const { data: taskFiles } = useQuery({
+    ...listAttachmentsOptions({ path: { id: targetId } }),
+    enabled: !!taskId,
+  });
+  const { data: pageFiles } = useQuery({
+    ...listPageAttachmentsOptions({ path: { id: targetId } }),
+    enabled: !!pageId,
+  });
+  const attachments = taskId ? taskFiles : pageFiles;
   const refresh = () => queryClient.invalidateQueries();
-  const attach = useMutation({ ...attachFileMutation(), onSuccess: refresh });
-  const detach = useMutation({ ...detachFileMutation(), onSuccess: refresh });
+  const attachTask = useMutation({ ...attachFileMutation(), onSuccess: refresh });
+  const attachPage = useMutation({ ...attachPageFileMutation(), onSuccess: refresh });
+  const detachTask = useMutation({ ...detachFileMutation(), onSuccess: refresh });
+  const detachPage = useMutation({ ...detachPageFileMutation(), onSuccess: refresh });
+  const attachFile = (fileId: string) =>
+    taskId
+      ? attachTask.mutate({ path: { id: taskId }, body: { file_id: fileId } })
+      : attachPage.mutate({ path: { id: targetId }, body: { file_id: fileId } });
+  const detachFile = (fileId: string) =>
+    taskId
+      ? detachTask.mutate({ path: { id: taskId, file_id: fileId } })
+      : detachPage.mutate({ path: { id: targetId, file_id: fileId } });
   const { uploadFiles, isUploading, dialog } = useUploader(workspaceId);
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
@@ -58,7 +85,7 @@ export function Attachments({
         setOver(false);
         if (!editable || e.dataTransfer.files.length === 0) return;
         e.preventDefault();
-        void uploadFiles([...e.dataTransfer.files], taskId);
+        void uploadFiles([...e.dataTransfer.files], taskId, pageId);
       }}
     >
       <h2 className="label-mono text-muted-foreground">
@@ -69,9 +96,7 @@ export function Attachments({
           <AttachmentChip
             key={file.id}
             file={file}
-            onRemove={
-              editable ? () => detach.mutate({ path: { id: taskId, file_id: file.id } }) : undefined
-            }
+            onRemove={editable ? () => detachFile(file.id) : undefined}
           />
         ))}
       </div>
@@ -84,7 +109,7 @@ export function Attachments({
             className="sr-only"
             aria-label="Upload files"
             onChange={(e) => {
-              void uploadFiles([...(e.target.files ?? [])], taskId);
+              void uploadFiles([...(e.target.files ?? [])], taskId, pageId);
               e.target.value = "";
             }}
           />
@@ -113,7 +138,7 @@ export function Attachments({
                     type="button"
                     className="flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm hover:bg-accent"
                     onClick={() => {
-                      attach.mutate({ path: { id: taskId }, body: { file_id: file.id } });
+                      attachFile(file.id);
                       setLibraryOpen(false);
                     }}
                   >

@@ -358,3 +358,33 @@
   white-space: nowrap;
   user-select: none;
 }
+
+/* A library file shown in a wiki page: an image inline, anything else as a labelled card. */
+.wiki-editor [data-block="fileBlock"] img {
+  display: block;
+  max-width: 100%;
+  max-height: 32rem;
+  object-fit: contain;
+}
+.wiki-editor [data-block="fileBlock"] a {
+  text-decoration: none;
+}
+.wiki-editor [data-block="fileBlock"] .file-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+}
+.wiki-editor [data-block="fileBlock"] .file-card::before {
+  content: "FILE";
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--muted-foreground);
+}
+.wiki-editor [data-block="fileBlock"].ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

@@ -128,6 +128,11 @@ pub fn page_to_markdown(
                 out.push_str(&format!("> [!{kind}]\n> {}\n", text.replace('\n', "\n> ")));
             }
             BlockKind::Divider => out.push_str("---\n"),
+            // The file itself is not part of the export; its name is.
+            BlockKind::File => out.push_str(&format!(
+                "*Attachment: {}*\n",
+                escape(block.attrs.label.as_deref().unwrap_or("file"))
+            )),
         }
         if !is_list {
             counters.clear();

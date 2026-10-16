@@ -63,6 +63,10 @@ export function describeActivity(
       return {
         text: `linked "${title}": it ${KIND_PHRASE[str(d.kind)] ?? str(d.kind)} "${str(d.other)}"`,
       };
+    case "page_file_attached":
+      return { text: `attached ${str(d.file)} to the page "${title}"` };
+    case "page_file_detached":
+      return { text: `removed ${str(d.file)} from the page "${title}"` };
     case "task_deleted":
       return { text: `deleted "${title}"` };
     case "task_restored":

@@ -627,3 +627,235 @@ async fn files_attach_to_wiki_pages_too() {
     .await;
     assert!(list.as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn inline_files_attach_to_the_page_and_are_audited() {
+    let fx = fixture().await;
+    let res = request(
+        &fx.app,
+        upload(
+            &format!("/api/workspaces/{}/files", fx.ws),
+            "oak.png",
+            "image/png",
+            b"\x89PNG oak",
+            None,
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    let file = json(res).await["id"].as_str().unwrap().to_string();
+    let page = json(
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/workspaces/{}/pages", fx.ws),
+                r#"{"title":"Kitchen"}"#,
+                Some(&fx.admin),
+            ),
+        )
+        .await,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let save = |body: String| {
+        request(
+            &fx.app,
+            put_json(&format!("/api/pages/{page}/blocks"), &body, Some(&fx.admin)),
+        )
+    };
+
+    // A file block without a file is refused.
+    let res = save(r#"{"blocks":[{"type":"file"}]}"#.to_string()).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    // Only file blocks take a file.
+    let res = save(format!(
+        r#"{{"blocks":[{{"type":"paragraph","attrs":{{"file_id":"{file}"}}}}]}}"#
+    ))
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let res = save(format!(
+        r#"{{"blocks":[{{"type":"file","attrs":{{"file_id":"{file}","label":"oak.png"}}}}]}}"#
+    ))
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    save(format!(
+        r#"{{"blocks":[{{"type":"file","attrs":{{"file_id":"{file}","label":"oak.png"}}}},{{"type":"paragraph"}}]}}"#
+    ))
+    .await;
+
+    // Showing it in the page attached it (once), so it counts as used.
+    let list = json(
+        request(
+            &fx.app,
+            get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["name"], "oak.png");
+
+    // The feed recorded it once, and detaching is recorded too.
+    request(
+        &fx.app,
+        delete(
+            &format!("/api/pages/{page}/attachments/{file}"),
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    let feed = json(
+        request(
+            &fx.app,
+            get(
+                &format!("/api/workspaces/{}/activity", fx.ws),
+                Some(&fx.admin),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let kinds: Vec<&str> = feed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "page_file_attached").count(),
+        1
+    );
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "page_file_detached").count(),
+        1
+    );
+    let attached = feed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "page_file_attached")
+        .unwrap();
+    assert_eq!(attached["data"]["file"], "oak.png");
+    assert_eq!(attached["data"]["title"], "Kitchen");
+}
+
+#[tokio::test]
+async fn removing_a_file_block_detaches_it_but_hand_attachments_stay() {
+    let fx = fixture().await;
+    let uri = format!("/api/workspaces/{}/files", fx.ws);
+    let res = request(
+        &fx.app,
+        upload(
+            &uri,
+            "oak.png",
+            "image/png",
+            b"\x89PNG oak",
+            None,
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let inline = json(res).await["id"].as_str().unwrap().to_string();
+    let res = request(
+        &fx.app,
+        upload(
+            &uri,
+            "map.svg",
+            "image/svg+xml",
+            b"<svg>map</svg>",
+            None,
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let manual = json(res).await["id"].as_str().unwrap().to_string();
+    let page = json(
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/workspaces/{}/pages", fx.ws),
+                r#"{"title":"Trails"}"#,
+                Some(&fx.admin),
+            ),
+        )
+        .await,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Attached by hand: it stays until it is detached.
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/pages/{page}/attachments"),
+            &format!(r#"{{"file_id":"{manual}"}}"#),
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let save = |body: String| {
+        request(
+            &fx.app,
+            put_json(&format!("/api/pages/{page}/blocks"), &body, Some(&fx.admin)),
+        )
+    };
+    let attachments = || async {
+        json(
+            request(
+                &fx.app,
+                get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
+            )
+            .await,
+        )
+        .await
+    };
+
+    // Showing it in the page attached it once.
+    save(format!(
+        r#"{{"blocks":[{{"type":"file","attrs":{{"file_id":"{inline}","label":"oak.png"}}}}]}}"#
+    ))
+    .await;
+    let list = attachments().await;
+    assert_eq!(list.as_array().unwrap().len(), 2);
+
+    // Removing the block detaches it; the hand-attached file stays.
+    save(r#"{"blocks":[{"type":"paragraph"}]}"#.to_string()).await;
+    let list = attachments().await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["name"], "map.svg");
+
+    let feed = json(
+        request(
+            &fx.app,
+            get(
+                &format!("/api/workspaces/{}/activity", fx.ws),
+                Some(&fx.admin),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let entries = feed.as_array().unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|e| e["kind"] == "page_file_attached")
+            .count(),
+        2
+    );
+    let detached: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["kind"] == "page_file_detached")
+        .collect();
+    assert_eq!(detached.len(), 1);
+    assert_eq!(detached[0]["data"]["file"], "oak.png");
+}

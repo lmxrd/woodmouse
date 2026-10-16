@@ -14,6 +14,7 @@ import { Collaborators } from "./Collaborators";
 import { editorExtensions } from "./editor/extensions";
 import { FormatToolbar } from "./editor/FormatToolbar";
 import { useEditorClicks } from "./useEditorClicks";
+import { useFileLibraryPicker } from "./useFileLibraryPicker";
 import { useReferences } from "./useReferences";
 
 /** How long to wait for the first connection before offering manual saving instead. */
@@ -161,11 +162,13 @@ function LiveEditor({
   );
   useReferences(editor, workspaceId);
   useEditorClicks(editor, workspaceId);
+  const libraryPicker = useFileLibraryPicker(editor, workspaceId);
 
   return (
     <>
       {editor ? <FormatToolbar editor={editor} /> : null}
       <EditorContent editor={editor} />
+      {libraryPicker}
     </>
   );
 }

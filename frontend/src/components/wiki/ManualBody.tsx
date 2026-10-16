@@ -11,6 +11,7 @@ import { Button } from "../ui/button";
 import { editorExtensions } from "./editor/extensions";
 import { FormatToolbar } from "./editor/FormatToolbar";
 import { useEditorClicks } from "./useEditorClicks";
+import { useFileLibraryPicker } from "./useFileLibraryPicker";
 import { useReferences } from "./useReferences";
 
 type Status = "saved" | "unsaved" | "saving" | "error";
@@ -55,6 +56,7 @@ export function ManualBody({
   });
   useReferences(editor, workspaceId);
   useEditorClicks(editor, workspaceId);
+  const libraryPicker = useFileLibraryPicker(editor, workspaceId);
 
   const save = useCallback(
     async (force = false) => {
@@ -178,6 +180,7 @@ export function ManualBody({
       ) : null}
       {editor ? <FormatToolbar editor={editor} /> : null}
       <EditorContent editor={editor} />
+      {libraryPicker}
     </div>
   );
 }

@@ -474,7 +474,7 @@ pub async fn file_usage(
 /// `FileRef::target_type` of a task attachment.
 const TASK: &str = "task";
 /// `FileRef::target_type` of a wiki page attachment.
-const PAGE: &str = "page";
+const PAGE: &str = crate::pages::PAGE;
 
 /// Attach `file` to a task and record it in the feed. Call with the transaction of the change.
 async fn attach(
@@ -489,6 +489,7 @@ async fn attach(
         file_id: file.id,
         target_type: TASK.to_string(),
         target_id: task_id,
+        embedded: false,
     })
     .exec(db)
     .await?;
@@ -814,20 +815,18 @@ pub async fn attach_page_file(
     if file.workspace_id != page.workspace_id {
         return Err(ApiError::not_found());
     }
-    let already = FileRef::filter_by_file_id(file.id)
-        .exec(db)
-        .await?
-        .iter()
-        .any(|r| r.target_type == PAGE && r.target_id == id);
-    if !already {
-        toasty::create!(FileRef {
-            file_id: file.id,
-            target_type: PAGE.to_string(),
-            target_id: id,
-        })
-        .exec(db)
-        .await?;
-    }
+    let mut tx = db.transaction().await?;
+    crate::pages::attach_file(
+        &mut tx,
+        id,
+        page.workspace_id,
+        &page.title,
+        &file,
+        user.id,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(Json(one_view(db, file).await?))
 }
 
@@ -854,13 +853,12 @@ pub async fn detach_page_file(
 ) -> Result<StatusCode, ApiError> {
     let mut db = state.writer().await;
     let db = &mut *db;
-    access::require_page_access(db, &user, id, Role::Write).await?;
-    let reference = FileRef::filter_by_file_id(file_id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .find(|r| r.target_type == PAGE && r.target_id == id)
-        .ok_or_else(ApiError::not_found)?;
-    reference.delete().exec(db).await?;
+    let page = access::require_page_access(db, &user, id, Role::Write).await?;
+    let mut tx = db.transaction().await?;
+    let detached = crate::pages::detach_file(&mut tx, &page, file_id, user.id).await?;
+    tx.commit().await?;
+    if !detached {
+        return Err(ApiError::not_found());
+    }
     Ok(StatusCode::NO_CONTENT)
 }
