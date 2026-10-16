@@ -58,6 +58,10 @@ pub struct TaskResponse {
     #[serde(with = "time::utc_option")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub due_date: Option<DateTime>,
+    /// Expected work, in minutes.
+    pub estimate_minutes: Option<i64>,
+    /// Work done so far, in minutes.
+    pub spent_minutes: Option<i64>,
     pub assignees: Vec<PublicUser>,
     pub labels: Vec<Label>,
     /// All subtasks below this task, at any depth.
@@ -82,6 +86,10 @@ pub struct CreateTaskRequest {
     #[serde(default, with = "time::utc_option")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub due_date: Option<DateTime>,
+    /// Expected work, in minutes.
+    pub estimate_minutes: Option<i64>,
+    /// Work done so far, in minutes.
+    pub spent_minutes: Option<i64>,
     #[serde(default)]
     pub assignee_ids: Vec<uuid::Uuid>,
     #[serde(default)]
@@ -103,6 +111,12 @@ pub struct UpdateTaskRequest {
     #[serde(default, deserialize_with = "double_date")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub start_date: Option<Option<DateTime>>,
+    /// Expected work in minutes. Absent leaves it unchanged; `null` clears it.
+    #[serde(default, deserialize_with = "double_option")]
+    pub estimate_minutes: Option<Option<i64>>,
+    /// Work done so far in minutes. Absent leaves it unchanged; `null` clears it.
+    #[serde(default, deserialize_with = "double_option")]
+    pub spent_minutes: Option<Option<i64>>,
     /// Place the task right after this sibling (`null`: first). Absent keeps its place, unless it moves
     /// to another list or parent, where it goes last.
     #[serde(default, deserialize_with = "double_option")]
@@ -127,6 +141,16 @@ where
     D: serde::Deserializer<'de>,
 {
     serde::Deserialize::deserialize(deserializer).map(Some)
+}
+
+/// Work time is a whole number of minutes, not negative and not absurdly large (about 16 000 hours).
+fn validate_minutes(minutes: Option<i64>) -> Result<(), ApiError> {
+    if minutes.is_some_and(|m| !(0..=1_000_000).contains(&m)) {
+        return Err(ApiError::bad_request(
+            "work time must be between 0 and 1 000 000 minutes",
+        ));
+    }
+    Ok(())
 }
 
 fn double_date<'de, D>(deserializer: D) -> Result<Option<Option<DateTime>>, D::Error>
@@ -417,6 +441,8 @@ pub(crate) async fn create_task_in(
     }
     validate_assignees(db, &input.assignee_ids, workspace_id).await?;
     validate_labels(db, &input.label_ids, workspace_id).await?;
+    validate_minutes(input.estimate_minutes)?;
+    validate_minutes(input.spent_minutes)?;
     let (start_date, due_date) = (
         input.start_date.map(time::to_day),
         input.due_date.map(time::to_day),
@@ -438,6 +464,8 @@ pub(crate) async fn create_task_in(
         priority: input.priority.unwrap_or(Priority::Medium),
         start_date,
         due_date,
+        estimate_minutes: input.estimate_minutes,
+        spent_minutes: input.spent_minutes,
         parent_id,
     })
     .exec(&mut tx)
@@ -666,6 +694,8 @@ pub async fn update_task(
         || input.priority.is_some()
         || input.due_date.is_some()
         || input.start_date.is_some()
+        || input.estimate_minutes.is_some()
+        || input.spent_minutes.is_some()
         || position.is_some()
         || moving;
     if let Some(title) = &input.title {
@@ -687,6 +717,14 @@ pub async fn update_task(
     }
     if let Some(start_date) = input.start_date {
         update = update.start_date(start_date.map(time::to_day));
+    }
+    if let Some(minutes) = input.estimate_minutes {
+        validate_minutes(minutes)?;
+        update = update.estimate_minutes(minutes);
+    }
+    if let Some(minutes) = input.spent_minutes {
+        validate_minutes(minutes)?;
+        update = update.spent_minutes(minutes);
     }
     if let Some(position) = position {
         update = update.position(position);
@@ -1082,6 +1120,8 @@ pub(crate) async fn hydrate_tasks(
                 priority: task.priority,
                 start_date: task.start_date,
                 due_date: task.due_date,
+                estimate_minutes: task.estimate_minutes,
+                spent_minutes: task.spent_minutes,
                 assignees,
                 labels: task_labels,
                 subtask_total: below.len(),

@@ -187,7 +187,7 @@ pub async fn run(router: Router) -> Result<(), String> {
             &format!("/lists/{}/tasks", lists[1]),
             &admin,
             json!({ "title": "Order oak worktop", "description": "Check the **delivery date** first.", "priority": "high",
-                    "start_date": day(-2), "due_date": day(3), "assignee_ids": [sara], "label_ids": [labels[1]] }),
+                    "start_date": day(-2), "due_date": day(3), "estimate_minutes": 480, "spent_minutes": 150, "assignee_ids": [sara], "label_ids": [labels[1]] }),
         )
         .await);
     for title in ["Measure the counter", "Compare three quotes"] {

@@ -42,6 +42,9 @@
   commit `backend/toasty/` (history, SQL, snapshot); the server applies pending migrations at startup, and the
   test `migrations_are_up_to_date_with_the_models` fails when you forget. A rename generates drop + create:
   edit the SQL by hand. A dev database made before migrations existed needs `mise run clean`.
+  Until the first release there is one baseline migration: empty `toasty/migrations`, `toasty/snapshots` and the
+  `migrations` list in `toasty/history.toml` (keep `version = 1` and `migrations = []`), then generate again; every
+  dev database then needs `mise run clean`. After the first release, add migrations instead.
 - Dates: every stored date-time is a `jiff::civil::DateTime` meaning UTC (`src/time.rs`); the API sends RFC 3339
   with `Z` (`#[serde(with = "time::utc")]` + `#[schema(value_type = String, format = DateTime)]`). Task
   `start_date`/`due_date` are a day at 00:00 UTC (`time::to_day`). `time::now()` is whole seconds.

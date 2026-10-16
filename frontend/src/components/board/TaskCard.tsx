@@ -12,6 +12,7 @@ import { cn } from "../../lib/utils";
 import { LabelTag } from "../LabelTag";
 import { AvatarStack } from "../UserAvatar";
 import { Checkbox } from "../ui/checkbox";
+import { formatDuration } from "../../lib/duration";
 import { isDone } from "../../lib/task";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -98,6 +99,20 @@ export function TaskCardBody({
               className={cn(isDueNow(task.due_date) && !isDone(task) && "font-medium text-signal")}
             >
               {dateShort(task.due_date)}
+            </span>
+          ) : null}
+          {task.estimate_minutes != null || task.spent_minutes != null ? (
+            <span
+              className={cn(
+                "font-mono",
+                task.estimate_minutes != null &&
+                  (task.spent_minutes ?? 0) > task.estimate_minutes &&
+                  "text-signal",
+              )}
+              title="Time spent / estimate"
+            >
+              {formatDuration(task.spent_minutes ?? 0)}
+              {task.estimate_minutes != null ? ` / ${formatDuration(task.estimate_minutes)}` : ""}
             </span>
           ) : null}
           {task.subtask_total > 0 ? (

@@ -278,6 +278,12 @@ pub struct Task {
     /// A calendar day (midnight UTC), if set.
     pub due_date: Option<DateTime>,
 
+    /// How long the task is expected to take, in minutes.
+    pub estimate_minutes: Option<i64>,
+
+    /// How long has been spent on it so far, in minutes.
+    pub spent_minutes: Option<i64>,
+
     /// The parent task when this is a subtask.
     #[index]
     pub parent_id: Option<uuid::Uuid>,

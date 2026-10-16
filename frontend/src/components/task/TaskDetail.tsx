@@ -26,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Attachments } from "./Attachments";
 import { Comments } from "./Comments";
 import { DateField } from "./DateField";
+import { DurationField } from "./DurationField";
 import { LabelPicker } from "./LabelPicker";
 import { MemberPicker } from "./MemberPicker";
 import { PrioritySelect } from "./PrioritySelect";
@@ -303,6 +304,20 @@ function TaskForm({
         </Field>
         <Field label="Due" htmlFor="task-due">
           <DateField id="task-due" value={task.due_date} onChange={(v) => save({ due_date: v })} />
+        </Field>
+        <Field label="Estimate" htmlFor="task-estimate">
+          <DurationField
+            id="task-estimate"
+            value={task.estimate_minutes}
+            onChange={(v) => save({ estimate_minutes: v })}
+          />
+        </Field>
+        <Field label="Time spent" htmlFor="task-spent">
+          <DurationField
+            id="task-spent"
+            value={task.spent_minutes}
+            onChange={(v) => save({ spent_minutes: v })}
+          />
         </Field>
         <Field label="Assignees">
           <MemberPicker

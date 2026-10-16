@@ -1218,3 +1218,60 @@ async fn scheduling_filters_and_project_links() {
     .await;
     assert!(edges(String::new()).await.is_empty());
 }
+
+#[tokio::test]
+async fn work_time_is_set_cleared_and_validated() {
+    let fx = fixture().await;
+    let task = create_task(&fx, "Sand the floor").await;
+    let patch = |body: &str| {
+        request(
+            &fx.app,
+            patch_json(&format!("/api/tasks/{task}"), body, Some(&fx.cookie)),
+        )
+    };
+
+    let t = get_task_json(&fx, task).await;
+    assert!(t["estimate_minutes"].is_null() && t["spent_minutes"].is_null());
+
+    assert_eq!(
+        patch(r#"{"estimate_minutes":180,"spent_minutes":45}"#)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let t = get_task_json(&fx, task).await;
+    assert_eq!(t["estimate_minutes"], 180);
+    assert_eq!(t["spent_minutes"], 45);
+
+    // Absent leaves a value alone; null clears it.
+    patch(r#"{"title":"Sand it"}"#).await;
+    assert_eq!(get_task_json(&fx, task).await["estimate_minutes"], 180);
+    patch(r#"{"estimate_minutes":null}"#).await;
+    let t = get_task_json(&fx, task).await;
+    assert!(t["estimate_minutes"].is_null());
+    assert_eq!(t["spent_minutes"], 45);
+
+    // Negative or absurd values are refused.
+    assert_eq!(
+        patch(r#"{"spent_minutes":-5}"#).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        patch(r#"{"spent_minutes":2000000}"#).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    // New tasks can start with an estimate.
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/lists/{}/tasks", fx.list_id),
+            r#"{"title":"Paint","estimate_minutes":60}"#,
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    assert_eq!(created["estimate_minutes"], 60);
+}
