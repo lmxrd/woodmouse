@@ -60,5 +60,7 @@
 
 - Wiki: a page is an ordered list of blocks in the app's own JSON format (`src/blocks.rs`; the editor is only a
   view). Content saves carry `base_version` and bump `Page.version`; a stale save is a 409. Presence ("who else
-  is editing") is in memory only (`AppState.presence`). `routes/search.rs` is a small in-memory ranker for the
-  link pickers; full-text search is a separate chunk.
+  is editing") is in memory only (`AppState.presence`). Search is SQLite FTS5 (`src/search.rs`):
+  `search_docs` + `search_fts`, created by `ensure_index` at startup and in test setup, kept current by triggers
+  on `tasks` and page titles plus `index_page_body` on block saves. Visibility (workspace, soft delete) is
+  decided at query time by joins, so deleting or restoring never touches the index.

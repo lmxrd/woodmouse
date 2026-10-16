@@ -40,6 +40,9 @@ Woodmouse is a self-hosted task manager for a household or small team.
   a page; external links can use any URL format. Edits save automatically. If someone else is editing the
   same page you are told, and a save based on an outdated version is refused so nothing is silently
   overwritten (keep yours or load theirs). Deleted pages go to the trash with their subpages.
+- **Search**: ⌘K (or Ctrl+K) searches page and task titles and text with SQLite full-text search (words match
+  as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
+  items are never found. The `@` and `[[` pickers use the same search.
 - **My tasks** shows everything assigned to you across a workspace, grouped by due date.
 - **Trash**: nothing is permanently deleted. Deleting a project, list, task, comment, label or view moves it
   (with what it contains) to the trash, where members with write access can restore it. The only permanent

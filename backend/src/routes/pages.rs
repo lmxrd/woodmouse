@@ -417,6 +417,7 @@ pub async fn save_blocks(
             .await?;
         }
         tx.commit().await?;
+        crate::search::index_page_body(db, id, &input.blocks).await?;
         let next_version = page.version + 1;
         page.update()
             .updated_by(user.id)

@@ -6,6 +6,7 @@ pub mod error;
 pub mod models;
 pub mod openapi;
 pub mod routes;
+pub mod search;
 pub mod state;
 pub mod storage;
 pub mod trash;

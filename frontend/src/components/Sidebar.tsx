@@ -29,11 +29,14 @@ export function Sidebar({
   workspaceId,
   className,
   onNavigate,
+  onSearch,
 }: {
   workspaceId: string;
   className?: string;
   /** Called after the user picks a project or workspace (lets the mobile drawer close). */
   onNavigate?: () => void;
+  /** Opens the search palette. */
+  onSearch?: () => void;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -99,6 +102,22 @@ export function Sidebar({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {onSearch ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="justify-between font-normal text-muted-foreground"
+          onClick={() => {
+            onSearch();
+            onNavigate?.();
+          }}
+        >
+          Search
+          <kbd className="label-mono text-[10px]">⌘K</kbd>
+        </Button>
+      ) : null}
 
       <nav className="flex flex-col text-sm" aria-label="Workspace">
         {[

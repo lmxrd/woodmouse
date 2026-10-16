@@ -577,7 +577,7 @@ async fn search_ranks_titles_above_content_and_limits_results() {
     let fx = fixture().await;
     let budget = fx.page("Budget 2026", None).await;
     let notes = fx.page("Meeting notes", None).await;
-    let plans = fx.page("Rebudget plans", None).await;
+    fx.page("Rebudget plans", None).await; // a word must start with the search term
     fx.save(
         &notes,
         json!([{ "type": "paragraph", "spans": [text("we discussed the budget")] }]),
@@ -596,8 +596,8 @@ async fn search_ranks_titles_above_content_and_limits_results() {
         .iter()
         .map(|h| h["id"].as_str().unwrap())
         .collect();
-    // Title prefix, then title contains, then body only.
-    assert_eq!(ids, [budget.as_str(), plans.as_str(), notes.as_str()]);
+    // The title match comes before the text-only match.
+    assert_eq!(ids, [budget.as_str(), notes.as_str()]);
 
     assert_eq!(
         find("budget", "&limit=1").await.as_array().unwrap().len(),
@@ -606,4 +606,79 @@ async fn search_ranks_titles_above_content_and_limits_results() {
     assert_eq!(find("zzz", "").await, json!([]));
     // No query: everything recent, capped.
     assert_eq!(find("", "&kind=page").await.as_array().unwrap().len(), 3);
+
+    // Deleted pages are not found, and restoring brings them back.
+    let res = request(
+        &fx.app,
+        delete(&format!("/api/pages/{budget}"), Some(&fx.cookie)),
+    )
+    .await;
+    assert!(res.status().is_success());
+    assert_eq!(find("budget", "").await.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn search_finds_tasks_and_respects_workspaces() {
+    let fx = fixture().await;
+    let post = |uri: String, body: Value| {
+        let req = post_json(&uri, &body.to_string(), Some(&fx.cookie));
+        async { json_of(request(&fx.app, req).await).await }
+    };
+    let project = post(
+        format!("/api/workspaces/{}/projects", fx.ws),
+        json!({ "name": "House" }),
+    )
+    .await;
+    let lists = json_of(
+        request(
+            &fx.app,
+            get(
+                &format!("/api/projects/{}/lists", project["id"].as_str().unwrap()),
+                Some(&fx.cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let list = lists[0]["id"].as_str().unwrap();
+    let task = post(
+        format!("/api/lists/{list}/tasks"),
+        json!({ "title": "Order oak worktop" }),
+    )
+    .await;
+    let task_id = task["id"].as_str().unwrap().to_string();
+
+    let find = |ws: uuid::Uuid, q: &str, extra: &str| {
+        let req = get(
+            &format!("/api/workspaces/{ws}/search?q={q}{extra}"),
+            Some(&fx.cookie),
+        );
+        async { json_of(request(&fx.app, req).await).await }
+    };
+    let hits = find(fx.ws, "oak", "").await;
+    assert_eq!(hits[0]["id"], task_id);
+    assert_eq!(hits[0]["kind"], "task");
+    assert_eq!(hits[0]["project_id"], project["id"]);
+    assert_eq!(hits[0]["is_completed"], false);
+
+    // Renaming updates the index; a page search does not return tasks.
+    let res = request(
+        &fx.app,
+        patch_json(
+            &format!("/api/tasks/{task_id}"),
+            &json!({ "title": "Order birch worktop" }).to_string(),
+            Some(&fx.cookie),
+        ),
+    )
+    .await;
+    assert!(res.status().is_success());
+    assert_eq!(find(fx.ws, "oak", "").await, json!([]));
+    assert_eq!(find(fx.ws, "birch", "").await.as_array().unwrap().len(), 1);
+    assert_eq!(find(fx.ws, "birch", "&kind=page").await, json!([]));
+
+    // Another workspace only sees this one when asked to look everywhere.
+    let other = create_workspace(&fx.app, &fx.cookie, "Work").await;
+    assert_eq!(find(other, "birch", "").await, json!([]));
+    let all = find(other, "birch", "&all_workspaces=true").await;
+    assert_eq!(all[0]["workspace_name"], "Home");
 }

@@ -22,6 +22,9 @@ pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db)
         .await
         .expect("connect in-memory db");
     db.push_schema().await.expect("create schema");
+    woodmouse::search::ensure_index(&mut db.clone())
+        .await
+        .unwrap_or_else(|_| panic!("create search index"));
     let root = std::env::temp_dir().join(format!("woodmouse-test-{}", uuid::Uuid::new_v4()));
     let files = woodmouse::storage::FileStores::new(
         std::sync::Arc::new(woodmouse::storage::LocalDisk::new(root)),
@@ -42,6 +45,9 @@ pub async fn app_with_db() -> (axum::Router, toasty::Db) {
         .await
         .expect("connect in-memory db");
     db.push_schema().await.expect("create schema");
+    woodmouse::search::ensure_index(&mut db.clone())
+        .await
+        .unwrap_or_else(|_| panic!("create search index"));
 
     // The clone shares the pool, so it sees the same in-memory database the
     // router uses — the tests can seed users and sessions directly.

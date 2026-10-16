@@ -34,6 +34,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     ensure_schema(&mut db).await?;
+    woodmouse::search::ensure_index(&mut db)
+        .await
+        .map_err(|_| "could not create the search index")?;
 
     // The sqlite driver sets no pragmas itself. WAL persists in the database
     // file, so issuing it once at startup covers every pool connection (see
