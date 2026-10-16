@@ -50,10 +50,7 @@ export function HistoryPanel({
         </div>
 
         {revisions.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            No earlier versions yet. A version is kept when someone else edits, or when editing
-            resumes after a pause of ten minutes.
-          </p>
+          <p className="p-4 text-sm text-muted-foreground">No earlier versions yet.</p>
         ) : (
           <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-1">
             <ul

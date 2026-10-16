@@ -18,6 +18,8 @@ import { TimelineView } from "../components/timeline/TimelineView";
 import { ProjectViewMenu } from "../components/ProjectViewMenu";
 import { RenameInput } from "../components/RenameInput";
 import { TaskListView } from "../components/TaskListView";
+import { Button } from "../components/ui/button";
+import { Textarea } from "../components/ui/textarea";
 import { useWorkspaceRole } from "../lib/useWorkspaceRole";
 import { validateProjectSearch } from "../lib/projectSearch";
 
@@ -57,6 +59,7 @@ function ProjectPage() {
   const [renaming, setRenaming] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
 
   if (isError) {
     return (
@@ -88,6 +91,11 @@ function ProjectPage() {
           ) : (
             <h1 className="font-display text-2xl font-bold">{project?.name ?? "\u00a0"}</h1>
           )}
+          {project?.description ? (
+            <p className="mt-1 max-w-prose text-sm whitespace-pre-line text-muted-foreground">
+              {project.description}
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           <ProjectViewMenu
@@ -101,7 +109,12 @@ function ProjectPage() {
           <ActionMenu
             label="Project actions"
             items={[
-              ...(canWrite ? [{ label: "Rename project", onSelect: () => setRenaming(true) }] : []),
+              ...(canWrite
+                ? [
+                    { label: "Rename project", onSelect: () => setRenaming(true) },
+                    { label: "Edit description…", onSelect: () => setEditingDescription(true) },
+                  ]
+                : []),
               {
                 label: "Activity",
                 onSelect: () =>
@@ -141,11 +154,37 @@ function ProjectPage() {
           <CalendarLinks workspaceId={workspaceId} projectId={projectId} scopes={["project"]} />
         </div>
       </ResponsiveDialog>
+      <ResponsiveDialog
+        open={editingDescription}
+        onOpenChange={setEditingDescription}
+        title="Project description"
+      >
+        <form
+          className="flex flex-col gap-4 p-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const description = String(new FormData(e.currentTarget).get("description") ?? "");
+            rename.mutate({ path: { id: projectId }, body: { description: description.trim() } });
+            setEditingDescription(false);
+          }}
+        >
+          <h2 className="font-display text-xl font-bold">Description</h2>
+          <Textarea
+            name="description"
+            aria-label="Description"
+            rows={4}
+            defaultValue={project?.description ?? ""}
+          />
+          <div>
+            <Button type="submit">Save</Button>
+          </div>
+        </form>
+      </ResponsiveDialog>
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Delete "${project?.name ?? ""}"?`}
-        description="This also deletes all of its lists and tasks. This can't be undone."
+        description="This also deletes all of its lists and tasks. You can restore it from the trash."
         confirmLabel="Delete project"
         onConfirm={() => remove.mutate({ path: { id: projectId } })}
       />

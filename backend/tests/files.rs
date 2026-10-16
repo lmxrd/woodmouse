@@ -311,6 +311,7 @@ async fn attachments_and_library_survive_task_deletion() {
         .await,
     )
     .await;
+    assert_eq!(usage[0]["kind"], "task");
     assert_eq!(usage[0]["title"], "T");
     assert_eq!(usage[0]["in_trash"], false);
 
@@ -537,4 +538,92 @@ async fn upload_limit_and_validation() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(fx.files("").await.len(), before);
+}
+
+#[tokio::test]
+async fn files_attach_to_wiki_pages_too() {
+    let fx = fixture().await;
+    let uri = format!("/api/workspaces/{}/files", fx.ws);
+    let res = request(
+        &fx.app,
+        upload(
+            &uri,
+            "plan.pdf",
+            "application/pdf",
+            b"%PDF plan",
+            None,
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let file = json(res).await["id"].as_str().unwrap().to_string();
+    let page = json(
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/workspaces/{}/pages", fx.ws),
+                r#"{"title":"Plans"}"#,
+                Some(&fx.admin),
+            ),
+        )
+        .await,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let attach = || {
+        request(
+            &fx.app,
+            post_json(
+                &format!("/api/pages/{page}/attachments"),
+                &format!(r#"{{"file_id":"{file}"}}"#),
+                Some(&fx.admin),
+            ),
+        )
+    };
+    assert_eq!(attach().await.status(), StatusCode::OK);
+    assert_eq!(attach().await.status(), StatusCode::OK, "twice is harmless");
+    let list = json(
+        request(
+            &fx.app,
+            get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["used_in"], 1);
+
+    let usage = json(
+        request(
+            &fx.app,
+            get(&format!("/api/files/{file}/usage"), Some(&fx.admin)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(usage[0]["kind"], "page");
+    assert_eq!(usage[0]["title"], "Plans");
+
+    let res = request(
+        &fx.app,
+        delete(
+            &format!("/api/pages/{page}/attachments/{file}"),
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let list = json(
+        request(
+            &fx.app,
+            get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
+        )
+        .await,
+    )
+    .await;
+    assert!(list.as_array().unwrap().is_empty());
 }

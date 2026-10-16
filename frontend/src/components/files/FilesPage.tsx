@@ -221,20 +221,35 @@ function FileUsage({ fileId, workspaceId }: { fileId: string; workspaceId: strin
   return (
     <ul className="border-t border-border bg-muted/40 px-4 py-2 sm:px-6">
       {usage?.map((u) => (
-        <li key={u.task_id} className="flex items-center gap-2 py-0.5 text-sm">
+        <li key={`${u.kind}:${u.id}`} className="flex items-center gap-2 py-0.5 text-sm">
           {u.in_trash ? (
             <>
               <span>{u.title}</span>
               <span className="label-mono text-muted-foreground">in trash</span>
             </>
           ) : (
-            <Link
-              to="/w/$workspaceId/t/$taskId"
-              params={{ workspaceId, taskId: u.task_id }}
-              className="hover:underline"
-            >
-              {u.title}
-            </Link>
+            <>
+              {u.kind === "page" ? (
+                <Link
+                  to="/w/$workspaceId/wiki/$pageId"
+                  params={{ workspaceId, pageId: u.id }}
+                  className="hover:underline"
+                >
+                  {u.title}
+                </Link>
+              ) : (
+                <Link
+                  to="/w/$workspaceId/t/$taskId"
+                  params={{ workspaceId, taskId: u.id }}
+                  className="hover:underline"
+                >
+                  {u.title}
+                </Link>
+              )}
+              {u.kind === "page" ? (
+                <span className="label-mono text-muted-foreground">page</span>
+              ) : null}
+            </>
           )}
         </li>
       ))}

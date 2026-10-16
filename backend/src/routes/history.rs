@@ -12,8 +12,8 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::{Revision, Role, Task, User, WikiPage};
-use crate::revisions::{self, PageContent, TaskContent};
+use crate::models::{Comment, Revision, Role, Task, User, WikiPage};
+use crate::revisions::{self, CommentContent, PageContent, TaskContent};
 use crate::routes::auth::PublicUser;
 use crate::routes::pages::{PageDetail, detail};
 use crate::routes::tasks::{TaskResponse, hydrate_tasks};
@@ -28,6 +28,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_task_revisions))
         .routes(routes!(get_task_revision))
         .routes(routes!(restore_task_revision))
+        .routes(routes!(list_comment_revisions))
 }
 
 /// One version, newest first in lists. A revision holds the content as it was after the change.
@@ -306,4 +307,49 @@ pub async fn restore_task_revision(
     let task = Task::get_by_id(&mut *db, &revision.target_id).await?;
     let mut responses = hydrate_tasks(&mut *db, vec![task]).await?;
     Ok(Json(responses.swap_remove(0)))
+}
+
+/// One version of a comment, with its text.
+#[derive(Serialize, ToSchema)]
+pub struct CommentRevision {
+    #[serde(flatten)]
+    pub summary: RevisionSummary,
+    /// The comment's text in this version (empty when redacted).
+    pub body: String,
+}
+
+/// The versions of a comment, newest first. Only the author can change a comment, so these are its edits.
+#[utoipa::path(
+    get,
+    path = "/comments/{id}/revisions",
+    tag = "history",
+    security(("session_cookie" = [])),
+    params(("id" = uuid::Uuid, Path, description = "Comment id")),
+    responses(
+        (status = 200, description = "Versions, newest first", body = Vec<CommentRevision>),
+        (status = 404, description = "No such comment, or no access")
+    )
+)]
+pub async fn list_comment_revisions(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<Vec<CommentRevision>>, ApiError> {
+    let db = &mut state.db();
+    let comment = Comment::get_by_id(db, &id).await?;
+    if comment.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
+    access::require_task_access(db, &user, comment.task_id, Role::Read).await?;
+    let mut out = vec![];
+    for r in &revisions::of(db, id).await? {
+        let body = revisions::content::<CommentContent>(r)
+            .map(|c| c.body)
+            .unwrap_or_default();
+        out.push(CommentRevision {
+            summary: summary(db, r, String::new()).await,
+            body,
+        });
+    }
+    Ok(Json(out))
 }

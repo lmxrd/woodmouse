@@ -179,6 +179,19 @@ async fn comments_lifecycle() {
     assert_eq!(edited["body"], "changed");
     assert!(edited["edited_at"].is_string());
 
+    // Its versions are kept, newest first, each with its text.
+    let versions = json(
+        request(
+            &app,
+            get(&format!("/api/comments/{comment}/revisions"), Some(&writer)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(versions.as_array().unwrap().len(), 2);
+    assert_eq!(versions[0]["body"], "changed");
+    assert_eq!(versions[1]["redacted"], false);
+
     // The author deletes; others without admin cannot delete someone else's.
     let other = json(
         request(

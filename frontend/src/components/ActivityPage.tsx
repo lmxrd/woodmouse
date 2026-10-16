@@ -4,6 +4,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import type { ActivityView } from "woodmouse-client";
 import { listActivityOptions, listProjectsOptions } from "woodmouse-client/react-query";
 
+import { dayKey } from "../lib/format";
 import { useFormatters } from "../lib/useFormatters";
 import { ActivityItem } from "./ActivityItem";
 import { FilterSelect } from "./FilterSelect";
@@ -16,7 +17,7 @@ const PAGE = 50;
 export function ActivityPage({ workspaceId }: { workspaceId: string }) {
   const { project } = route.useSearch();
   const navigate = route.useNavigate();
-  const { dateOf } = useFormatters();
+  const { dateOf, dayOf, prefs } = useFormatters();
   const [limit, setLimit] = useState(PAGE);
   const [now] = useState(() => Date.now());
   const { data: projects } = useQuery(listProjectsOptions({ path: { workspace_id: workspaceId } }));
@@ -25,10 +26,10 @@ export function ActivityPage({ workspaceId }: { workspaceId: string }) {
   );
 
   const dayLabel = (entry: ActivityView) => {
-    const d = new Date(entry.created_at);
-    const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-    const days = Math.round((startOfDay(new Date(now)) - startOfDay(d)) / 86_400_000);
-    return days === 0 ? "Today" : days === 1 ? "Yesterday" : dateOf(entry.created_at);
+    const day = dayOf(entry.created_at);
+    if (day === dayKey(now / 1000, prefs)) return "Today";
+    if (day === dayKey(now / 1000 - 86_400, prefs)) return "Yesterday";
+    return dateOf(entry.created_at);
   };
 
   const groups: { label: string; entries: ActivityView[] }[] = [];

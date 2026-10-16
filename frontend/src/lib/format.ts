@@ -2,6 +2,45 @@
 export interface DisplayPrefs {
   date_format: string;
   time_format: string;
+  /** IANA timezone for showing instants; the browser's own when absent or unknown. */
+  timezone?: string | null;
+}
+
+interface Parts {
+  year: number;
+  month: number; // 0-11
+  day: number;
+  hour: number;
+  minute: number;
+}
+
+/** The wall-clock parts of an instant in `timezone`, or in the browser's timezone when that is unknown. */
+function partsOf(epochSeconds: number, timezone?: string | null): Parts {
+  const d = new Date(epochSeconds * 1000);
+  if (timezone) {
+    try {
+      const f = new Intl.DateTimeFormat("en-GB", {
+        timeZone: timezone,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+      });
+      const v = Object.fromEntries(f.formatToParts(d).map((p) => [p.type, Number(p.value)]));
+      return { year: v.year, month: v.month - 1, day: v.day, hour: v.hour, minute: v.minute };
+    } catch {
+      // an unknown timezone name: fall through to the browser's
+    }
+  }
+  return {
+    year: d.getFullYear(),
+    month: d.getMonth(),
+    day: d.getDate(),
+    hour: d.getHours(),
+    minute: d.getMinutes(),
+  };
 }
 
 export const DEFAULT_PREFS: DisplayPrefs = { date_format: "YYYY-MM-DD", time_format: "24h" };
@@ -17,8 +56,8 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** The full date, e.g. `2026-10-18`, `18.10.2026`, `10/18/2026` or `18 Oct 2026`. */
 export function formatDate(epochSeconds: number, prefs: DisplayPrefs = DEFAULT_PREFS): string {
-  const d = new Date(epochSeconds * 1000);
-  const [y, m, day] = [d.getFullYear(), d.getMonth(), d.getDate()];
+  const p = partsOf(epochSeconds, prefs.timezone);
+  const [y, m, day] = [p.year, p.month, p.day];
   switch (prefs.date_format) {
     case "DD.MM.YYYY":
       return `${pad(day)}.${pad(m + 1)}.${y}`;
@@ -37,9 +76,9 @@ export function formatDateShort(
   prefs: DisplayPrefs = DEFAULT_PREFS,
   now = Date.now(),
 ): string {
-  const d = new Date(epochSeconds * 1000);
-  if (d.getFullYear() !== new Date(now).getFullYear()) return formatDate(epochSeconds, prefs);
-  const [m, day] = [d.getMonth(), d.getDate()];
+  const p = partsOf(epochSeconds, prefs.timezone);
+  if (p.year !== partsOf(now / 1000, prefs.timezone).year) return formatDate(epochSeconds, prefs);
+  const [m, day] = [p.month, p.day];
   switch (prefs.date_format) {
     case "DD.MM.YYYY":
       return `${pad(day)}.${pad(m + 1)}.`;
@@ -54,12 +93,12 @@ export function formatDateShort(
 
 /** The time of day: `14:30` on a 24 hour clock, `2:30 PM` on a 12 hour clock. */
 export function formatTime(epochSeconds: number, prefs: DisplayPrefs = DEFAULT_PREFS): string {
-  const d = new Date(epochSeconds * 1000);
+  const p = partsOf(epochSeconds, prefs.timezone);
   if (prefs.time_format === "12h") {
-    const hour = d.getHours() % 12 || 12;
-    return `${hour}:${pad(d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`;
+    const hour = p.hour % 12 || 12;
+    return `${hour}:${pad(p.minute)} ${p.hour < 12 ? "AM" : "PM"}`;
   }
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${pad(p.hour)}:${pad(p.minute)}`;
 }
 
 export function formatDateTime(epochSeconds: number, prefs: DisplayPrefs = DEFAULT_PREFS): string {
@@ -82,4 +121,10 @@ export function formatWhen(
   if (age < 86400) return `${Math.floor(age / 3600)} h ago`;
   const days = Math.floor(age / 86400);
   return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+/** The calendar day of an instant in the person's timezone, as `YYYY-MM-DD` (for grouping by day). */
+export function dayKey(epochSeconds: number, prefs: DisplayPrefs = DEFAULT_PREFS): string {
+  const p = partsOf(epochSeconds, prefs.timezone);
+  return `${p.year}-${pad(p.month + 1)}-${pad(p.day)}`;
 }

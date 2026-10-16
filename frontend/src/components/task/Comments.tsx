@@ -4,6 +4,7 @@ import type { CommentView } from "woodmouse-client";
 import {
   addCommentMutation,
   deleteCommentMutation,
+  listCommentRevisionsOptions,
   listCommentsOptions,
   meOptions,
   updateCommentMutation,
@@ -11,6 +12,7 @@ import {
 
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";
+import { HistoryPanel } from "../history/HistoryPanel";
 import { Markdown } from "../Markdown";
 import { MarkdownEditor } from "../MarkdownEditor";
 import { UserAvatar } from "../UserAvatar";
@@ -36,6 +38,7 @@ export function Comments({
   const remove = useMutation({ ...deleteCommentMutation(), onSuccess: refresh });
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
+  const [history, setHistory] = useState<string | null>(null);
 
   const submit = () => {
     if (!draft.trim()) return;
@@ -56,12 +59,14 @@ export function Comments({
               {when(comment.created_at)}
             </span>
             {comment.edited_at ? (
-              <span
-                className="label-mono text-muted-foreground"
-                title={dateTime(comment.edited_at)}
+              <button
+                type="button"
+                className="label-mono text-muted-foreground hover:text-foreground hover:underline"
+                title={`Edited ${dateTime(comment.edited_at)}. Show earlier versions`}
+                onClick={() => setHistory(comment.id)}
               >
                 edited
-              </span>
+              </button>
             ) : null}
             {editable && (own || isAdmin) && editing?.id !== comment.id ? (
               <span className="ml-auto flex gap-1">
@@ -148,6 +153,32 @@ export function Comments({
           </div>
         </div>
       ) : null}
+      {history ? <CommentHistory commentId={history} onClose={() => setHistory(null)} /> : null}
     </div>
+  );
+}
+
+/** The earlier versions of one comment (read-only: comments are edited, not restored). */
+function CommentHistory({ commentId, onClose }: { commentId: string; onClose: () => void }) {
+  const { data: versions } = useQuery(listCommentRevisionsOptions({ path: { id: commentId } }));
+  return (
+    <HistoryPanel
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title="Comment history"
+      revisions={versions ?? []}
+      renderPreview={(id) => {
+        const v = versions?.find((r) => r.id === id);
+        if (!v) return null;
+        return v.redacted ? (
+          <p className="p-4 text-sm text-muted-foreground">An admin removed this version.</p>
+        ) : (
+          <Markdown className="p-4">{v.body}</Markdown>
+        );
+      }}
+      canRestore={false}
+      restoring={false}
+      onRestore={() => {}}
+    />
   );
 }

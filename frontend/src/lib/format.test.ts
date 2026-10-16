@@ -80,3 +80,26 @@ describe("formatWhen", () => {
     expect(formatWhen(ago(-30), undefined, now)).toBe("just now");
   });
 });
+
+describe("timezones", () => {
+  // 2026-10-16 23:30 UTC is already the 17th in Oslo (UTC+2 in October) and still the 16th in New York.
+  const epoch = Date.UTC(2026, 9, 16, 23, 30) / 1000;
+  it("shows an instant in the person's timezone", () => {
+    const oslo: DisplayPrefs = {
+      date_format: "YYYY-MM-DD",
+      time_format: "24h",
+      timezone: "Europe/Oslo",
+    };
+    const ny: DisplayPrefs = { ...oslo, timezone: "America/New_York" };
+    expect(formatDateTime(epoch, oslo)).toBe("2026-10-17 01:30");
+    expect(formatDateTime(epoch, ny)).toBe("2026-10-16 19:30");
+  });
+  it("falls back to the browser's timezone when the name is unknown", () => {
+    const bad: DisplayPrefs = {
+      date_format: "YYYY-MM-DD",
+      time_format: "24h",
+      timezone: "Nope/Nowhere",
+    };
+    expect(formatDateTime(epoch, bad)).toBe(formatDateTime(epoch, prefs("YYYY-MM-DD")));
+  });
+});

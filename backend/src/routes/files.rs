@@ -18,7 +18,7 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, FileRef, Role, Task, User};
+use crate::models::{File, FileRef, Role, Task, User, WikiPage};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
@@ -38,6 +38,8 @@ pub fn router(max_upload_bytes: u64) -> OpenApiRouter<AppState> {
         .routes(routes!(file_usage))
         .routes(routes!(list_attachments, attach_file))
         .routes(routes!(detach_file))
+        .routes(routes!(list_page_attachments, attach_page_file))
+        .routes(routes!(detach_page_file))
         .routes(routes!(unused_files))
         .routes(routes!(cleanup_files))
         .routes(routes!(get_config))
@@ -397,10 +399,14 @@ pub async fn file_content(
 
 #[derive(Serialize, ToSchema)]
 pub struct FileUsage {
-    pub task_id: uuid::Uuid,
-    pub project_id: uuid::Uuid,
+    /// `task` or `page`.
+    pub kind: String,
+    /// The task's or page's id.
+    pub id: uuid::Uuid,
+    /// Tasks only: the project it is in.
+    pub project_id: Option<uuid::Uuid>,
     pub title: String,
-    /// True when the task is in the trash.
+    /// True when it is in the trash.
     pub in_trash: bool,
 }
 
@@ -424,37 +430,51 @@ pub async fn file_usage(
 ) -> Result<Json<Vec<FileUsage>>, ApiError> {
     let db = &mut state.db();
     load_file(db, &user, id, Role::Read).await?;
-    let refs: Vec<FileRef> = FileRef::filter_by_file_id(id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|r| r.target_type == TASK)
-        .collect();
-    if refs.is_empty() {
-        return Ok(Json(vec![]));
-    }
-    let tasks = Task::all()
-        .filter(in_list(
-            Task::fields().id(),
-            refs.iter().map(|r| r.target_id).collect::<Vec<_>>(),
-        ))
-        .exec(db)
-        .await?;
-    Ok(Json(
-        tasks
-            .into_iter()
-            .map(|t| FileUsage {
-                task_id: t.id,
-                project_id: t.project_id,
+    let refs = FileRef::filter_by_file_id(id).exec(db).await?;
+    let ids_of = |kind: &str| -> Vec<uuid::Uuid> {
+        refs.iter()
+            .filter(|r| r.target_type == kind)
+            .map(|r| r.target_id)
+            .collect()
+    };
+    let mut out = vec![];
+    if !ids_of(TASK).is_empty() {
+        for t in Task::all()
+            .filter(in_list(Task::fields().id(), ids_of(TASK)))
+            .exec(db)
+            .await?
+        {
+            out.push(FileUsage {
+                kind: TASK.to_string(),
+                id: t.id,
+                project_id: Some(t.project_id),
                 in_trash: t.deleted_at.is_some(),
                 title: t.title,
-            })
-            .collect(),
-    ))
+            });
+        }
+    }
+    if !ids_of(PAGE).is_empty() {
+        for p in WikiPage::all()
+            .filter(in_list(WikiPage::fields().id(), ids_of(PAGE)))
+            .exec(db)
+            .await?
+        {
+            out.push(FileUsage {
+                kind: PAGE.to_string(),
+                id: p.id,
+                project_id: None,
+                in_trash: p.deleted_at.is_some(),
+                title: p.title,
+            });
+        }
+    }
+    Ok(Json(out))
 }
 
 /// `FileRef::target_type` of a task attachment.
 const TASK: &str = "task";
+/// `FileRef::target_type` of a wiki page attachment.
+const PAGE: &str = "page";
 
 /// Attach `file` to a task and record it in the feed. Call with the transaction of the change.
 async fn attach(
@@ -727,4 +747,120 @@ pub async fn get_config(
     Json(AppConfig {
         max_upload_bytes: state.files.max_upload_bytes,
     })
+}
+
+/// The files attached to a wiki page.
+#[utoipa::path(
+    get,
+    path = "/pages/{id}/attachments",
+    tag = "files",
+    security(("session_cookie" = [])),
+    params(("id" = uuid::Uuid, Path, description = "Page id")),
+    responses(
+        (status = 200, description = "The page's attachments", body = [FileView]),
+        (status = 401, description = "Not logged in"),
+        (status = 404, description = "No page with that id, or no access")
+    )
+)]
+pub async fn list_page_attachments(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<Vec<FileView>>, ApiError> {
+    let db = &mut state.db();
+    access::require_page_access(db, &user, id, Role::Read).await?;
+    let ids: Vec<uuid::Uuid> = FileRef::filter_by_target_id(id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|r| r.target_type == PAGE)
+        .map(|r| r.file_id)
+        .collect();
+    if ids.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    let mut files = File::all()
+        .filter(in_list(File::fields().id(), ids))
+        .exec(db)
+        .await?;
+    files.sort_by_key(|f| f.created_at);
+    Ok(Json(views(db, files).await?))
+}
+
+/// Attach a file from the library to a wiki page. Attaching it twice is harmless.
+#[utoipa::path(
+    post,
+    path = "/pages/{id}/attachments",
+    tag = "files",
+    security(("session_cookie" = [])),
+    params(("id" = uuid::Uuid, Path, description = "Page id")),
+    request_body = AttachFile,
+    responses(
+        (status = 200, description = "Attached", body = FileView),
+        (status = 401, description = "Not logged in"),
+        (status = 404, description = "No such page or file, or no access")
+    )
+)]
+pub async fn attach_page_file(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Path(id): Path<uuid::Uuid>,
+    Json(input): Json<AttachFile>,
+) -> Result<Json<FileView>, ApiError> {
+    let mut db = state.writer().await;
+    let db = &mut *db;
+    let page = access::require_page_access(db, &user, id, Role::Write).await?;
+    let file = File::get_by_id(db, &input.file_id).await?;
+    if file.workspace_id != page.workspace_id {
+        return Err(ApiError::not_found());
+    }
+    let already = FileRef::filter_by_file_id(file.id)
+        .exec(db)
+        .await?
+        .iter()
+        .any(|r| r.target_type == PAGE && r.target_id == id);
+    if !already {
+        toasty::create!(FileRef {
+            file_id: file.id,
+            target_type: PAGE.to_string(),
+            target_id: id,
+        })
+        .exec(db)
+        .await?;
+    }
+    Ok(Json(one_view(db, file).await?))
+}
+
+/// Detach a file from a wiki page. The file stays in the library.
+#[utoipa::path(
+    delete,
+    path = "/pages/{id}/attachments/{file_id}",
+    tag = "files",
+    security(("session_cookie" = [])),
+    params(
+        ("id" = uuid::Uuid, Path, description = "Page id"),
+        ("file_id" = uuid::Uuid, Path, description = "File id")
+    ),
+    responses(
+        (status = 204, description = "Detached"),
+        (status = 401, description = "Not logged in"),
+        (status = 404, description = "No such attachment, or no access")
+    )
+)]
+pub async fn detach_page_file(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Path((id, file_id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<StatusCode, ApiError> {
+    let mut db = state.writer().await;
+    let db = &mut *db;
+    access::require_page_access(db, &user, id, Role::Write).await?;
+    let reference = FileRef::filter_by_file_id(file_id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .find(|r| r.target_type == PAGE && r.target_id == id)
+        .ok_or_else(ApiError::not_found)?;
+    reference.delete().exec(db).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
