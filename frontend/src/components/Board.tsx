@@ -63,10 +63,10 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
   // The board shows every list and the Done column, so only the assignee and label filters apply.
   const search = projectRoute.useSearch();
-  const { assignee_id, label_id } = taskFilterQuery(search, "board");
+  const { assignee_id, label_id, sprint_id, no_sprint } = taskFilterQuery(search, "board");
   const tasksQuery = listTasksOptions({
     path: { workspace_id: workspaceId },
-    query: { project_id: projectId, assignee_id, label_id },
+    query: { project_id: projectId, assignee_id, label_id, sprint_id, no_sprint },
   });
   const { data: allTasks } = useQuery(tasksQuery);
 
@@ -214,7 +214,7 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
         workspaceId={workspaceId}
         projectId={projectId}
         view="board"
-        fields={["assignee", "label"]}
+        fields={["assignee", "label", "sprint"]}
       />
       <div className="flex snap-x snap-mandatory scroll-px-4 items-start gap-4 overflow-x-auto p-4 sm:snap-none sm:p-6">
         <BoardColumn

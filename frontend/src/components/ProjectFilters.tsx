@@ -4,9 +4,11 @@ import {
   listLabelsOptions,
   listListsOptions,
   listMembersOptions,
+  listSprintsOptions,
 } from "woodmouse-client/react-query";
 
 import {
+  BACKLOG,
   DEFAULT_STATUS,
   type ProjectSearch,
   type ProjectView,
@@ -20,7 +22,7 @@ const projectRoute = getRouteApi("/w/$workspaceId/p/$projectId");
 
 const STATUS_LABEL: Record<TaskStatus, string> = { open: "Open", done: "Completed", all: "All" };
 
-export type FilterField = "assignee" | "label" | "list" | "status";
+export type FilterField = "assignee" | "label" | "list" | "sprint" | "status";
 
 /**
  * The filter dropdowns every project view shares. The choices live in the URL (`assignee`, `label`, `list`,
@@ -45,6 +47,10 @@ export function ProjectFilters({
   const setSearch = (patch: Partial<ProjectSearch>) =>
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
+  const { data: sprints } = useQuery({
+    ...listSprintsOptions({ path: { project_id: projectId } }),
+    enabled: fields.includes("sprint"),
+  });
   const { data: members } = useQuery(listMembersOptions({ path: { id: workspaceId } }));
   const { data: labels } = useQuery(listLabelsOptions({ path: { workspace_id: workspaceId } }));
   const defaultStatus = DEFAULT_STATUS[view];
@@ -76,6 +82,18 @@ export function ProjectFilters({
           value={search.list}
           options={(lists ?? []).map((l) => ({ value: l.id, label: l.name }))}
           onChange={(list) => setSearch({ list })}
+        />
+      ) : null}
+      {fields.includes("sprint") ? (
+        <FilterSelect
+          label="Sprint"
+          anyLabel="Any sprint"
+          value={search.sprint}
+          options={[
+            { value: BACKLOG, label: "Backlog (no sprint)" },
+            ...(sprints ?? []).map((s) => ({ value: s.id, label: s.name })),
+          ]}
+          onChange={(sprint) => setSearch({ sprint })}
         />
       ) : null}
       {fields.includes("status") ? (

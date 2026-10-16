@@ -12,7 +12,7 @@ use jiff::civil::DateTime;
 use toasty::stmt::in_list;
 
 use crate::error::ApiError;
-use crate::models::{Label, List, Project, Task, WikiPage, Workspace};
+use crate::models::{Label, List, Project, Sprint, Task, WikiPage, Workspace};
 
 type Db<'a> = &'a mut dyn toasty::Executor;
 
@@ -117,6 +117,48 @@ pub async fn delete_project(
     Project::filter_by_id(project_id)
         .update()
         .deleted_at(Some(now))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// Delete a sprint: its tasks go back to the backlog (restoring the sprint does not put them back).
+pub async fn delete_sprint(db: Db<'_>, sprint: &Sprint, now: DateTime) -> Result<(), ApiError> {
+    let ids: Vec<uuid::Uuid> = Task::filter_by_project_id(sprint.project_id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|t| t.sprint_id == Some(sprint.id))
+        .map(|t| t.id)
+        .collect();
+    if !ids.is_empty() {
+        Task::all()
+            .filter(in_list(Task::fields().id(), ids))
+            .update()
+            .sprint_id(None::<uuid::Uuid>)
+            .exec(db)
+            .await?;
+    }
+    Sprint::filter_by_id(sprint.id)
+        .update()
+        .deleted_at(Some(now))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// Restore a deleted sprint (its project must be live).
+pub async fn restore_sprint(db: Db<'_>, sprint: &Sprint) -> Result<(), ApiError> {
+    if Project::get_by_id(db, &sprint.project_id)
+        .await?
+        .deleted_at
+        .is_some()
+    {
+        return Err(ApiError::conflict("restore its project first"));
+    }
+    Sprint::filter_by_id(sprint.id)
+        .update()
+        .deleted_at(None::<DateTime>)
         .exec(db)
         .await?;
     Ok(())

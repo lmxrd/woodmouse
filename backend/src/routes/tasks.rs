@@ -58,6 +58,8 @@ pub struct TaskResponse {
     #[serde(with = "time::utc_option")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub due_date: Option<DateTime>,
+    /// The sprint it is planned in, if any.
+    pub sprint_id: Option<uuid::Uuid>,
     /// Expected work, in minutes.
     pub estimate_minutes: Option<i64>,
     /// Work done so far, in minutes.
@@ -86,6 +88,8 @@ pub struct CreateTaskRequest {
     #[serde(default, with = "time::utc_option")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub due_date: Option<DateTime>,
+    /// The sprint to plan it in (one of the project's open sprints).
+    pub sprint_id: Option<uuid::Uuid>,
     /// Expected work, in minutes.
     pub estimate_minutes: Option<i64>,
     /// Work done so far, in minutes.
@@ -111,6 +115,9 @@ pub struct UpdateTaskRequest {
     #[serde(default, deserialize_with = "double_date")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub start_date: Option<Option<DateTime>>,
+    /// Plan it in one of the project's open sprints; `null` takes it out of its sprint (the backlog).
+    #[serde(default, deserialize_with = "double_option")]
+    pub sprint_id: Option<Option<uuid::Uuid>>,
     /// Expected work in minutes. Absent leaves it unchanged; `null` clears it.
     #[serde(default, deserialize_with = "double_option")]
     pub estimate_minutes: Option<Option<i64>>,
@@ -141,6 +148,24 @@ where
     D: serde::Deserializer<'de>,
 {
     serde::Deserialize::deserialize(deserializer).map(Some)
+}
+
+/// A task can only be planned in an open (live, not completed) sprint of its own project.
+pub(crate) async fn validate_sprint(
+    db: &mut dyn toasty::Executor,
+    project_id: uuid::Uuid,
+    sprint_id: uuid::Uuid,
+) -> Result<(), ApiError> {
+    let sprint = crate::models::Sprint::get_by_id(db, &sprint_id)
+        .await
+        .map_err(|_| ApiError::bad_request("no such sprint"))?;
+    if sprint.project_id != project_id || sprint.deleted_at.is_some() {
+        return Err(ApiError::bad_request("no such sprint"));
+    }
+    if sprint.completed_at.is_some() {
+        return Err(ApiError::conflict("that sprint is completed"));
+    }
+    Ok(())
 }
 
 /// Work time is a whole number of minutes, not negative and not absurdly large (about 16 000 hours).
@@ -179,6 +204,10 @@ pub struct TaskFilters {
     pub assignee_id: Option<uuid::Uuid>,
     /// Only tasks carrying this label.
     pub label_id: Option<uuid::Uuid>,
+    /// Only tasks planned in this sprint.
+    pub sprint_id: Option<uuid::Uuid>,
+    /// Only tasks in no sprint (the backlog).
+    pub no_sprint: Option<bool>,
     /// Only tasks scheduled on or after this day (an RFC 3339 date-time; only the day counts). A task is
     /// scheduled from its start date (or due date, if it has no start) to its due date (or start date).
     #[serde(default, with = "time::utc_option")]
@@ -260,6 +289,11 @@ pub async fn list_tasks(
         query = query.filter(Task::fields().list_id().eq(list_id));
     } else if filters.inbox == Some(true) {
         query = query.filter(Task::fields().list_id().is_none());
+    }
+    if let Some(sprint_id) = filters.sprint_id {
+        query = query.filter(Task::fields().sprint_id().eq(sprint_id));
+    } else if filters.no_sprint == Some(true) {
+        query = query.filter(Task::fields().sprint_id().is_none());
     }
     if let Some(parent_id) = filters.parent_id {
         query = query.filter(Task::fields().parent_id().eq(parent_id));
@@ -443,6 +477,9 @@ pub(crate) async fn create_task_in(
     validate_labels(db, &input.label_ids, workspace_id).await?;
     validate_minutes(input.estimate_minutes)?;
     validate_minutes(input.spent_minutes)?;
+    if let Some(sprint_id) = input.sprint_id {
+        validate_sprint(db, project_id, sprint_id).await?;
+    }
     let (start_date, due_date) = (
         input.start_date.map(time::to_day),
         input.due_date.map(time::to_day),
@@ -464,6 +501,7 @@ pub(crate) async fn create_task_in(
         priority: input.priority.unwrap_or(Priority::Medium),
         start_date,
         due_date,
+        sprint_id: input.sprint_id,
         estimate_minutes: input.estimate_minutes,
         spent_minutes: input.spent_minutes,
         parent_id,
@@ -696,6 +734,7 @@ pub async fn update_task(
         || input.start_date.is_some()
         || input.estimate_minutes.is_some()
         || input.spent_minutes.is_some()
+        || input.sprint_id.is_some()
         || position.is_some()
         || moving;
     if let Some(title) = &input.title {
@@ -717,6 +756,12 @@ pub async fn update_task(
     }
     if let Some(start_date) = input.start_date {
         update = update.start_date(start_date.map(time::to_day));
+    }
+    if let Some(sprint_id) = input.sprint_id {
+        if let Some(sprint_id) = sprint_id {
+            validate_sprint(&mut tx, current.project_id, sprint_id).await?;
+        }
+        update = update.sprint_id(sprint_id);
     }
     if let Some(minutes) = input.estimate_minutes {
         validate_minutes(minutes)?;
@@ -1120,6 +1165,7 @@ pub(crate) async fn hydrate_tasks(
                 priority: task.priority,
                 start_date: task.start_date,
                 due_date: task.due_date,
+                sprint_id: task.sprint_id,
                 estimate_minutes: task.estimate_minutes,
                 spent_minutes: task.spent_minutes,
                 assignees,

@@ -12,6 +12,9 @@ import { cn } from "../../lib/utils";
 import { LabelTag } from "../LabelTag";
 import { AvatarStack } from "../UserAvatar";
 import { Checkbox } from "../ui/checkbox";
+import { useQuery } from "@tanstack/react-query";
+import { listSprintsOptions } from "woodmouse-client/react-query";
+
 import { formatDuration } from "../../lib/duration";
 import { isDone } from "../../lib/task";
 
@@ -34,6 +37,11 @@ export function TaskCardBody({
   onToggleCompleted,
 }: CardProps) {
   const { dateShort } = useFormatters();
+  const { data: sprints } = useQuery({
+    ...listSprintsOptions({ path: { project_id: task.project_id } }),
+    enabled: !!task.sprint_id,
+  });
+  const sprint = sprints?.find((s) => s.id === task.sprint_id);
   return (
     <>
       <Checkbox
@@ -99,6 +107,11 @@ export function TaskCardBody({
               className={cn(isDueNow(task.due_date) && !isDone(task) && "font-medium text-signal")}
             >
               {dateShort(task.due_date)}
+            </span>
+          ) : null}
+          {task.sprint_id && sprint ? (
+            <span className="label-mono max-w-28 truncate bg-muted px-1.5 py-0.5" title="Sprint">
+              {sprint.name}
             </span>
           ) : null}
           {task.estimate_minutes != null || task.spent_minutes != null ? (

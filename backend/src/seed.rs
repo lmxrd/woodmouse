@@ -190,6 +190,19 @@ pub async fn run(router: Router) -> Result<(), String> {
                     "start_date": day(-2), "due_date": day(3), "estimate_minutes": 480, "spent_minutes": 150, "assignee_ids": [sara], "label_ids": [labels[1]] }),
         )
         .await);
+    let sprint = id(&api
+        .post(
+            &format!("/projects/{house}/sprints"),
+            &admin,
+            json!({ "name": "Kitchen sprint", "goal": "Order everything for the kitchen", "start_date": day(-3), "end_date": day(11) }),
+        )
+        .await);
+    api.patch(
+        &format!("/tasks/{oak}"),
+        &admin,
+        json!({ "sprint_id": sprint }),
+    )
+    .await;
     for title in ["Measure the counter", "Compare three quotes"] {
         api.post(
             &format!("/tasks/{oak}/subtasks"),

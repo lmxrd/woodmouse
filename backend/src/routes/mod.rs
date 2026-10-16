@@ -17,6 +17,7 @@ pub mod projects;
 pub mod references;
 pub mod saved_views;
 pub mod search;
+pub mod sprints;
 pub mod subtasks;
 pub mod task_links;
 pub mod tasks;
@@ -63,6 +64,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(lists::router())
         .merge(tasks::router())
         .merge(subtasks::router())
+        .merge(sprints::router())
         .merge(comments::router())
         .merge(activity::router())
         .merge(saved_views::router())

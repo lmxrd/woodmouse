@@ -9,6 +9,7 @@ import {
   listCommentsOptions,
   listLabelsOptions,
   listListsOptions,
+  listSprintsOptions,
   listMembersOptions,
   updateTaskMutation,
 } from "woodmouse-client/react-query";
@@ -37,6 +38,8 @@ import { isDone } from "../../lib/task";
 
 /** The Select value for "no list": the project's inbox. */
 const INBOX = "inbox";
+/** The Select value for "no sprint": the backlog. */
+const NO_SPRINT = "backlog";
 
 /**
  * Everything about one task, with autosave. Container-agnostic: the dialog route and the full-page
@@ -104,6 +107,7 @@ function TaskForm({
     ...listListsOptions({ path: { project_id: projectId ?? "" } }),
     enabled: !!projectId,
   });
+  const { data: sprints } = useQuery(listSprintsOptions({ path: { project_id: task.project_id } }));
   const { data: members } = useQuery(listMembersOptions({ path: { id: workspaceId } }));
   const { data: labels } = useQuery(listLabelsOptions({ path: { workspace_id: workspaceId } }));
   const { data: comments } = useQuery(listCommentsOptions({ path: { id: task.id } }));
@@ -289,6 +293,26 @@ function TaskForm({
                   {l.name}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label="Sprint">
+          <Select
+            value={task.sprint_id ?? NO_SPRINT}
+            onValueChange={(sprint) => save({ sprint_id: sprint === NO_SPRINT ? null : sprint })}
+          >
+            <SelectTrigger aria-label="Sprint" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_SPRINT}>Backlog</SelectItem>
+              {sprints
+                ?.filter((s) => !s.completed_at || s.id === task.sprint_id)
+                .map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </Field>

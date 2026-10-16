@@ -27,6 +27,10 @@ Woodmouse is a self-hosted task manager for a household or small team.
   state. Completing a task is a state, not a list: completed tasks appear in the board's Done column wherever
   they came from, and reopening one returns it to its list. Drag cards between columns and within a column
   (mouse, touch or keyboard), or use the checkbox.
+- **Sprints**: a project's tasks can be planned in dated sprints. The list view groups by sprint (open sprints, then
+  the backlog) with each sprint's dates, progress and estimate; completing a sprint moves its unfinished tasks to
+  the backlog or another sprint and keeps the finished ones as its record. A sprint filter works in every view
+  and the timeline shades open sprints. Tasks also have **estimates and time spent**.
 - **Subtasks** nest to any depth, with progress rolled up to every parent. Tasks can be **linked** (blocks,
   relates to, duplicates).
 - **Comments** (markdown), **attachments** and a per-task and per-project **activity feed**. A workspace-wide

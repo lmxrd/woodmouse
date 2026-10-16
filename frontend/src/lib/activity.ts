@@ -63,6 +63,14 @@ export function describeActivity(
       return {
         text: `linked "${title}": it ${KIND_PHRASE[str(d.kind)] ?? str(d.kind)} "${str(d.other)}"`,
       };
+    case "sprint_created":
+      return { text: `created the sprint "${str(d.name)}"` };
+    case "sprint_completed":
+      return {
+        text: `completed the sprint "${str(d.name)}"${
+          typeof d.moved === "number" && d.moved > 0 ? ` (${d.moved} unfinished moved on)` : ""
+        }`,
+      };
     case "page_file_attached":
       return { text: `attached ${str(d.file)} to the page "${title}"` };
     case "page_file_detached":

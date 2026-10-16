@@ -15,6 +15,7 @@ const KIND_LABEL: Record<TrashItem["kind"], string> = {
   comment: "Comment",
   view: "View",
   page: "Page",
+  sprint: "Sprint",
 };
 
 function detail(item: TrashItem): string {

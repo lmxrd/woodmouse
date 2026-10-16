@@ -239,6 +239,38 @@ pub struct List {
     pub deleted_at: Option<DateTime>,
 }
 
+/// A sprint: a dated bucket of a project's tasks (a task is in at most one). It is live until its end,
+/// and completed when someone completes it, which moves its unfinished tasks on.
+#[derive(Debug, toasty::Model)]
+pub struct Sprint {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub project_id: uuid::Uuid,
+
+    #[belongs_to(key = project_id, references = id)]
+    pub project: toasty::Deferred<Project>,
+
+    pub name: String,
+
+    /// What the sprint is for; may be empty.
+    pub goal: String,
+
+    /// First day (midnight UTC).
+    pub start_date: DateTime,
+
+    /// Last day (midnight UTC).
+    pub end_date: DateTime,
+
+    /// Set when the sprint was completed.
+    pub completed_at: Option<DateTime>,
+
+    /// Soft delete: when set the row is hidden everywhere but Trash.
+    pub deleted_at: Option<DateTime>,
+}
+
 /// A task. `list_id` is `None` while the task is in the project's inbox; `parent_id` is set for subtasks
 /// (any depth), which always share their parent's project and list.
 #[derive(Debug, toasty::Model)]
@@ -277,6 +309,13 @@ pub struct Task {
 
     /// A calendar day (midnight UTC), if set.
     pub due_date: Option<DateTime>,
+
+    /// The sprint it is planned in, if any.
+    #[index]
+    pub sprint_id: Option<uuid::Uuid>,
+
+    #[belongs_to(key = sprint_id, references = id)]
+    pub sprint: toasty::Deferred<Option<Sprint>>,
 
     /// How long the task is expected to take, in minutes.
     pub estimate_minutes: Option<i64>,

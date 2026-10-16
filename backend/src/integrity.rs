@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 use crate::error::ApiError;
 use crate::models::{
     CalendarLink, Comment, ContentLink, File, FileRef, Label, List, PageDoc, Project, Revision,
-    SavedView, Session, Task, TaskAssignee, TaskLabel, TaskLink, User, WikiPage, Workspace,
+    SavedView, Session, Sprint, Task, TaskAssignee, TaskLabel, TaskLink, User, WikiPage, Workspace,
     WorkspaceMember,
 };
 
@@ -100,6 +100,17 @@ pub async fn check(db: &mut dyn toasty::Executor) -> Result<Vec<Problem>, ApiErr
             &workspace_ids,
         );
     }
+    let sprints = Sprint::all().exec(db).await?;
+    let sprint_ids = ids(&sprints, |s| s.id);
+    for s in &sprints {
+        r.check(
+            "sprints",
+            s.id,
+            "project_id -> projects",
+            s.project_id,
+            &project_ids,
+        );
+    }
     for l in &lists {
         r.check(
             "lists",
@@ -122,6 +133,9 @@ pub async fn check(db: &mut dyn toasty::Executor) -> Result<Vec<Problem>, ApiErr
         }
         if let Some(parent) = t.parent_id {
             r.check("tasks", t.id, "parent_id -> tasks", parent, &task_ids);
+        }
+        if let Some(sprint) = t.sprint_id {
+            r.check("tasks", t.id, "sprint_id -> sprints", sprint, &sprint_ids);
         }
     }
     for l in &labels {

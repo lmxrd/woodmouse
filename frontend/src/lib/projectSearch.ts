@@ -12,6 +12,12 @@ export interface ProjectSearch {
   assignee?: string;
   label?: string;
   list?: string;
+  /** A sprint id, or `none` for the backlog. */
+  sprint?: string;
+  /** The list view groups its tasks by sprint. */
+  group?: "sprint";
+  /** With the sprint grouping: also show completed sprints. */
+  completed?: true;
   sort?: TaskSort;
   order?: "asc" | "desc";
   /** The day a calendar or timeline is centered on, `YYYY-MM-DD` (default today). */
@@ -33,6 +39,9 @@ export function validateProjectSearch(raw: Record<string, unknown>): ProjectSear
     assignee: text(raw.assignee),
     label: text(raw.label),
     list: text(raw.list),
+    sprint: text(raw.sprint),
+    group: oneOf(raw.group, ["sprint"]),
+    completed: raw.completed === true || raw.completed === "true" ? true : undefined,
     sort: oneOf(raw.sort, ["title", "due_date", "priority"]),
     order: oneOf(raw.order, ["asc", "desc"]),
     date: parseIsoDay(text(raw.date)) !== undefined ? text(raw.date) : undefined,
@@ -48,10 +57,15 @@ export const DEFAULT_STATUS: Record<ProjectView, TaskStatus> = {
   timeline: "all",
 };
 
+/** The `sprint` search value that means "in no sprint". */
+export const BACKLOG = "none";
+
 export interface TaskFilterQuery {
   list_id?: string;
   assignee_id?: string;
   label_id?: string;
+  sprint_id?: string;
+  no_sprint?: boolean;
   is_completed?: boolean;
 }
 
@@ -62,6 +76,8 @@ export function taskFilterQuery(search: ProjectSearch, view: ProjectView): TaskF
     list_id: search.list,
     assignee_id: search.assignee,
     label_id: search.label,
+    sprint_id: search.sprint && search.sprint !== BACKLOG ? search.sprint : undefined,
+    no_sprint: search.sprint === BACKLOG ? true : undefined,
     is_completed: status === "all" ? undefined : status === "done",
   };
 }

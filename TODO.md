@@ -17,7 +17,7 @@
 ## Tasks
 
 - [x] Estimated and actual work time for tasks
-- [ ] Sprints, created from the List view
+- [x] Sprints, created from the List view
 - [x] Create new tasks from the List view
 - [x] Create new tasks from the Timeline view
 

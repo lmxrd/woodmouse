@@ -4,6 +4,7 @@ import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
 import type { TaskResponse } from "woodmouse-client";
 import {
   listListsOptions,
+  listSprintsOptions,
   listTasksOptions,
   listWorkspaceLinksOptions,
   updateTaskMutation,
@@ -74,6 +75,7 @@ export function TimelineView({
   });
   const { data: tasks } = useQuery(tasksQuery);
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
+  const { data: sprints } = useQuery(listSprintsOptions({ path: { project_id: projectId } }));
   const { data: edges } = useQuery(
     listWorkspaceLinksOptions({ path: { id: workspaceId }, query: { project_id: projectId } }),
   );
@@ -201,7 +203,7 @@ export function TimelineView({
         workspaceId={workspaceId}
         projectId={projectId}
         view="timeline"
-        fields={["assignee", "label", "list", "status"]}
+        fields={["assignee", "label", "list", "sprint", "status"]}
       />
       {canWrite ? (
         // New tasks get a week starting today, so they show as a bar to drag into place.
@@ -378,6 +380,26 @@ export function TimelineView({
             className="pointer-events-none absolute z-10"
             style={{ left: LABEL_WIDTH, top: HEADER_HEIGHT, width: chartWidth, height: rowsHeight }}
           >
+            {sprints
+              ?.filter((s) => !s.completed_at)
+              .map((s) => {
+                const [start, end] = [dayEpoch(s.start_date), dayEpoch(s.end_date)];
+                return (
+                  <div
+                    key={s.id}
+                    title={`${s.name}: ${s.task_count} ${s.task_count === 1 ? "task" : "tasks"}`}
+                    className="absolute inset-y-0 border-x border-primary/30 bg-primary/5"
+                    style={{
+                      left: daysBetween(from, start) * px,
+                      width: (daysBetween(start, end) + 1) * px,
+                    }}
+                  >
+                    <span className="label-mono sticky left-2 truncate px-1 text-[10px] text-primary">
+                      {s.name}
+                    </span>
+                  </div>
+                );
+              })}
             <div className="absolute inset-y-0 border-l-2 border-signal" style={{ left: todayX }} />
             <DependencyArrows
               arrows={arrows}

@@ -21,6 +21,8 @@ interface Props {
   order: "asc" | "desc";
   onSort: (sort: TaskSort) => void;
   onToggleDone: (task: TaskResponse, done: boolean) => void;
+  /** Leave out the column headers (when several tables are stacked under group headings). */
+  hideHeader?: boolean;
 }
 
 function TaskLink({
@@ -82,7 +84,12 @@ export function TaskTable(props: Props) {
   return (
     <>
       <table className="hidden w-full text-sm sm:table">
-        <thead className="border-b border-border text-muted-foreground">
+        <thead
+          className={cn(
+            "border-b border-border text-muted-foreground",
+            props.hideHeader && "sr-only",
+          )}
+        >
           <tr>
             <th className="w-10 py-2 pl-4" />
             {header("title", "Title")}

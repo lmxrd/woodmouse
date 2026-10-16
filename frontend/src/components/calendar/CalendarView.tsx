@@ -209,7 +209,7 @@ export function CalendarView({
         workspaceId={workspaceId}
         projectId={projectId}
         view="calendar"
-        fields={["assignee", "label", "list", "status"]}
+        fields={["assignee", "label", "list", "sprint", "status"]}
       />
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5 sm:px-6">
         <h2 className="font-display text-lg font-bold">{title}</h2>

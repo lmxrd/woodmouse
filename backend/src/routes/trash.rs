@@ -17,7 +17,7 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{
-    AuditLog, Comment, Label, List, Project, Role, SavedView, Task, User, WikiPage,
+    AuditLog, Comment, Label, List, Project, Role, SavedView, Sprint, Task, User, WikiPage,
 };
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
@@ -51,6 +51,7 @@ pub enum TrashKind {
     Comment,
     View,
     Page,
+    Sprint,
 }
 
 /// One restorable thing in the trash. Items deleted as part of a bigger deletion (a task in a deleted
@@ -246,6 +247,30 @@ pub async fn list_trash(
         ));
     }
 
+    // Deleted sprints (not those whose project went too).
+    let sprints = if projects.is_empty() {
+        vec![]
+    } else {
+        Sprint::all()
+            .filter(in_list(
+                Sprint::fields().project_id(),
+                projects.iter().map(|p| p.id).collect::<Vec<_>>(),
+            ))
+            .exec(db)
+            .await?
+    };
+    for s in sprints.iter().filter(|s| s.deleted_at.is_some()) {
+        raw.push((
+            TrashKind::Sprint,
+            s.id,
+            s.name.clone(),
+            project_of.get(&s.project_id).map(|p| p.name.clone()),
+            s.deleted_at.unwrap_or_default(),
+            by("sprint", s.id),
+            0,
+        ));
+    }
+
     // Deleted saved views: shared ones, and the caller's own private ones.
     for v in SavedView::filter_by_workspace_id(id).exec(db).await? {
         if v.deleted_at.is_none() || !crate::routes::saved_views::visible_to(&v, &user) {
@@ -351,6 +376,10 @@ pub async fn restore_item(
         TrashKind::Task => access::task_workspace(&mut *db, item_id).await?,
         TrashKind::Label => Label::get_by_id(&mut *db, &item_id).await?.workspace_id,
         TrashKind::Page => WikiPage::get_by_id(&mut *db, &item_id).await?.workspace_id,
+        TrashKind::Sprint => {
+            let sprint = Sprint::get_by_id(&mut *db, &item_id).await?;
+            access::project_workspace(&mut *db, sprint.project_id).await?
+        }
         TrashKind::View => SavedView::get_by_id(&mut *db, &item_id).await?.workspace_id,
         TrashKind::Comment => {
             let task = crate::routes::comments::comment_task(&mut *db, item_id).await?;
@@ -412,6 +441,14 @@ pub async fn restore_item(
             }
             trash::restore_page(&mut tx, &page).await?;
             ("page", page.title)
+        }
+        TrashKind::Sprint => {
+            let sprint = Sprint::get_by_id(&mut tx, &item_id).await?;
+            if sprint.deleted_at.is_none() {
+                return Err(ApiError::not_found());
+            }
+            trash::restore_sprint(&mut tx, &sprint).await?;
+            ("sprint", sprint.name)
         }
         TrashKind::View => {
             let view = SavedView::get_by_id(&mut tx, &item_id).await?;

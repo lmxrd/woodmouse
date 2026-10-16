@@ -72,3 +72,18 @@ describe("taskFilterQuery", () => {
     expect(taskFilterQuery({ status: "open" }, "calendar").is_completed).toBe(false);
   });
 });
+
+describe("sprint filter", () => {
+  it("reads a sprint id, or none for the backlog", () => {
+    expect(taskFilterQuery({ sprint: "s1" }, "board")).toMatchObject({ sprint_id: "s1" });
+    expect(taskFilterQuery({ sprint: "none" }, "board")).toMatchObject({ no_sprint: true });
+    expect(taskFilterQuery({}, "board").sprint_id).toBeUndefined();
+  });
+  it("keeps the sprint grouping and completed toggle from the URL", () => {
+    expect(validateProjectSearch({ group: "sprint", completed: "true" })).toMatchObject({
+      group: "sprint",
+      completed: true,
+    });
+    expect(validateProjectSearch({ group: "nonsense" }).group).toBeUndefined();
+  });
+});
