@@ -28,6 +28,9 @@ export function SettingsLayout() {
           <Link to="/settings/appearance" className={link} activeProps={{ className: active }}>
             Appearance
           </Link>
+          <Link to="/settings/notifications" className={link} activeProps={{ className: active }}>
+            Notifications
+          </Link>
           <Link to="/settings/calendar" className={link} activeProps={{ className: active }}>
             Calendar links
           </Link>
@@ -48,6 +51,9 @@ export function SettingsLayout() {
                 activeProps={{ className: active }}
               >
                 Workspaces
+              </Link>
+              <Link to="/settings/admin/email" className={link} activeProps={{ className: active }}>
+                Email
               </Link>
               <Link to="/settings/admin/audit" className={link} activeProps={{ className: active }}>
                 Audit log

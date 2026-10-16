@@ -28,6 +28,8 @@ pub struct AppState {
     pub presence: Arc<std::sync::Mutex<PresenceMap>>,
     /// Recent failed logins, for slowing down guessing (see `auth::limits`). In memory only.
     pub login_limits: Arc<crate::auth::LoginLimits>,
+    /// How email goes out (SMTP; tests record instead).
+    pub mailer: Arc<dyn crate::mail::Mailer>,
 }
 
 /// A database handle for a request that writes. Dropping it lets the next writer in.
@@ -57,6 +59,7 @@ impl AppState {
 
     pub fn with_files(db: toasty::Db, files: FileStores) -> Self {
         Self {
+            mailer: crate::mail::SmtpMailer::shared(db.clone()),
             db,
             writes: Arc::default(),
             secure_cookies: std::env::var("WOODMOUSE_SECURE_COOKIES").is_ok_and(|v| v != "0"),
@@ -65,6 +68,12 @@ impl AppState {
             rooms: Arc::default(),
             login_limits: Arc::default(),
         }
+    }
+
+    /// The same state with another mailer (tests).
+    pub fn with_mailer(mut self, mailer: Arc<dyn crate::mail::Mailer>) -> Self {
+        self.mailer = mailer;
+        self
     }
 
     /// A handle for reading.

@@ -4,6 +4,7 @@ pub mod auth;
 pub mod calendar;
 pub mod comments;
 pub mod export;
+pub mod file_versions;
 pub mod files;
 pub mod health;
 pub mod history;
@@ -12,6 +13,7 @@ pub mod labels;
 pub mod lists;
 pub mod live;
 pub mod members;
+pub mod notifications;
 pub mod pages;
 pub mod projects;
 pub mod references;
@@ -22,6 +24,7 @@ pub mod subtasks;
 pub mod task_links;
 pub mod tasks;
 pub mod themes;
+pub mod transfer;
 pub mod trash;
 pub mod workspaces;
 
@@ -65,6 +68,8 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(tasks::router())
         .merge(subtasks::router())
         .merge(sprints::router())
+        .merge(notifications::router())
+        .merge(transfer::router())
         .merge(comments::router())
         .merge(activity::router())
         .merge(saved_views::router())
@@ -77,6 +82,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(themes::router())
         .merge(search::router())
         .merge(files::router(max_upload_bytes))
+        .merge(file_versions::router(max_upload_bytes))
         .merge(task_links::router())
         .merge(labels::router())
         .merge(trash::router())

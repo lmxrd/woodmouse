@@ -192,6 +192,26 @@ pub async fn add_comment(
         serde_json::json!({ "title": task.title, "preview": comment.body.chars().take(120).collect::<String>() }),
     )
     .await?;
+    // The people on the task, and those who commented on it before, hear about the new comment.
+    let mut audience = crate::notify::task_audience(&mut tx, id).await?;
+    audience.extend(crate::notify::commenters(&mut tx, id).await?);
+    crate::notify::notify(
+        &mut tx,
+        audience,
+        crate::notify::Notice {
+            workspace_id,
+            kind: "comment_added",
+            target_type: crate::notify::TASK,
+            target_id: id,
+            actor: Some(user.id),
+            data: serde_json::json!({
+                "title": task.title,
+                "project_id": task.project_id,
+                "preview": comment.body.chars().take(120).collect::<String>(),
+            }),
+        },
+    )
+    .await?;
     tx.commit().await?;
     let mut out = views(&mut *db, vec![comment]).await?;
     Ok((StatusCode::CREATED, Json(out.swap_remove(0))))

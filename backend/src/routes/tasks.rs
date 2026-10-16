@@ -460,34 +460,33 @@ async fn siblings(
 /// Create a task (or, with `parent_id`, a subtask) at the end of its siblings, with its first revision
 /// and feed entry, in one transaction. Access to the list or project must already be checked. A subtask
 /// lives with its parent: `list_id` is then the parent's.
-pub(crate) async fn create_task_in(
-    db: &mut toasty::Db,
+pub(crate) async fn create_task_tx(
+    tx: &mut dyn toasty::Executor,
     workspace_id: uuid::Uuid,
     project_id: uuid::Uuid,
     list_id: Option<uuid::Uuid>,
     parent_id: Option<uuid::Uuid>,
     actor: uuid::Uuid,
     input: CreateTaskRequest,
-) -> Result<TaskResponse, ApiError> {
+) -> Result<Task, ApiError> {
     let title = input.title.trim().to_string();
     if title.is_empty() {
         return Err(ApiError::bad_request("title is required"));
     }
-    validate_assignees(db, &input.assignee_ids, workspace_id).await?;
-    validate_labels(db, &input.label_ids, workspace_id).await?;
+    validate_assignees(tx, &input.assignee_ids, workspace_id).await?;
+    validate_labels(tx, &input.label_ids, workspace_id).await?;
     validate_minutes(input.estimate_minutes)?;
     validate_minutes(input.spent_minutes)?;
     if let Some(sprint_id) = input.sprint_id {
-        validate_sprint(db, project_id, sprint_id).await?;
+        validate_sprint(tx, project_id, sprint_id).await?;
     }
     let (start_date, due_date) = (
         input.start_date.map(time::to_day),
         input.due_date.map(time::to_day),
     );
 
-    let mut tx = db.transaction().await?;
     let position = ordering::append(
-        siblings(&mut tx, project_id, list_id, parent_id, None)
+        siblings(tx, project_id, list_id, parent_id, None)
             .await?
             .iter()
             .map(|(_, p)| *p),
@@ -506,7 +505,7 @@ pub(crate) async fn create_task_in(
         spent_minutes: input.spent_minutes,
         parent_id,
     })
-    .exec(&mut tx)
+    .exec(tx)
     .await?;
 
     for user_id in &input.assignee_ids {
@@ -514,19 +513,32 @@ pub(crate) async fn create_task_in(
             task_id: task.id,
             user_id: *user_id,
         })
-        .exec(&mut tx)
+        .exec(tx)
         .await?;
     }
+    crate::notify::notify(
+        tx,
+        input.assignee_ids.clone(),
+        crate::notify::Notice {
+            workspace_id,
+            kind: "task_assigned",
+            target_type: crate::notify::TASK,
+            target_id: task.id,
+            actor: Some(actor),
+            data: serde_json::json!({ "title": title, "project_id": project_id }),
+        },
+    )
+    .await?;
     for label_id in &input.label_ids {
         toasty::create!(TaskLabel {
             task_id: task.id,
             label_id: *label_id,
         })
-        .exec(&mut tx)
+        .exec(tx)
         .await?;
     }
     revisions::record_task(
-        &mut tx,
+        tx,
         task.id,
         actor,
         &TaskContent {
@@ -536,12 +548,12 @@ pub(crate) async fn create_task_in(
     )
     .await?;
     let parent_title = match parent_id {
-        Some(pid) => Some(Task::get_by_id(&mut tx, &pid).await?.title),
+        Some(pid) => Some(Task::get_by_id(tx, &pid).await?.title),
         None => None,
     };
     // A new subtask shows up in its parent's feed, where people look for it.
     audit::task_event(
-        &mut tx,
+        tx,
         workspace_id,
         project_id,
         actor,
@@ -554,8 +566,31 @@ pub(crate) async fn create_task_in(
         serde_json::json!({ "title": title, "parent_title": parent_title, "task_id": task.id }),
     )
     .await?;
-    tx.commit().await?;
+    Ok(task)
+}
 
+/// Create a task in its own transaction and return it as the API shows it.
+pub(crate) async fn create_task_in(
+    db: &mut toasty::Db,
+    workspace_id: uuid::Uuid,
+    project_id: uuid::Uuid,
+    list_id: Option<uuid::Uuid>,
+    parent_id: Option<uuid::Uuid>,
+    actor: uuid::Uuid,
+    input: CreateTaskRequest,
+) -> Result<TaskResponse, ApiError> {
+    let mut tx = db.transaction().await?;
+    let task = create_task_tx(
+        &mut tx,
+        workspace_id,
+        project_id,
+        list_id,
+        parent_id,
+        actor,
+        input,
+    )
+    .await?;
+    tx.commit().await?;
     let mut responses = hydrate_tasks(db, vec![task]).await?;
     Ok(responses.swap_remove(0))
 }
@@ -923,8 +958,43 @@ async fn record_changes(
             serde_json::json!({ "title": after.title, "from": before.priority, "to": after.priority }),
         ));
     }
+    // What the people who follow the task are told: the first thing that changed.
+    let what = events.iter().find_map(|(kind, _)| match *kind {
+        "task_completed" => Some("completed"),
+        "task_reopened" => Some("reopened"),
+        "task_renamed" => Some("renamed"),
+        "task_moved" => Some("moved"),
+        "due_changed" => Some("due date changed"),
+        "priority_changed" => Some("priority changed"),
+        _ => None,
+    });
+    if let Some(what) = what {
+        crate::notify::task_changed(
+            db,
+            workspace_id,
+            after.project_id,
+            after.id,
+            actor,
+            &after.title,
+            what,
+        )
+        .await?;
+    }
     if let (Some(old), Some(new)) = (old_assignees, new_assignees) {
         let new: HashSet<uuid::Uuid> = new.into_iter().collect();
+        crate::notify::notify(
+            db,
+            new.difference(&old).copied().collect::<Vec<_>>(),
+            crate::notify::Notice {
+                workspace_id,
+                kind: "task_assigned",
+                target_type: crate::notify::TASK,
+                target_id: after.id,
+                actor: Some(actor),
+                data: serde_json::json!({ "title": after.title, "project_id": after.project_id }),
+            },
+        )
+        .await?;
         for (kind, ids) in [
             (
                 "assigned",

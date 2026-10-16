@@ -472,6 +472,44 @@ pub struct File {
     pub uploaded_by: uuid::Uuid,
 
     pub created_at: DateTime,
+
+    /// Soft delete: when set the file is hidden everywhere but Trash.
+    pub deleted_at: Option<DateTime>,
+}
+
+/// One version of a file's content. The file row always describes its newest version; older ones are
+/// kept (and downloadable) until an admin's cleanup removes an unreferenced file.
+#[derive(Debug, toasty::Model)]
+pub struct FileVersion {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub file_id: uuid::Uuid,
+
+    #[belongs_to(key = file_id, references = id)]
+    pub file: toasty::Deferred<File>,
+
+    /// 1 for the first upload, then counting up.
+    pub number: i64,
+
+    /// The name the file had when this version was uploaded.
+    pub name: String,
+
+    pub mime: String,
+
+    pub size: i64,
+
+    pub sha256: String,
+
+    pub storage_backend: String,
+
+    pub storage_key: String,
+
+    pub uploaded_by: uuid::Uuid,
+
+    pub created_at: DateTime,
 }
 
 /// A file attached to a task or a wiki page. Attached at most once per target.
@@ -718,4 +756,98 @@ pub struct CalendarLink {
     pub last_used_at: Option<DateTime>,
 
     pub revoked_at: Option<DateTime>,
+}
+
+/// Someone watching a task or a wiki page: they are notified of what happens to it.
+#[derive(Debug, toasty::Model)]
+#[index(user_id)]
+#[index(target_id)]
+pub struct Watch {
+    #[key]
+    pub user_id: uuid::Uuid,
+
+    /// `task` or `page`.
+    #[key]
+    pub target_type: String,
+
+    #[key]
+    pub target_id: uuid::Uuid,
+
+    pub created_at: DateTime,
+}
+
+/// Something that happened that a person should hear about. Created together with the change (see
+/// `crate::notify`), read in the app and optionally emailed.
+#[derive(Debug, toasty::Model)]
+#[index(user_id, created_at)]
+pub struct Notification {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    pub user_id: uuid::Uuid,
+
+    /// `task_assigned`, `comment_added`, `mentioned`, `task_changed`, `page_changed`, `due_soon`, `overdue`.
+    pub kind: String,
+
+    pub workspace_id: uuid::Uuid,
+
+    /// `task` or `page`, with its id: what the notification opens.
+    pub target_type: Option<String>,
+    pub target_id: Option<uuid::Uuid>,
+
+    /// Who caused it (never the recipient).
+    pub actor_id: Option<uuid::Uuid>,
+
+    /// JSON object with what the UI needs to phrase it (titles at the time, project id, ...).
+    pub data: String,
+
+    pub created_at: DateTime,
+
+    pub read_at: Option<DateTime>,
+
+    /// When the instant-email sweep dealt with it (sent, or skipped because they do not want it).
+    pub emailed_at: Option<DateTime>,
+}
+
+/// A person's notification preferences. In-app notifications are always on.
+#[derive(Debug, toasty::Model)]
+pub struct NotificationSetting {
+    #[key]
+    pub user_id: uuid::Uuid,
+
+    /// Email each notification as it happens.
+    pub email_instant: bool,
+
+    /// Email a daily summary.
+    pub digest: bool,
+
+    /// The local hour (0-23, in the person's timezone) the digest is sent.
+    pub digest_hour: i64,
+
+    /// When the last digest was sent.
+    pub last_digest_at: Option<DateTime>,
+}
+
+/// The site's SMTP settings, edited by the super admin. Each field that is set here overrides the
+/// matching environment variable (`SMTP_HOST`, ...). One row, id 1.
+#[derive(Debug, toasty::Model)]
+pub struct EmailSettings {
+    #[key]
+    pub id: i64,
+
+    pub host: Option<String>,
+
+    pub port: Option<i64>,
+
+    pub username: Option<String>,
+
+    /// Stored as given: whoever can read the database can read it.
+    pub password: Option<String>,
+
+    /// The address mail is sent from.
+    pub sender: Option<String>,
+
+    /// `starttls`, `tls` or `none`.
+    pub tls: Option<String>,
 }

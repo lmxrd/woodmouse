@@ -45,6 +45,11 @@ export function fileContentUrl(fileId: string): string {
   return `${import.meta.env.VITE_API_URL ?? ""}/api/files/${fileId}/content`;
 }
 
+/** The URL of one version's bytes. */
+export function fileVersionContentUrl(fileId: string, versionId: string): string {
+  return `${import.meta.env.VITE_API_URL ?? ""}/api/files/${fileId}/versions/${versionId}/content`;
+}
+
 /** Where a page downloads as a Markdown file. */
 export function pageExportUrl(pageId: string): string {
   return `${import.meta.env.VITE_API_URL ?? ""}/api/pages/${pageId}/export`;

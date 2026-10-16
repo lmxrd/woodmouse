@@ -5,13 +5,15 @@ import { toast } from "sonner";
 import type { FileView } from "woodmouse-client";
 import {
   cleanupFilesMutation,
+  deleteFileMutation,
   fileUsageOptions,
+  listFileVersionsOptions,
   listFilesOptions,
   unusedFilesOptions,
 } from "woodmouse-client/react-query";
 
-import { fileContentUrl } from "../../lib/api";
-import { formatBytes } from "../../lib/upload";
+import { fileContentUrl, fileVersionContentUrl } from "../../lib/api";
+import { formatBytes, uploadFileVersion } from "../../lib/upload";
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
@@ -35,7 +37,12 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
   const onlyUnused = search.unused === true;
   const setSearch = (patch: { q?: string; unused?: boolean }) =>
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<{ id: string; panel: "usage" | "versions" } | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState<FileView | null>(null);
+  const versionInput = useRef<HTMLInputElement>(null);
+  const versionTarget = useRef<FileView | null>(null);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -51,6 +58,23 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
     enabled: isAdmin,
   });
   const { uploadFiles, isUploading, dialog } = useUploader(workspaceId);
+  const remove = useMutation({
+    ...deleteFileMutation(),
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+  const addVersion = async (file: FileView, upload: File) => {
+    const result = await uploadFileVersion(file.id, upload);
+    if (result.status === "created") {
+      void queryClient.invalidateQueries();
+      toast.success(`Uploaded a new version of ${file.name}.`);
+    } else if (result.status === "duplicate") {
+      toast.info("That is the same content as the current version.");
+    } else if (result.status === "too_large") {
+      toast.error(`${upload.name} is larger than the upload limit.`);
+    } else {
+      toast.error(`Couldn't upload ${upload.name}. Try again.`);
+    }
+  };
   const cleanup = useMutation({
     ...cleanupFilesMutation(),
     onSuccess: (result) => {
@@ -168,23 +192,93 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  aria-expanded={expanded === file.id}
-                  onClick={() => setExpanded(expanded === file.id ? null : file.id)}
+                  aria-expanded={expanded?.id === file.id && expanded.panel === "usage"}
+                  onClick={() =>
+                    setExpanded(
+                      expanded?.id === file.id && expanded.panel === "usage"
+                        ? null
+                        : { id: file.id, panel: "usage" },
+                    )
+                  }
                 >
-                  Where used {expanded === file.id ? "▴" : "▾"}
+                  Where used
                 </Button>
               )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-expanded={expanded?.id === file.id && expanded.panel === "versions"}
+                onClick={() =>
+                  setExpanded(
+                    expanded?.id === file.id && expanded.panel === "versions"
+                      ? null
+                      : { id: file.id, panel: "versions" },
+                  )
+                }
+              >
+                Versions · {file.versions}
+              </Button>
+              {canWrite ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    versionTarget.current = file;
+                    versionInput.current?.click();
+                  }}
+                >
+                  Upload new version
+                </Button>
+              ) : null}
               <Button variant="outline" size="sm" asChild>
                 <a href={fileContentUrl(file.id)} download={file.name}>
                   Download
                 </a>
               </Button>
+              {canWrite ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => setDeleting(file)}
+                >
+                  Delete
+                </Button>
+              ) : null}
             </div>
-            {expanded === file.id ? <FileUsage fileId={file.id} workspaceId={workspaceId} /> : null}
+            {expanded?.id === file.id && expanded.panel === "usage" ? (
+              <FileUsage fileId={file.id} workspaceId={workspaceId} />
+            ) : null}
+            {expanded?.id === file.id && expanded.panel === "versions" ? (
+              <FileVersions fileId={file.id} />
+            ) : null}
           </li>
         ))}
       </ul>
       {dialog}
+      <input
+        ref={versionInput}
+        type="file"
+        className="sr-only"
+        aria-label="Upload new version"
+        onChange={(e) => {
+          const picked = e.target.files?.[0];
+          const target = versionTarget.current;
+          if (picked && target) void addVersion(target, picked);
+          e.target.value = "";
+        }}
+      />
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={`Delete "${deleting?.name ?? ""}"?`}
+        description="It leaves the library and everything it is attached to. You can restore it from the trash."
+        confirmLabel="Delete file"
+        onConfirm={() => deleting && remove.mutate({ path: { id: deleting.id } })}
+      />
       <ConfirmDialog
         open={confirmCleanup}
         onOpenChange={setConfirmCleanup}
@@ -248,6 +342,33 @@ function FileUsage({ fileId, workspaceId }: { fileId: string; workspaceId: strin
               ) : null}
             </>
           )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Every version of a file, newest first, each downloadable. */
+function FileVersions({ fileId }: { fileId: string }) {
+  const { when } = useFormatters();
+  const { data: versions } = useQuery(listFileVersionsOptions({ path: { id: fileId } }));
+  return (
+    <ul className="border-t border-border bg-muted/40 px-4 py-2 sm:px-6">
+      {versions?.map((v) => (
+        <li key={v.id} className="flex flex-wrap items-center gap-x-3 py-0.5 text-sm">
+          <span className="font-mono">v{v.number}</span>
+          <span className="label-mono text-muted-foreground">
+            {formatBytes(v.size)} · {when(v.created_at)}
+            {v.uploaded_by ? ` · ${userLabel(v.uploaded_by)}` : ""}
+            {v.current ? " · current" : ""}
+          </span>
+          <a
+            className="ml-auto hover:underline"
+            href={fileVersionContentUrl(fileId, v.id)}
+            download={v.name}
+          >
+            Download
+          </a>
         </li>
       ))}
     </ul>

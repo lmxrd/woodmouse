@@ -42,6 +42,13 @@ pub async fn save_content(
         .await?;
 
     // The references the content makes, and its text for search.
+    let old_mentions: Vec<uuid::Uuid> = ContentLink::filter_by_source_page_id(id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|l| l.target_kind == "task")
+        .map(|l| l.target_id)
+        .collect();
     ContentLink::filter_by_source_page_id(id)
         .delete()
         .exec(db)
@@ -56,6 +63,40 @@ pub async fn save_content(
         .await?;
     }
     crate::search::index_page_body(db, id, &new).await?;
+
+    // Newly mentioned tasks tell the people on them; the page's watchers hear that it changed.
+    for (kind, target) in blocks::references(&new) {
+        if kind == "task" && !old_mentions.contains(&target) {
+            let audience = crate::notify::task_audience(db, target).await?;
+            crate::notify::notify(
+                db,
+                audience,
+                crate::notify::Notice {
+                    workspace_id,
+                    kind: "mentioned",
+                    target_type: crate::notify::PAGE,
+                    target_id: id,
+                    actor: Some(editor),
+                    data: serde_json::json!({ "title": title, "task_id": target }),
+                },
+            )
+            .await?;
+        }
+    }
+    let watching = crate::notify::watchers(db, crate::notify::PAGE, id).await?;
+    crate::notify::notify(
+        db,
+        watching,
+        crate::notify::Notice {
+            workspace_id,
+            kind: "page_changed",
+            target_type: crate::notify::PAGE,
+            target_id: id,
+            actor: Some(editor),
+            data: serde_json::json!({ "title": title }),
+        },
+    )
+    .await?;
 
     // Files the content shows are attached to the page, so they count as used (never cleaned up) and
     // appear in its attachments. The reference follows the content: removing the block detaches the

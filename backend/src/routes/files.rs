@@ -18,7 +18,7 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, FileRef, Role, Task, User, WikiPage};
+use crate::models::{File, FileRef, FileVersion, Role, Task, User, WikiPage};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
@@ -51,6 +51,8 @@ const INLINE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/
 
 #[derive(Serialize, ToSchema, Clone)]
 pub struct FileView {
+    /// How many versions the file has (1 until a new version is uploaded).
+    pub versions: usize,
     pub id: uuid::Uuid,
     pub workspace_id: uuid::Uuid,
     pub name: String,
@@ -99,6 +101,13 @@ async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<Fi
         .filter(in_list(FileRef::fields().file_id(), file_ids))
         .exec(db)
         .await?;
+    let version_rows = FileVersion::all()
+        .filter(in_list(
+            FileVersion::fields().file_id(),
+            files.iter().map(|f| f.id).collect::<Vec<_>>(),
+        ))
+        .exec(db)
+        .await?;
     let uploader_ids: Vec<uuid::Uuid> = files.iter().map(|f| f.uploaded_by).collect();
     let users = User::all()
         .filter(in_list(User::fields().id(), uploader_ids))
@@ -115,6 +124,11 @@ async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<Fi
                 .find(|u| u.id == f.uploaded_by)
                 .map(PublicUser::from),
             used_in: refs.iter().filter(|r| r.file_id == f.id).count(),
+            versions: version_rows
+                .iter()
+                .filter(|v| v.file_id == f.id)
+                .count()
+                .max(1),
             name: f.name,
             mime: f.mime,
             size: f.size,
@@ -122,6 +136,14 @@ async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<Fi
             created_at: f.created_at,
         })
         .collect())
+}
+
+/// One file as the API shows it.
+pub(crate) async fn file_view(
+    db: &mut dyn toasty::Executor,
+    file: File,
+) -> Result<FileView, ApiError> {
+    one_view(db, file).await
 }
 
 async fn one_view(db: &mut dyn toasty::Executor, file: File) -> Result<FileView, ApiError> {
@@ -136,6 +158,9 @@ async fn load_file(
     min_role: Role,
 ) -> Result<File, ApiError> {
     let file = File::get_by_id(db, &id).await?;
+    if file.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
     access::require_access(db, user, file.workspace_id, min_role).await?;
     Ok(file)
 }
@@ -175,6 +200,7 @@ pub async fn list_files(
     let db = &mut state.db();
     access::require_access(db, &user, id, Role::Read).await?;
     let mut files = File::filter_by_workspace_id(id).exec(db).await?;
+    files.retain(|f| f.deleted_at.is_none());
     if let Some(q) = filters
         .q
         .as_ref()
@@ -279,7 +305,7 @@ pub async fn upload_file(
         .exec(db)
         .await?
         .into_iter()
-        .find(|f| f.workspace_id == id)
+        .find(|f| f.workspace_id == id && f.deleted_at.is_none())
     {
         let body = DuplicateFile {
             error: "this file is already in the library".to_string(),
@@ -314,11 +340,12 @@ pub async fn upload_file(
             return Err(e.into());
         }
     };
+    let mut tx = db.transaction().await?;
+    crate::routes::file_versions::record_first(&mut tx, &file).await?;
     if let Some(task_id) = task_id {
-        let mut tx = db.transaction().await?;
         attach(&mut tx, id, task_id, user.id, &file).await?;
-        tx.commit().await?;
     }
+    tx.commit().await?;
     let view = one_view(db, file).await?;
     Ok((StatusCode::CREATED, Json(view)).into_response())
 }
@@ -342,19 +369,38 @@ pub async fn file_content(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
     let file = { load_file(&mut state.db(), &user, id, Role::Read).await? };
+    serve_blob(
+        &state,
+        &file.storage_backend,
+        &file.storage_key,
+        &file.mime,
+        &file.name,
+    )
+    .await
+}
+
+/// Serve stored bytes: raster images inline, everything else as a download, with headers that stop a
+/// browser from treating it as a page.
+pub(crate) async fn serve_blob(
+    state: &AppState,
+    backend: &str,
+    key: &str,
+    mime: &str,
+    name: &str,
+) -> Result<Response, ApiError> {
     let store = state
         .files
-        .store(&file.storage_backend)
+        .store(backend)
         .ok_or_else(|| ApiError::internal("this file's storage is not configured"))?;
-    let bytes = store.get(&file.storage_key).await.map_err(|e| {
-        tracing::error!(error = %e, file = %file.id, "reading a stored file failed");
+    let bytes = store.get(key).await.map_err(|e| {
+        tracing::error!(error = %e, key, "reading a stored file failed");
         ApiError::not_found()
     })?;
 
-    let inline = INLINE_TYPES.contains(&file.mime.as_str());
+    let inline = INLINE_TYPES.contains(&mime);
     let mut headers = HeaderMap::new();
     let content_type = if inline {
-        file.mime.as_str()
+        mime
     } else {
         "application/octet-stream"
     };
@@ -363,8 +409,7 @@ pub async fn file_content(
         HeaderValue::from_str(content_type).expect("static types"),
     );
     // RFC 5987 encoding keeps any file name header-safe.
-    let encoded: String = file
-        .name
+    let encoded: String = name
         .bytes()
         .map(|b| {
             if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
@@ -543,6 +588,7 @@ pub async fn list_attachments(
         ))
         .exec(db)
         .await?;
+    files.retain(|f| f.deleted_at.is_none());
     files.sort_by_key(|f| f.created_at);
     Ok(Json(views(db, files).await?))
 }
@@ -637,7 +683,12 @@ async fn find_unused(
     db: &mut dyn toasty::Executor,
     workspace_id: uuid::Uuid,
 ) -> Result<Vec<File>, ApiError> {
-    let files = File::filter_by_workspace_id(workspace_id).exec(db).await?;
+    let files: Vec<File> = File::filter_by_workspace_id(workspace_id)
+        .exec(db)
+        .await?
+        .into_iter()
+        .filter(|f| f.deleted_at.is_none())
+        .collect();
     if files.is_empty() {
         return Ok(vec![]);
     }
@@ -717,14 +768,32 @@ pub async fn cleanup_files(
         freed_bytes: 0,
     };
     for file in find_unused(db, id).await? {
-        if let Some(store) = state.files.store(&file.storage_backend) {
-            store.delete(&file.storage_key).await.map_err(|e| {
-                tracing::error!(error = %e, file = %file.id, "deleting a stored file failed");
-                ApiError::internal("could not delete a stored file")
-            })?;
+        let versions = FileVersion::filter_by_file_id(file.id).exec(db).await?;
+        // Every version's bytes, and the current ones even if no version row names them.
+        let mut blobs: Vec<(String, String, i64)> = versions
+            .iter()
+            .map(|v| (v.storage_backend.clone(), v.storage_key.clone(), v.size))
+            .collect();
+        if !blobs.iter().any(|(_, k, _)| *k == file.storage_key) {
+            blobs.push((
+                file.storage_backend.clone(),
+                file.storage_key.clone(),
+                file.size,
+            ));
+        }
+        for (backend, key, size) in blobs {
+            if let Some(store) = state.files.store(&backend) {
+                store.delete(&key).await.map_err(|e| {
+                    tracing::error!(error = %e, file = %file.id, "deleting a stored file failed");
+                    ApiError::internal("could not delete a stored file")
+                })?;
+            }
+            result.freed_bytes += size;
+        }
+        for v in versions {
+            v.delete().exec(db).await?;
         }
         result.deleted += 1;
-        result.freed_bytes += file.size;
         file.delete().exec(db).await?;
     }
     Ok(Json(result))
@@ -784,6 +853,7 @@ pub async fn list_page_attachments(
         .filter(in_list(File::fields().id(), ids))
         .exec(db)
         .await?;
+    files.retain(|f| f.deleted_at.is_none());
     files.sort_by_key(|f| f.created_at);
     Ok(Json(views(db, files).await?))
 }

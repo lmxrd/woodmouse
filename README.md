@@ -35,7 +35,7 @@ Woodmouse is a self-hosted task manager for a household or small team.
   relates to, duplicates).
 - **Comments** (markdown), **attachments** and a per-task and per-project **activity feed**. A workspace-wide
   feed shows everything.
-- **Files**: every upload goes into the workspace's library, deduplicated by content. Attaching a file to a
+- **Files**: files have versions (upload a new version, download any), and deleting one moves it to the trash. Every upload goes into the workspace's library, deduplicated by content. Attaching a file to a
   task does not own it: deleting the task keeps the file, and only an admin's "clean up unused files" removes
   files nothing references.
 - **Wiki**: a tree of pages per workspace (the sidebar shows three levels, the Wiki overview all of them).
@@ -57,6 +57,22 @@ Woodmouse is a self-hosted task manager for a household or small team.
   preview and restores one; the content being replaced is kept first, so a restore can be undone. A task's
   title and description have the same history. Pages export as Markdown (one page from its menu, the whole
   wiki as a zip from the Wiki overview, with folders following the tree and links between pages kept).
+- **Notifications**: a bell in the sidebar lists what happened that you should know: you were assigned a task,
+  someone commented on a task you are on or commented on, a page mentioned a task you are on, something you
+  **watch** (tasks and pages) changed, or your task is due tomorrow or overdue (by your timezone). Bursts of
+  changes to a watched item are one notification while it is unread. Optionally get each one by email, and/or a
+  daily summary at an hour you choose (Settings, Notifications).
+- **Email** is off until SMTP is set: environment variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+  `SMTP_PASSWORD`, `SMTP_FROM` and `SMTP_TLS` (`starttls`, `tls` or `none`), and/or the super admin's
+  Site admin, Email page (a field set there overrides the environment; there is a test button). With
+  `PUBLIC_URL` set, invite links are emailed too.
+- **Import and export** (workspace settings, Import & export): export chosen parts of the workspace (projects
+  with lists, sprints, tasks, subtasks and comments; labels; wiki; the member list for admins) as JSON, or the
+  tasks as CSV with everything needed to set projects up again. Import either one: it is checked first and then
+  imported completely or not at all (anything unreadable must be fixed in the file). Projects, lists, sprints
+  and labels are created or matched by name. People the file names who are not workspace members are listed,
+  and for each you choose a member to use instead, to create the person (workspace admins; they get an invite
+  link), or to leave them out.
 - **Calendar links**: subscribe from any calendar app (Apple, Google, Thunderbird, ...) to a read-only feed of
   tasks with dates: your own tasks, a project, or a whole workspace. Ranges span their days, done tasks are
   marked, undated tasks are left out. Links are secret URLs (anyone who has one sees those tasks); you can

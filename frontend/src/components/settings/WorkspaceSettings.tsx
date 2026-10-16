@@ -7,12 +7,23 @@ import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
 import { GeneralPanel } from "./GeneralPanel";
 import { LabelsPanel } from "./LabelsPanel";
 import { MembersPanel } from "./MembersPanel";
+import { TransferPanel } from "./TransferPanel";
 
-export type WorkspaceSettingsTab = "members" | "labels" | "calendar" | "appearance" | "general";
+export type WorkspaceSettingsTab =
+  | "members"
+  | "labels"
+  | "calendar"
+  | "appearance"
+  | "transfer"
+  | "general";
 
 /** The `tab` search param: anything unknown (and `members`, the default) is no param. */
 export function parseSettingsTab(raw: unknown): WorkspaceSettingsTab | undefined {
-  return raw === "labels" || raw === "calendar" || raw === "appearance" || raw === "general"
+  return raw === "labels" ||
+    raw === "calendar" ||
+    raw === "appearance" ||
+    raw === "transfer" ||
+    raw === "general"
     ? raw
     : undefined;
 }
@@ -51,11 +62,14 @@ export function WorkspaceSettings({
             <TabsTrigger value="labels">Labels</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
+            <TabsTrigger value="transfer">Import & export</TabsTrigger>
             <TabsTrigger value="general">General</TabsTrigger>
           </TabsList>
         </Tabs>
       </header>
-      {tab === "general" ? (
+      {tab === "transfer" ? (
+        <TransferPanel workspaceId={workspaceId} />
+      ) : tab === "general" ? (
         <GeneralPanel workspaceId={workspaceId} />
       ) : tab === "labels" ? (
         <LabelsPanel workspaceId={workspaceId} />

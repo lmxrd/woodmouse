@@ -121,3 +121,17 @@
 - Themes (`routes/themes.rs`): workspace palette/accent on `Workspace`, a member's own choice on
   `WorkspaceMember`, light/dark mode on `User.theme_mode`. The palette list is validated here and defined for
   display in the frontend (`themes.ts`); keep them in step.
+- **Notifications** (`src/notify.rs`, `routes/notifications.rs`): `notify::notify` writes a `Notification` in the
+  transaction of the change (never to the actor; skipped for people who cannot see the workspace; `task_changed`
+  and `page_changed` coalesce while unread). Watching is `Watch` rows (`/tasks|pages/{id}/watch`). Email is a
+  sweep, not inline: `jobs::send_pending_emails` (every minute) emails notifications for people with
+  `email_instant`, `jobs::deadline_notifications` and `jobs::send_digests` run every ten minutes and are idempotent
+  (dedupe by due date; digest once per ~20 hours at the person's local hour). Mail goes through the `Mailer`
+  trait (`src/mail.rs`): SMTP in production (settings: `EmailSettings` row fields override `SMTP_*`
+  env vars), `mail::Outbox` in tests (`AppState::with_mailer`).
+- **Files**: `File` describes the newest `FileVersion`; `POST /files/{id}/versions` keeps the old bytes (same id),
+  `DELETE /files/{id}` is soft (Trash kind `file`), cleanup removes every version's bytes.
+- **Import/export** (`src/transfer.rs`, `routes/transfer.rs`): one plan type (`Export`) for the JSON document and
+  for parsed CSV rows; `transfer::apply` previews first (`dry_run`), refuses with the report (422) while there are
+  problems or people without a choice (`user_map`: map to a member, create, or skip), and otherwise writes
+  everything in one transaction (`create_task_tx` takes the caller's executor), so it is all or nothing. Woodmouse's own schema only; members in a file are reported, never created.

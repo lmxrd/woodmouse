@@ -17,7 +17,7 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{
-    AuditLog, Comment, Label, List, Project, Role, SavedView, Sprint, Task, User, WikiPage,
+    AuditLog, Comment, File, Label, List, Project, Role, SavedView, Sprint, Task, User, WikiPage,
 };
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
@@ -52,6 +52,7 @@ pub enum TrashKind {
     View,
     Page,
     Sprint,
+    File,
 }
 
 /// One restorable thing in the trash. Items deleted as part of a bigger deletion (a task in a deleted
@@ -247,6 +248,24 @@ pub async fn list_trash(
         ));
     }
 
+    // Deleted files.
+    for f in File::filter_by_workspace_id(id)
+        .exec(db)
+        .await?
+        .iter()
+        .filter(|f| f.deleted_at.is_some())
+    {
+        raw.push((
+            TrashKind::File,
+            f.id,
+            f.name.clone(),
+            None,
+            f.deleted_at.unwrap_or_default(),
+            by("file", f.id),
+            0,
+        ));
+    }
+
     // Deleted sprints (not those whose project went too).
     let sprints = if projects.is_empty() {
         vec![]
@@ -376,6 +395,7 @@ pub async fn restore_item(
         TrashKind::Task => access::task_workspace(&mut *db, item_id).await?,
         TrashKind::Label => Label::get_by_id(&mut *db, &item_id).await?.workspace_id,
         TrashKind::Page => WikiPage::get_by_id(&mut *db, &item_id).await?.workspace_id,
+        TrashKind::File => File::get_by_id(&mut *db, &item_id).await?.workspace_id,
         TrashKind::Sprint => {
             let sprint = Sprint::get_by_id(&mut *db, &item_id).await?;
             access::project_workspace(&mut *db, sprint.project_id).await?
@@ -441,6 +461,14 @@ pub async fn restore_item(
             }
             trash::restore_page(&mut tx, &page).await?;
             ("page", page.title)
+        }
+        TrashKind::File => {
+            let file = File::get_by_id(&mut tx, &item_id).await?;
+            if file.deleted_at.is_none() {
+                return Err(ApiError::not_found());
+            }
+            trash::restore_file(&mut tx, item_id).await?;
+            ("file", file.name)
         }
         TrashKind::Sprint => {
             let sprint = Sprint::get_by_id(&mut tx, &item_id).await?;

@@ -5,6 +5,7 @@ import type { PageSummary } from "woodmouse-client";
 import { listPagesOptions } from "woodmouse-client/react-query";
 
 import { pageExportUrl } from "../../lib/api";
+import { useWatch } from "../notifications/WatchButton";
 import { afterIdAt } from "../../lib/position";
 import { subtreeIds } from "../../lib/pageTree";
 import { ActionMenu } from "../ActionMenu";
@@ -34,6 +35,7 @@ export function PageMenu({
   const { createPage, movePage, deletePage } = usePageActions(workspaceId);
   const [moving, setMoving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { watching, toggle: toggleWatch } = useWatch("page", page.id);
 
   const siblings = pages
     .filter((p) => (p.parent_id ?? null) === (page.parent_id ?? null))
@@ -58,6 +60,7 @@ export function PageMenu({
                 { label: "Move to…", onSelect: () => setMoving(true) },
               ]
             : []),
+          { label: watching ? "Stop watching" : "Watch page", onSelect: toggleWatch },
           ...(onHistory ? [{ label: "Version history", onSelect: onHistory }] : []),
           {
             label: "Export as Markdown",

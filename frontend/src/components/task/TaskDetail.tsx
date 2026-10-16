@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Attachments } from "./Attachments";
 import { Comments } from "./Comments";
+import { WatchButton } from "../notifications/WatchButton";
 import { DateField } from "./DateField";
 import { DurationField } from "./DurationField";
 import { LabelPicker } from "./LabelPicker";
@@ -179,15 +180,18 @@ function TaskForm({
           />
         </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="-mb-3 self-start font-normal text-muted-foreground"
-          onClick={() => setHistoryOpen(true)}
-        >
-          History of title and description
-        </Button>
+        <div className="-mb-3 flex flex-wrap gap-x-2 self-start">
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="-mb-3 font-normal text-muted-foreground"
+            onClick={() => setHistoryOpen(true)}
+          >
+            History of title and description
+          </Button>
+          <WatchButton kind="task" id={task.id} />
+        </div>
         <TaskHistory
           taskId={task.id}
           open={historyOpen}

@@ -237,6 +237,14 @@ pub async fn add_member(
         None
     };
     tx.commit().await?;
+    if let Some(token) = &invite_token {
+        crate::mail::send_invite(
+            state.mailer.clone(),
+            invitee.email.clone(),
+            invitee.name.clone(),
+            token.clone(),
+        );
+    }
     Ok((
         StatusCode::CREATED,
         Json(AddMemberResponse {

@@ -11,6 +11,7 @@ import {
 
 import { userLabel } from "../lib/user";
 import { useWorkspaceRole } from "../lib/useWorkspaceRole";
+import { NotificationBell } from "./notifications/NotificationBell";
 import { cn } from "../lib/utils";
 import { InlineAdd } from "./InlineAdd";
 import { UserAvatar } from "./UserAvatar";
@@ -120,6 +121,7 @@ export function Sidebar({
       ) : null}
 
       <nav className="flex flex-col text-sm" aria-label="Workspace">
+        <NotificationBell onNavigate={onNavigate} />
         {[
           { to: "/w/$workspaceId/my-tasks", label: "My tasks" },
           { to: "/w/$workspaceId/activity", label: "Activity" },

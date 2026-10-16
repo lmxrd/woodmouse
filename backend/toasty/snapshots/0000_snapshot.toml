@@ -4,40 +4,52 @@ version = 1
 
 [[schema.tables]]
 id = 0
-name = "page_docs"
+name = "content_links"
 primary_key = { columns = [{ table = 0, index = 0 }], index = { table = 0, index = 0 } }
 
 [[schema.tables.columns]]
 id = { table = 0, index = 0 }
-name = "page_id"
+name = "id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 0, index = 1 }
-name = "epoch"
-ty = "String"
-storage_ty = "Text"
+name = "source_page_id"
+ty = "Bytes"
+storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 0, index = 2 }
-name = "state"
-ty = "String"
-storage_ty = "Text"
+name = "target_id"
+ty = "Bytes"
+storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 0, index = 3 }
-name = "updated_at"
+name = "target_kind"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.indices]]
 id = { table = 0, index = 0 }
-name = "index_page_docs_by_page_id"
+name = "index_content_links_by_id"
 on = 0
 columns = [{ column = { table = 0, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
 primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 0, index = 1 }
+name = "index_content_links_by_source_page_id"
+on = 0
+columns = [{ column = { table = 0, index = 1 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables.indices]]
+id = { table = 0, index = 2 }
+name = "index_content_links_by_target_id"
+on = 0
+columns = [{ column = { table = 0, index = 2 }, op = "Eq", scope = "Partition" }]
 
 [[schema.tables]]
 id = 1
@@ -192,7 +204,7 @@ primary_key = true
 
 [[schema.tables]]
 id = 3
-name = "content_links"
+name = "revisions"
 primary_key = { columns = [{ table = 3, index = 0 }], index = { table = 3, index = 0 } }
 
 [[schema.tables.columns]]
@@ -203,9 +215,9 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 3, index = 1 }
-name = "source_page_id"
-ty = "Bytes"
-storage_ty = "Blob"
+name = "target_type"
+ty = "String"
+storage_ty = "Text"
 
 [[schema.tables.columns]]
 id = { table = 3, index = 2 }
@@ -215,13 +227,38 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 3, index = 3 }
-name = "target_kind"
+name = "actor_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 3, index = 4 }
+name = "created_at"
 ty = "String"
 storage_ty = "Text"
 
+[[schema.tables.columns]]
+id = { table = 3, index = 5 }
+name = "updated_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 3, index = 6 }
+name = "content"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 3, index = 7 }
+name = "redacted_at"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
 [[schema.tables.indices]]
 id = { table = 3, index = 0 }
-name = "index_content_links_by_id"
+name = "index_revisions_by_id"
 on = 3
 columns = [{ column = { table = 3, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
@@ -229,19 +266,13 @@ primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 3, index = 1 }
-name = "index_content_links_by_source_page_id"
-on = 3
-columns = [{ column = { table = 3, index = 1 }, op = "Eq", scope = "Partition" }]
-
-[[schema.tables.indices]]
-id = { table = 3, index = 2 }
-name = "index_content_links_by_target_id"
+name = "index_revisions_by_target_id"
 on = 3
 columns = [{ column = { table = 3, index = 2 }, op = "Eq", scope = "Partition" }]
 
 [[schema.tables]]
 id = 4
-name = "revisions"
+name = "saved_views"
 primary_key = { columns = [{ table = 4, index = 0 }], index = { table = 4, index = 0 } }
 
 [[schema.tables.columns]]
@@ -252,50 +283,56 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 4, index = 1 }
-name = "target_type"
-ty = "String"
-storage_ty = "Text"
+name = "workspace_id"
+ty = "Bytes"
+storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 4, index = 2 }
-name = "target_id"
+name = "project_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 4, index = 3 }
-name = "actor_id"
+name = "owner_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 4, index = 4 }
-name = "created_at"
+name = "name"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
 id = { table = 4, index = 5 }
-name = "updated_at"
+name = "params"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
 id = { table = 4, index = 6 }
-name = "content"
+name = "is_shared"
+ty = "Bool"
+storage_ty = "Boolean"
+
+[[schema.tables.columns]]
+id = { table = 4, index = 7 }
+name = "created_at"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
-id = { table = 4, index = 7 }
-name = "redacted_at"
+id = { table = 4, index = 8 }
+name = "deleted_at"
 ty = "String"
 storage_ty = "Text"
 nullable = true
 
 [[schema.tables.indices]]
 id = { table = 4, index = 0 }
-name = "index_revisions_by_id"
+name = "index_saved_views_by_id"
 on = 4
 columns = [{ column = { table = 4, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
@@ -303,13 +340,19 @@ primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 4, index = 1 }
-name = "index_revisions_by_target_id"
+name = "index_saved_views_by_workspace_id"
+on = 4
+columns = [{ column = { table = 4, index = 1 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables.indices]]
+id = { table = 4, index = 2 }
+name = "index_saved_views_by_project_id"
 on = 4
 columns = [{ column = { table = 4, index = 2 }, op = "Eq", scope = "Partition" }]
 
 [[schema.tables]]
 id = 5
-name = "saved_views"
+name = "projects"
 primary_key = { columns = [{ table = 5, index = 0 }], index = { table = 5, index = 0 } }
 
 [[schema.tables.columns]]
@@ -326,42 +369,18 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 5, index = 2 }
-name = "project_id"
-ty = "Bytes"
-storage_ty = "Blob"
-
-[[schema.tables.columns]]
-id = { table = 5, index = 3 }
-name = "owner_id"
-ty = "Bytes"
-storage_ty = "Blob"
-
-[[schema.tables.columns]]
-id = { table = 5, index = 4 }
 name = "name"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
-id = { table = 5, index = 5 }
-name = "params"
+id = { table = 5, index = 3 }
+name = "description"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
-id = { table = 5, index = 6 }
-name = "is_shared"
-ty = "Bool"
-storage_ty = "Boolean"
-
-[[schema.tables.columns]]
-id = { table = 5, index = 7 }
-name = "created_at"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 5, index = 8 }
+id = { table = 5, index = 4 }
 name = "deleted_at"
 ty = "String"
 storage_ty = "Text"
@@ -369,7 +388,7 @@ nullable = true
 
 [[schema.tables.indices]]
 id = { table = 5, index = 0 }
-name = "index_saved_views_by_id"
+name = "index_projects_by_id"
 on = 5
 columns = [{ column = { table = 5, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
@@ -377,19 +396,13 @@ primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 5, index = 1 }
-name = "index_saved_views_by_workspace_id"
+name = "index_projects_by_workspace_id"
 on = 5
 columns = [{ column = { table = 5, index = 1 }, op = "Eq", scope = "Partition" }]
 
-[[schema.tables.indices]]
-id = { table = 5, index = 2 }
-name = "index_saved_views_by_project_id"
-on = 5
-columns = [{ column = { table = 5, index = 2 }, op = "Eq", scope = "Partition" }]
-
 [[schema.tables]]
 id = 6
-name = "projects"
+name = "audit_logs"
 primary_key = { columns = [{ table = 6, index = 0 }], index = { table = 6, index = 0 } }
 
 [[schema.tables.columns]]
@@ -400,32 +413,59 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 6, index = 1 }
-name = "workspace_id"
+name = "actor_id"
 ty = "Bytes"
 storage_ty = "Blob"
+nullable = true
 
 [[schema.tables.columns]]
 id = { table = 6, index = 2 }
-name = "name"
+name = "action"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
 id = { table = 6, index = 3 }
-name = "description"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 6, index = 4 }
-name = "deleted_at"
+name = "target_type"
 ty = "String"
 storage_ty = "Text"
 nullable = true
 
+[[schema.tables.columns]]
+id = { table = 6, index = 4 }
+name = "target_id"
+ty = "Bytes"
+storage_ty = "Blob"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 6, index = 5 }
+name = "workspace_id"
+ty = "Bytes"
+storage_ty = "Blob"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 6, index = 6 }
+name = "visibility"
+ty = "String"
+storage_ty = { Enum = { name = "visibility", variants = [{ name = "workspace" }, { name = "admin" }] } }
+
+[[schema.tables.columns]]
+id = { table = 6, index = 7 }
+name = "data"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 6, index = 8 }
+name = "created_at"
+ty = "String"
+storage_ty = "Text"
+
 [[schema.tables.indices]]
 id = { table = 6, index = 0 }
-name = "index_projects_by_id"
+name = "index_audit_logs_by_id"
 on = 6
 columns = [{ column = { table = 6, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
@@ -433,153 +473,161 @@ primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 6, index = 1 }
-name = "index_projects_by_workspace_id"
+name = "index_audit_logs_by_workspace_id_and_visibility_and_created_at"
+on = 6
+columns = [{ column = { table = 6, index = 5 }, op = "Eq", scope = "Partition" }, { column = { table = 6, index = 6 }, op = "Eq", scope = "Local" }, { column = { table = 6, index = 8 }, op = "Eq", scope = "Local" }]
+
+[[schema.tables.indices]]
+id = { table = 6, index = 2 }
+name = "index_audit_logs_by_actor_id"
 on = 6
 columns = [{ column = { table = 6, index = 1 }, op = "Eq", scope = "Partition" }]
 
+[[schema.tables.indices]]
+id = { table = 6, index = 3 }
+name = "index_audit_logs_by_action"
+on = 6
+columns = [{ column = { table = 6, index = 2 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables.indices]]
+id = { table = 6, index = 4 }
+name = "index_audit_logs_by_target_id"
+on = 6
+columns = [{ column = { table = 6, index = 4 }, op = "Eq", scope = "Partition" }]
+
 [[schema.tables]]
 id = 7
-name = "audit_logs"
-primary_key = { columns = [{ table = 7, index = 0 }], index = { table = 7, index = 0 } }
-
-[[schema.tables.columns]]
-id = { table = 7, index = 0 }
-name = "id"
-ty = "Bytes"
-storage_ty = "Blob"
-
-[[schema.tables.columns]]
-id = { table = 7, index = 1 }
-name = "actor_id"
-ty = "Bytes"
-storage_ty = "Blob"
-nullable = true
-
-[[schema.tables.columns]]
-id = { table = 7, index = 2 }
-name = "action"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 7, index = 3 }
-name = "target_type"
-ty = "String"
-storage_ty = "Text"
-nullable = true
-
-[[schema.tables.columns]]
-id = { table = 7, index = 4 }
-name = "target_id"
-ty = "Bytes"
-storage_ty = "Blob"
-nullable = true
-
-[[schema.tables.columns]]
-id = { table = 7, index = 5 }
-name = "workspace_id"
-ty = "Bytes"
-storage_ty = "Blob"
-nullable = true
-
-[[schema.tables.columns]]
-id = { table = 7, index = 6 }
-name = "visibility"
-ty = "String"
-storage_ty = { Enum = { name = "visibility", variants = [{ name = "workspace" }, { name = "admin" }] } }
-
-[[schema.tables.columns]]
-id = { table = 7, index = 7 }
-name = "data"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 7, index = 8 }
-name = "created_at"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.indices]]
-id = { table = 7, index = 0 }
-name = "index_audit_logs_by_id"
-on = 7
-columns = [{ column = { table = 7, index = 0 }, op = "Eq", scope = "Partition" }]
-unique = true
-primary_key = true
-
-[[schema.tables.indices]]
-id = { table = 7, index = 1 }
-name = "index_audit_logs_by_workspace_id_and_visibility_and_created_at"
-on = 7
-columns = [{ column = { table = 7, index = 5 }, op = "Eq", scope = "Partition" }, { column = { table = 7, index = 6 }, op = "Eq", scope = "Local" }, { column = { table = 7, index = 8 }, op = "Eq", scope = "Local" }]
-
-[[schema.tables.indices]]
-id = { table = 7, index = 2 }
-name = "index_audit_logs_by_actor_id"
-on = 7
-columns = [{ column = { table = 7, index = 1 }, op = "Eq", scope = "Partition" }]
-
-[[schema.tables.indices]]
-id = { table = 7, index = 3 }
-name = "index_audit_logs_by_action"
-on = 7
-columns = [{ column = { table = 7, index = 2 }, op = "Eq", scope = "Partition" }]
-
-[[schema.tables.indices]]
-id = { table = 7, index = 4 }
-name = "index_audit_logs_by_target_id"
-on = 7
-columns = [{ column = { table = 7, index = 4 }, op = "Eq", scope = "Partition" }]
-
-[[schema.tables]]
-id = 8
 name = "file_refs"
-primary_key = { columns = [{ table = 8, index = 0 }, { table = 8, index = 1 }, { table = 8, index = 2 }], index = { table = 8, index = 0 } }
+primary_key = { columns = [{ table = 7, index = 0 }, { table = 7, index = 1 }, { table = 7, index = 2 }], index = { table = 7, index = 0 } }
 
 [[schema.tables.columns]]
-id = { table = 8, index = 0 }
+id = { table = 7, index = 0 }
 name = "file_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
-id = { table = 8, index = 1 }
+id = { table = 7, index = 1 }
 name = "target_type"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.columns]]
-id = { table = 8, index = 2 }
+id = { table = 7, index = 2 }
 name = "target_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
-id = { table = 8, index = 3 }
+id = { table = 7, index = 3 }
 name = "embedded"
 ty = "Bool"
 storage_ty = "Boolean"
 
 [[schema.tables.indices]]
-id = { table = 8, index = 0 }
+id = { table = 7, index = 0 }
 name = "index_file_refs_by_file_id_and_target_type_and_target_id"
+on = 7
+columns = [{ column = { table = 7, index = 0 }, op = "Eq", scope = "Partition" }, { column = { table = 7, index = 1 }, op = "Eq", scope = "Partition" }, { column = { table = 7, index = 2 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 7, index = 1 }
+name = "index_file_refs_by_file_id"
+on = 7
+columns = [{ column = { table = 7, index = 0 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables.indices]]
+id = { table = 7, index = 2 }
+name = "index_file_refs_by_target_id"
+on = 7
+columns = [{ column = { table = 7, index = 2 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables]]
+id = 8
+name = "file_versions"
+primary_key = { columns = [{ table = 8, index = 0 }], index = { table = 8, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 8, index = 0 }
+name = "id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 1 }
+name = "file_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 2 }
+name = "number"
+ty = "I64"
+storage_ty = { Integer = 8 }
+
+[[schema.tables.columns]]
+id = { table = 8, index = 3 }
+name = "name"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 4 }
+name = "mime"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 5 }
+name = "size"
+ty = "I64"
+storage_ty = { Integer = 8 }
+
+[[schema.tables.columns]]
+id = { table = 8, index = 6 }
+name = "sha256"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 7 }
+name = "storage_backend"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 8 }
+name = "storage_key"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 9 }
+name = "uploaded_by"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 8, index = 10 }
+name = "created_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.indices]]
+id = { table = 8, index = 0 }
+name = "index_file_versions_by_id"
 on = 8
-columns = [{ column = { table = 8, index = 0 }, op = "Eq", scope = "Partition" }, { column = { table = 8, index = 1 }, op = "Eq", scope = "Partition" }, { column = { table = 8, index = 2 }, op = "Eq", scope = "Partition" }]
+columns = [{ column = { table = 8, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
 primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 8, index = 1 }
-name = "index_file_refs_by_file_id"
+name = "index_file_versions_by_file_id"
 on = 8
-columns = [{ column = { table = 8, index = 0 }, op = "Eq", scope = "Partition" }]
-
-[[schema.tables.indices]]
-id = { table = 8, index = 2 }
-name = "index_file_refs_by_target_id"
-on = 8
-columns = [{ column = { table = 8, index = 2 }, op = "Eq", scope = "Partition" }]
+columns = [{ column = { table = 8, index = 1 }, op = "Eq", scope = "Partition" }]
 
 [[schema.tables]]
 id = 9
@@ -645,6 +693,13 @@ id = { table = 9, index = 9 }
 name = "created_at"
 ty = "String"
 storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 9, index = 10 }
+name = "deleted_at"
+ty = "String"
+storage_ty = "Text"
+nullable = true
 
 [[schema.tables.indices]]
 id = { table = 9, index = 0 }
@@ -1250,104 +1305,69 @@ unique = true
 
 [[schema.tables]]
 id = 19
-name = "calendar_links"
+name = "email_settings"
 primary_key = { columns = [{ table = 19, index = 0 }], index = { table = 19, index = 0 } }
 
 [[schema.tables.columns]]
 id = { table = 19, index = 0 }
 name = "id"
-ty = "Bytes"
-storage_ty = "Blob"
+ty = "I64"
+storage_ty = { Integer = 8 }
 
 [[schema.tables.columns]]
 id = { table = 19, index = 1 }
-name = "user_id"
-ty = "Bytes"
-storage_ty = "Blob"
+name = "host"
+ty = "String"
+storage_ty = "Text"
+nullable = true
 
 [[schema.tables.columns]]
 id = { table = 19, index = 2 }
-name = "scope"
-ty = "String"
-storage_ty = "Text"
+name = "port"
+ty = "I64"
+storage_ty = { Integer = 8 }
+nullable = true
 
 [[schema.tables.columns]]
 id = { table = 19, index = 3 }
-name = "workspace_id"
-ty = "Bytes"
-storage_ty = "Blob"
+name = "username"
+ty = "String"
+storage_ty = "Text"
 nullable = true
 
 [[schema.tables.columns]]
 id = { table = 19, index = 4 }
-name = "project_id"
-ty = "Bytes"
-storage_ty = "Blob"
+name = "password"
+ty = "String"
+storage_ty = "Text"
 nullable = true
 
 [[schema.tables.columns]]
 id = { table = 19, index = 5 }
-name = "name"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 19, index = 6 }
-name = "mode"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 19, index = 7 }
-name = "secret"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 19, index = 8 }
-name = "created_at"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 19, index = 9 }
-name = "last_used_at"
+name = "sender"
 ty = "String"
 storage_ty = "Text"
 nullable = true
 
 [[schema.tables.columns]]
-id = { table = 19, index = 10 }
-name = "revoked_at"
+id = { table = 19, index = 6 }
+name = "tls"
 ty = "String"
 storage_ty = "Text"
 nullable = true
 
 [[schema.tables.indices]]
 id = { table = 19, index = 0 }
-name = "index_calendar_links_by_id"
+name = "index_email_settings_by_id"
 on = 19
 columns = [{ column = { table = 19, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
 primary_key = true
 
-[[schema.tables.indices]]
-id = { table = 19, index = 1 }
-name = "index_calendar_links_by_user_id"
-on = 19
-columns = [{ column = { table = 19, index = 1 }, op = "Eq", scope = "Partition" }]
-
-[[schema.tables.indices]]
-id = { table = 19, index = 2 }
-name = "index_calendar_links_by_secret"
-on = 19
-columns = [{ column = { table = 19, index = 7 }, op = "Eq", scope = "Partition" }]
-unique = true
-
 [[schema.tables]]
 id = 20
-name = "workspace_members"
-primary_key = { columns = [{ table = 20, index = 0 }, { table = 20, index = 1 }], index = { table = 20, index = 0 } }
+name = "notification_settings"
+primary_key = { columns = [{ table = 20, index = 0 }], index = { table = 20, index = 0 } }
 
 [[schema.tables.columns]]
 id = { table = 20, index = 0 }
@@ -1357,47 +1377,40 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 20, index = 1 }
-name = "workspace_id"
-ty = "Bytes"
-storage_ty = "Blob"
+name = "email_instant"
+ty = "Bool"
+storage_ty = "Boolean"
 
 [[schema.tables.columns]]
 id = { table = 20, index = 2 }
-name = "role"
-ty = "String"
-storage_ty = { Enum = { name = "role", variants = [{ name = "read" }, { name = "write" }, { name = "admin" }] } }
+name = "digest"
+ty = "Bool"
+storage_ty = "Boolean"
 
 [[schema.tables.columns]]
 id = { table = 20, index = 3 }
-name = "theme_palette"
-ty = "String"
-storage_ty = "Text"
-nullable = true
+name = "digest_hour"
+ty = "I64"
+storage_ty = { Integer = 8 }
 
 [[schema.tables.columns]]
 id = { table = 20, index = 4 }
-name = "theme_accent"
+name = "last_digest_at"
 ty = "String"
 storage_ty = "Text"
 nullable = true
 
 [[schema.tables.indices]]
 id = { table = 20, index = 0 }
-name = "index_workspace_members_by_user_id_and_workspace_id"
+name = "index_notification_settings_by_user_id"
 on = 20
-columns = [{ column = { table = 20, index = 0 }, op = "Eq", scope = "Partition" }, { column = { table = 20, index = 1 }, op = "Eq", scope = "Partition" }]
+columns = [{ column = { table = 20, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
 primary_key = true
 
-[[schema.tables.indices]]
-id = { table = 20, index = 1 }
-name = "index_workspace_members_by_user_id"
-on = 20
-columns = [{ column = { table = 20, index = 0 }, op = "Eq", scope = "Partition" }]
-
 [[schema.tables]]
 id = 21
-name = "user_invites"
+name = "notifications"
 primary_key = { columns = [{ table = 21, index = 0 }], index = { table = 21, index = 0 } }
 
 [[schema.tables.columns]]
@@ -1408,25 +1421,72 @@ storage_ty = "Blob"
 
 [[schema.tables.columns]]
 id = { table = 21, index = 1 }
-name = "token"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 21, index = 2 }
 name = "user_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
-id = { table = 21, index = 3 }
-name = "expires_at"
+id = { table = 21, index = 2 }
+name = "kind"
 ty = "String"
 storage_ty = "Text"
 
+[[schema.tables.columns]]
+id = { table = 21, index = 3 }
+name = "workspace_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 21, index = 4 }
+name = "target_type"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 21, index = 5 }
+name = "target_id"
+ty = "Bytes"
+storage_ty = "Blob"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 21, index = 6 }
+name = "actor_id"
+ty = "Bytes"
+storage_ty = "Blob"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 21, index = 7 }
+name = "data"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 21, index = 8 }
+name = "created_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 21, index = 9 }
+name = "read_at"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 21, index = 10 }
+name = "emailed_at"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
 [[schema.tables.indices]]
 id = { table = 21, index = 0 }
-name = "index_user_invites_by_id"
+name = "index_notifications_by_id"
 on = 21
 columns = [{ column = { table = 21, index = 0 }, op = "Eq", scope = "Partition" }]
 unique = true
@@ -1434,63 +1494,339 @@ primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 21, index = 1 }
-name = "index_user_invites_by_token"
+name = "index_notifications_by_user_id_and_created_at"
 on = 21
-columns = [{ column = { table = 21, index = 1 }, op = "Eq", scope = "Partition" }]
-unique = true
-
-[[schema.tables.indices]]
-id = { table = 21, index = 2 }
-name = "index_user_invites_by_user_id"
-on = 21
-columns = [{ column = { table = 21, index = 2 }, op = "Eq", scope = "Partition" }]
+columns = [{ column = { table = 21, index = 1 }, op = "Eq", scope = "Partition" }, { column = { table = 21, index = 8 }, op = "Eq", scope = "Local" }]
 
 [[schema.tables]]
 id = 22
-name = "sessions"
-primary_key = { columns = [{ table = 22, index = 0 }], index = { table = 22, index = 0 } }
+name = "watches"
+primary_key = { columns = [{ table = 22, index = 0 }, { table = 22, index = 1 }, { table = 22, index = 2 }], index = { table = 22, index = 0 } }
 
 [[schema.tables.columns]]
 id = { table = 22, index = 0 }
-name = "id"
-ty = "Bytes"
-storage_ty = "Blob"
-
-[[schema.tables.columns]]
-id = { table = 22, index = 1 }
-name = "token"
-ty = "String"
-storage_ty = "Text"
-
-[[schema.tables.columns]]
-id = { table = 22, index = 2 }
 name = "user_id"
 ty = "Bytes"
 storage_ty = "Blob"
 
 [[schema.tables.columns]]
+id = { table = 22, index = 1 }
+name = "target_type"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 22, index = 2 }
+name = "target_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
 id = { table = 22, index = 3 }
-name = "expires_at"
+name = "created_at"
 ty = "String"
 storage_ty = "Text"
 
 [[schema.tables.indices]]
 id = { table = 22, index = 0 }
-name = "index_sessions_by_id"
+name = "index_watches_by_user_id_and_target_type_and_target_id"
 on = 22
-columns = [{ column = { table = 22, index = 0 }, op = "Eq", scope = "Partition" }]
+columns = [{ column = { table = 22, index = 0 }, op = "Eq", scope = "Partition" }, { column = { table = 22, index = 1 }, op = "Eq", scope = "Partition" }, { column = { table = 22, index = 2 }, op = "Eq", scope = "Partition" }]
 unique = true
 primary_key = true
 
 [[schema.tables.indices]]
 id = { table = 22, index = 1 }
-name = "index_sessions_by_token"
+name = "index_watches_by_user_id"
 on = 22
-columns = [{ column = { table = 22, index = 1 }, op = "Eq", scope = "Partition" }]
-unique = true
+columns = [{ column = { table = 22, index = 0 }, op = "Eq", scope = "Partition" }]
 
 [[schema.tables.indices]]
 id = { table = 22, index = 2 }
-name = "index_sessions_by_user_id"
+name = "index_watches_by_target_id"
 on = 22
 columns = [{ column = { table = 22, index = 2 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables]]
+id = 23
+name = "calendar_links"
+primary_key = { columns = [{ table = 23, index = 0 }], index = { table = 23, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 23, index = 0 }
+name = "id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 1 }
+name = "user_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 2 }
+name = "scope"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 3 }
+name = "workspace_id"
+ty = "Bytes"
+storage_ty = "Blob"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 23, index = 4 }
+name = "project_id"
+ty = "Bytes"
+storage_ty = "Blob"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 23, index = 5 }
+name = "name"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 6 }
+name = "mode"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 7 }
+name = "secret"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 8 }
+name = "created_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 23, index = 9 }
+name = "last_used_at"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 23, index = 10 }
+name = "revoked_at"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.indices]]
+id = { table = 23, index = 0 }
+name = "index_calendar_links_by_id"
+on = 23
+columns = [{ column = { table = 23, index = 0 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 23, index = 1 }
+name = "index_calendar_links_by_user_id"
+on = 23
+columns = [{ column = { table = 23, index = 1 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables.indices]]
+id = { table = 23, index = 2 }
+name = "index_calendar_links_by_secret"
+on = 23
+columns = [{ column = { table = 23, index = 7 }, op = "Eq", scope = "Partition" }]
+unique = true
+
+[[schema.tables]]
+id = 24
+name = "page_docs"
+primary_key = { columns = [{ table = 24, index = 0 }], index = { table = 24, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 24, index = 0 }
+name = "page_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 24, index = 1 }
+name = "epoch"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 24, index = 2 }
+name = "state"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 24, index = 3 }
+name = "updated_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.indices]]
+id = { table = 24, index = 0 }
+name = "index_page_docs_by_page_id"
+on = 24
+columns = [{ column = { table = 24, index = 0 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables]]
+id = 25
+name = "workspace_members"
+primary_key = { columns = [{ table = 25, index = 0 }, { table = 25, index = 1 }], index = { table = 25, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 25, index = 0 }
+name = "user_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 25, index = 1 }
+name = "workspace_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 25, index = 2 }
+name = "role"
+ty = "String"
+storage_ty = { Enum = { name = "role", variants = [{ name = "read" }, { name = "write" }, { name = "admin" }] } }
+
+[[schema.tables.columns]]
+id = { table = 25, index = 3 }
+name = "theme_palette"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 25, index = 4 }
+name = "theme_accent"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.indices]]
+id = { table = 25, index = 0 }
+name = "index_workspace_members_by_user_id_and_workspace_id"
+on = 25
+columns = [{ column = { table = 25, index = 0 }, op = "Eq", scope = "Partition" }, { column = { table = 25, index = 1 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 25, index = 1 }
+name = "index_workspace_members_by_user_id"
+on = 25
+columns = [{ column = { table = 25, index = 0 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables]]
+id = 26
+name = "user_invites"
+primary_key = { columns = [{ table = 26, index = 0 }], index = { table = 26, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 26, index = 0 }
+name = "id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 26, index = 1 }
+name = "token"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 26, index = 2 }
+name = "user_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 26, index = 3 }
+name = "expires_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.indices]]
+id = { table = 26, index = 0 }
+name = "index_user_invites_by_id"
+on = 26
+columns = [{ column = { table = 26, index = 0 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 26, index = 1 }
+name = "index_user_invites_by_token"
+on = 26
+columns = [{ column = { table = 26, index = 1 }, op = "Eq", scope = "Partition" }]
+unique = true
+
+[[schema.tables.indices]]
+id = { table = 26, index = 2 }
+name = "index_user_invites_by_user_id"
+on = 26
+columns = [{ column = { table = 26, index = 2 }, op = "Eq", scope = "Partition" }]
+
+[[schema.tables]]
+id = 27
+name = "sessions"
+primary_key = { columns = [{ table = 27, index = 0 }], index = { table = 27, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 27, index = 0 }
+name = "id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 27, index = 1 }
+name = "token"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 27, index = 2 }
+name = "user_id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 27, index = 3 }
+name = "expires_at"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.indices]]
+id = { table = 27, index = 0 }
+name = "index_sessions_by_id"
+on = 27
+columns = [{ column = { table = 27, index = 0 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 27, index = 1 }
+name = "index_sessions_by_token"
+on = 27
+columns = [{ column = { table = 27, index = 1 }, op = "Eq", scope = "Partition" }]
+unique = true
+
+[[schema.tables.indices]]
+id = { table = 27, index = 2 }
+name = "index_sessions_by_user_id"
+on = 27
+columns = [{ column = { table = 27, index = 2 }, op = "Eq", scope = "Partition" }]

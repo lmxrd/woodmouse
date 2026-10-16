@@ -12,7 +12,7 @@ use jiff::civil::DateTime;
 use toasty::stmt::in_list;
 
 use crate::error::ApiError;
-use crate::models::{Label, List, Project, Sprint, Task, WikiPage, Workspace};
+use crate::models::{File, Label, List, Project, Sprint, Task, WikiPage, Workspace};
 
 type Db<'a> = &'a mut dyn toasty::Executor;
 
@@ -117,6 +117,25 @@ pub async fn delete_project(
     Project::filter_by_id(project_id)
         .update()
         .deleted_at(Some(now))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// Delete a file (soft): hidden everywhere until restored.
+pub async fn delete_file(db: Db<'_>, file: &File, now: DateTime) -> Result<(), ApiError> {
+    File::filter_by_id(file.id)
+        .update()
+        .deleted_at(Some(now))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn restore_file(db: Db<'_>, file_id: uuid::Uuid) -> Result<(), ApiError> {
+    File::filter_by_id(file_id)
+        .update()
+        .deleted_at(None::<DateTime>)
         .exec(db)
         .await?;
     Ok(())

@@ -10,9 +10,9 @@ use utoipa::ToSchema;
 
 use crate::error::ApiError;
 use crate::models::{
-    CalendarLink, Comment, ContentLink, File, FileRef, Label, List, PageDoc, Project, Revision,
-    SavedView, Session, Sprint, Task, TaskAssignee, TaskLabel, TaskLink, User, WikiPage, Workspace,
-    WorkspaceMember,
+    CalendarLink, Comment, ContentLink, File, FileRef, FileVersion, Label, List, PageDoc, Project,
+    Revision, SavedView, Session, Sprint, Task, TaskAssignee, TaskLabel, TaskLink, User, WikiPage,
+    Workspace, WorkspaceMember,
 };
 
 /// One row that refers to something that does not exist.
@@ -202,6 +202,15 @@ pub async fn check(db: &mut dyn toasty::Executor) -> Result<Vec<Problem>, ApiErr
             "workspace_id -> workspaces",
             f.workspace_id,
             &workspace_ids,
+        );
+    }
+    for v in FileVersion::all().exec(db).await? {
+        r.check(
+            "file_versions",
+            v.id,
+            "file_id -> files",
+            v.file_id,
+            &file_ids,
         );
     }
     for f in FileRef::all().exec(db).await? {

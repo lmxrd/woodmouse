@@ -63,6 +63,8 @@ export function describeActivity(
       return {
         text: `linked "${title}": it ${KIND_PHRASE[str(d.kind)] ?? str(d.kind)} "${str(d.other)}"`,
       };
+    case "file_version_added":
+      return { text: `uploaded version ${String(d.version)} of ${str(d.file)}` };
     case "sprint_created":
       return { text: `created the sprint "${str(d.name)}"` };
     case "sprint_completed":

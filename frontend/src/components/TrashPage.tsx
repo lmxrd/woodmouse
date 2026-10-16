@@ -16,6 +16,7 @@ const KIND_LABEL: Record<TrashItem["kind"], string> = {
   view: "View",
   page: "Page",
   sprint: "Sprint",
+  file: "File",
 };
 
 function detail(item: TrashItem): string {

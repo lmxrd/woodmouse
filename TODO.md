@@ -2,17 +2,17 @@
 
 ## Import / export
 
-- [ ] Import/export (CSV/JSON import/export; Markdown export already ships)
+- [x] Import/export (CSV/JSON import/export; Markdown export already ships)
 
 ## Email & notifications
 
-- [ ] SMTP/email support
-- [ ] Email digests
-- [ ] In-app notifications
+- [x] SMTP/email support
+- [x] Email digests
+- [x] In-app notifications
 
 ## Activity feeds
 
-- [ ] Activity feeds scoped per project and per task (a workspace-wide feed already ships)
+- [x] Activity feeds scoped per project and per task (a workspace-wide feed already ships)
 
 ## Tasks
 
@@ -34,7 +34,7 @@
 ## Files page
 
 - [x] Per file entry: reference count next to the file size
-- [ ] Right side buttons: upload new version, download a version, delete file
+- [x] Right side buttons: upload new version, download a version, delete file
 - [x] Downloading a file only happens via the button, never by pressing the title
 
 ## Backend

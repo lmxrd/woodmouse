@@ -20,9 +20,11 @@ import { Route as SettingsAccountRouteImport } from './routes/settings.account'
 import { Route as SettingsAdminRouteImport } from './routes/settings.admin'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as SettingsCalendarRouteImport } from './routes/settings.calendar'
+import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
 import { Route as SettingsPasswordRouteImport } from './routes/settings.password'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
 import { Route as SettingsAdminAuditRouteImport } from './routes/settings.admin.audit'
+import { Route as SettingsAdminEmailRouteImport } from './routes/settings.admin.email'
 import { Route as SettingsAdminMaintenanceRouteImport } from './routes/settings.admin.maintenance'
 import { Route as SettingsAdminUsersRouteImport } from './routes/settings.admin.users'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
@@ -94,6 +96,11 @@ const SettingsCalendarRoute = SettingsCalendarRouteImport.update({
   path: '/calendar',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsPasswordRoute = SettingsPasswordRouteImport.update({
   id: '/password',
   path: '/password',
@@ -107,6 +114,11 @@ const WWorkspaceIdRoute = WWorkspaceIdRouteImport.update({
 const SettingsAdminAuditRoute = SettingsAdminAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => SettingsAdminRoute,
+} as any)
+const SettingsAdminEmailRoute = SettingsAdminEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
   getParentRoute: () => SettingsAdminRoute,
 } as any)
 const SettingsAdminMaintenanceRoute =
@@ -200,10 +212,12 @@ export interface FileRoutesByFullPath {
   '/settings/admin': typeof SettingsAdminRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/calendar': typeof SettingsCalendarRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/password': typeof SettingsPasswordRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
   '/settings/': typeof SettingsIndexRoute
   '/settings/admin/audit': typeof SettingsAdminAuditRoute
+  '/settings/admin/email': typeof SettingsAdminEmailRoute
   '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
   '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
@@ -230,9 +244,11 @@ export interface FileRoutesByTo {
   '/settings/admin': typeof SettingsAdminRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/calendar': typeof SettingsCalendarRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/password': typeof SettingsPasswordRoute
   '/settings': typeof SettingsIndexRoute
   '/settings/admin/audit': typeof SettingsAdminAuditRoute
+  '/settings/admin/email': typeof SettingsAdminEmailRoute
   '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
   '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
@@ -261,10 +277,12 @@ export interface FileRoutesById {
   '/settings/admin': typeof SettingsAdminRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/calendar': typeof SettingsCalendarRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/password': typeof SettingsPasswordRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
   '/settings/': typeof SettingsIndexRoute
   '/settings/admin/audit': typeof SettingsAdminAuditRoute
+  '/settings/admin/email': typeof SettingsAdminEmailRoute
   '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
   '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
@@ -294,10 +312,12 @@ export interface FileRouteTypes {
     | '/settings/admin'
     | '/settings/appearance'
     | '/settings/calendar'
+    | '/settings/notifications'
     | '/settings/password'
     | '/w/$workspaceId'
     | '/settings/'
     | '/settings/admin/audit'
+    | '/settings/admin/email'
     | '/settings/admin/maintenance'
     | '/settings/admin/users'
     | '/w/$workspaceId/activity'
@@ -324,9 +344,11 @@ export interface FileRouteTypes {
     | '/settings/admin'
     | '/settings/appearance'
     | '/settings/calendar'
+    | '/settings/notifications'
     | '/settings/password'
     | '/settings'
     | '/settings/admin/audit'
+    | '/settings/admin/email'
     | '/settings/admin/maintenance'
     | '/settings/admin/users'
     | '/w/$workspaceId/activity'
@@ -354,10 +376,12 @@ export interface FileRouteTypes {
     | '/settings/admin'
     | '/settings/appearance'
     | '/settings/calendar'
+    | '/settings/notifications'
     | '/settings/password'
     | '/w/$workspaceId'
     | '/settings/'
     | '/settings/admin/audit'
+    | '/settings/admin/email'
     | '/settings/admin/maintenance'
     | '/settings/admin/users'
     | '/w/$workspaceId/activity'
@@ -464,6 +488,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsCalendarRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/notifications': {
+      id: '/settings/notifications'
+      path: '/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/password': {
       id: '/settings/password'
       path: '/password'
@@ -483,6 +514,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/settings/admin/audit'
       preLoaderRoute: typeof SettingsAdminAuditRouteImport
+      parentRoute: typeof SettingsAdminRoute
+    }
+    '/settings/admin/email': {
+      id: '/settings/admin/email'
+      path: '/email'
+      fullPath: '/settings/admin/email'
+      preLoaderRoute: typeof SettingsAdminEmailRouteImport
       parentRoute: typeof SettingsAdminRoute
     }
     '/settings/admin/maintenance': {
@@ -595,6 +633,7 @@ declare module '@tanstack/react-router' {
 
 interface SettingsAdminRouteChildren {
   SettingsAdminAuditRoute: typeof SettingsAdminAuditRoute
+  SettingsAdminEmailRoute: typeof SettingsAdminEmailRoute
   SettingsAdminMaintenanceRoute: typeof SettingsAdminMaintenanceRoute
   SettingsAdminUsersRoute: typeof SettingsAdminUsersRoute
   SettingsAdminWorkspacesWorkspaceIdRoute: typeof SettingsAdminWorkspacesWorkspaceIdRoute
@@ -603,6 +642,7 @@ interface SettingsAdminRouteChildren {
 
 const SettingsAdminRouteChildren: SettingsAdminRouteChildren = {
   SettingsAdminAuditRoute: SettingsAdminAuditRoute,
+  SettingsAdminEmailRoute: SettingsAdminEmailRoute,
   SettingsAdminMaintenanceRoute: SettingsAdminMaintenanceRoute,
   SettingsAdminUsersRoute: SettingsAdminUsersRoute,
   SettingsAdminWorkspacesWorkspaceIdRoute:
@@ -619,6 +659,7 @@ interface SettingsRouteChildren {
   SettingsAdminRoute: typeof SettingsAdminRouteWithChildren
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsCalendarRoute: typeof SettingsCalendarRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsPasswordRoute: typeof SettingsPasswordRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
@@ -628,6 +669,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdminRoute: SettingsAdminRouteWithChildren,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsCalendarRoute: SettingsCalendarRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsPasswordRoute: SettingsPasswordRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }

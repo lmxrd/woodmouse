@@ -859,3 +859,130 @@ async fn removing_a_file_block_detaches_it_but_hand_attachments_stay() {
     assert_eq!(detached.len(), 1);
     assert_eq!(detached[0]["data"]["file"], "oak.png");
 }
+
+#[tokio::test]
+async fn files_have_versions_and_are_deleted_softly() {
+    let fx = fixture().await;
+    let uri = format!("/api/workspaces/{}/files", fx.ws);
+    let res = request(
+        &fx.app,
+        upload(
+            &uri,
+            "plan.txt",
+            "text/plain",
+            b"first draft",
+            Some(&fx.task),
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    let file = json(res).await;
+    let id = file["id"].as_str().unwrap().to_string();
+    assert_eq!(file["versions"], 1);
+
+    // A new version keeps the id and the name; the old content stays downloadable.
+    let res = request(
+        &fx.app,
+        upload(
+            &format!("/api/files/{id}/versions"),
+            "ignored-name.txt",
+            "text/plain",
+            b"second draft, longer",
+            None,
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let updated = json(res).await;
+    assert_eq!(updated["id"], id);
+    assert_eq!(updated["name"], "plan.txt");
+    assert_eq!(updated["versions"], 2);
+    assert_eq!(updated["size"], 20);
+
+    // The same content again is refused.
+    let res = request(
+        &fx.app,
+        upload(
+            &format!("/api/files/{id}/versions"),
+            "x.txt",
+            "text/plain",
+            b"second draft, longer",
+            None,
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    let versions = json(
+        request(
+            &fx.app,
+            get(&format!("/api/files/{id}/versions"), Some(&fx.admin)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(versions.as_array().unwrap().len(), 2);
+    assert_eq!(versions[0]["number"], 2);
+    assert_eq!(versions[0]["current"], true);
+    let first = versions[1]["id"].as_str().unwrap().to_string();
+    let res = request(
+        &fx.app,
+        get(
+            &format!("/api/files/{id}/versions/{first}/content"),
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(body_string(res.into_body()).await, "first draft");
+    let res = request(
+        &fx.app,
+        get(&format!("/api/files/{id}/content"), Some(&fx.admin)),
+    )
+    .await;
+    assert_eq!(body_string(res.into_body()).await, "second draft, longer");
+
+    // Deleting is soft: it leaves the library and the task, and the Trash can bring it back.
+    let res = request(
+        &fx.app,
+        delete(&format!("/api/files/{id}"), Some(&fx.admin)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let library = json(request(&fx.app, get(&uri, Some(&fx.admin))).await).await;
+    assert!(library.as_array().unwrap().is_empty());
+    let res = request(
+        &fx.app,
+        get(&format!("/api/files/{id}/content"), Some(&fx.admin)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let trash = json(
+        request(
+            &fx.app,
+            get(&format!("/api/workspaces/{}/trash", fx.ws), Some(&fx.admin)),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        trash
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["kind"] == "file")
+    );
+    let res = request(
+        &fx.app,
+        post_json(
+            &format!("/api/workspaces/{}/trash/file/{id}/restore", fx.ws),
+            "{}",
+            Some(&fx.admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let library = json(request(&fx.app, get(&uri, Some(&fx.admin))).await).await;
+    assert_eq!(library.as_array().unwrap().len(), 1);
+}

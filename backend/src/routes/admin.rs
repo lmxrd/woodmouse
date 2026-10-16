@@ -15,7 +15,9 @@ use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
 use crate::integrity::{self, Problem};
-use crate::models::{AuditLog, Project, Revision, Role, User, Workspace, WorkspaceMember};
+use crate::models::{
+    AuditLog, EmailSettings, Project, Revision, Role, User, Workspace, WorkspaceMember,
+};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::routes::members::issue_invite;
 use crate::state::AppState;
@@ -33,6 +35,11 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(admin_redact_revision))
         .routes(routes!(admin_integrity))
         .routes(routes!(admin_backup))
+        .routes(routes!(
+            admin_get_email_settings,
+            admin_update_email_settings
+        ))
+        .routes(routes!(admin_test_email))
 }
 
 /// A user as the site admin sees them.
@@ -199,6 +206,12 @@ pub async fn admin_create_user(
     }
     let invite_token = issue_invite(&mut tx, created.id).await?;
     tx.commit().await?;
+    crate::mail::send_invite(
+        state.mailer.clone(),
+        created.email.clone(),
+        created.name.clone(),
+        invite_token.clone(),
+    );
     let memberships = memberships_of(&mut *db, created.id).await?;
     Ok((
         StatusCode::CREATED,
@@ -241,6 +254,12 @@ pub async fn admin_reissue_invite(
     let mut tx = db.transaction().await?;
     let invite_token = issue_invite(&mut tx, id).await?;
     tx.commit().await?;
+    crate::mail::send_invite(
+        state.mailer.clone(),
+        target.email.clone(),
+        target.name.clone(),
+        invite_token.clone(),
+    );
     Ok(Json(Invite { invite_token }))
 }
 
@@ -611,4 +630,212 @@ pub async fn admin_backup(
     Ok(Json(BackupResult {
         path: path.display().to_string(),
     }))
+}
+
+/// The SMTP settings the super admin edits, next to what the environment provides.
+#[derive(Serialize, ToSchema)]
+pub struct EmailSettingsView {
+    /// What is set in the database (these win over the environment).
+    pub host: Option<String>,
+    pub port: Option<i64>,
+    pub username: Option<String>,
+    pub from_address: Option<String>,
+    /// `starttls`, `tls` or `none`.
+    pub tls: Option<String>,
+    pub has_password: bool,
+    /// What the environment provides (`SMTP_*`).
+    pub env: EnvEmail,
+    /// Whether email can be sent with what is in force now.
+    pub configured: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct EnvEmail {
+    pub host: Option<String>,
+    pub port: Option<i64>,
+    pub username: Option<String>,
+    pub from_address: Option<String>,
+    pub tls: String,
+    pub has_password: bool,
+}
+
+async fn email_view(db: &mut dyn toasty::Executor) -> Result<EmailSettingsView, ApiError> {
+    let row = EmailSettings::filter_by_id(1)
+        .first()
+        .exec(&mut *db)
+        .await?;
+    let env = crate::mail::env_config();
+    let effective = crate::mail::effective_config(db).await;
+    Ok(EmailSettingsView {
+        host: row.as_ref().and_then(|r| r.host.clone()),
+        port: row.as_ref().and_then(|r| r.port),
+        username: row.as_ref().and_then(|r| r.username.clone()),
+        from_address: row.as_ref().and_then(|r| r.sender.clone()),
+        tls: row.as_ref().and_then(|r| r.tls.clone()),
+        has_password: row.as_ref().is_some_and(|r| r.password.is_some()),
+        env: EnvEmail {
+            host: env.host,
+            port: env.port.map(i64::from),
+            username: env.username,
+            from_address: env.from,
+            tls: env.tls,
+            has_password: env.password.is_some(),
+        },
+        configured: effective.complete(),
+    })
+}
+
+/// The email settings.
+#[utoipa::path(
+    get,
+    path = "/admin/email",
+    tag = "admin",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "Email settings", body = EmailSettingsView),
+        (status = 404, description = "Not the super admin")
+    )
+)]
+pub async fn admin_get_email_settings(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+) -> Result<Json<EmailSettingsView>, ApiError> {
+    access::require_super_admin(&user)?;
+    Ok(Json(email_view(&mut state.db()).await?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateEmailSettings {
+    /// Empty or null removes the override (the environment applies).
+    pub host: Option<String>,
+    pub port: Option<i64>,
+    pub username: Option<String>,
+    pub from_address: Option<String>,
+    pub tls: Option<String>,
+    /// Absent keeps the stored password; an empty string removes it.
+    pub password: Option<String>,
+}
+
+/// Replace the settings stored in the database. A field left empty falls back to the environment.
+#[utoipa::path(
+    put,
+    path = "/admin/email",
+    tag = "admin",
+    security(("session_cookie" = [])),
+    request_body = UpdateEmailSettings,
+    responses(
+        (status = 200, description = "Saved settings", body = EmailSettingsView),
+        (status = 400, description = "Invalid value"),
+        (status = 404, description = "Not the super admin")
+    )
+)]
+pub async fn admin_update_email_settings(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<UpdateEmailSettings>,
+) -> Result<Json<EmailSettingsView>, ApiError> {
+    access::require_super_admin(&user)?;
+    let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let (host, username, from, tls) = (
+        clean(input.host),
+        clean(input.username),
+        clean(input.from_address),
+        clean(input.tls),
+    );
+    if tls
+        .as_deref()
+        .is_some_and(|t| !["starttls", "tls", "none"].contains(&t))
+    {
+        return Err(ApiError::bad_request("tls must be starttls, tls or none"));
+    }
+    if input.port.is_some_and(|p| !(1..=65535).contains(&p)) {
+        return Err(ApiError::bad_request("the port must be 1 to 65535"));
+    }
+    let mut db = state.writer().await;
+    let existing = EmailSettings::filter_by_id(1)
+        .first()
+        .exec(&mut *db)
+        .await?;
+    let password = match input.password {
+        None => existing.as_ref().and_then(|r| r.password.clone()),
+        Some(p) => clean(Some(p)),
+    };
+    if existing.is_some() {
+        EmailSettings::filter_by_id(1)
+            .update()
+            .host(host)
+            .port(input.port)
+            .username(username)
+            .password(password)
+            .sender(from)
+            .tls(tls)
+            .exec(&mut *db)
+            .await?;
+    } else {
+        toasty::create!(EmailSettings {
+            id: 1,
+            host,
+            port: input.port,
+            username,
+            password,
+            sender: from,
+            tls,
+        })
+        .exec(&mut *db)
+        .await?;
+    }
+    let mut tx = db.transaction().await?;
+    audit::record(
+        &mut tx,
+        Entry::admin(Some(user.id), "email_settings_changed"),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(email_view(&mut *db).await?))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct TestEmail {
+    /// Where to send it; defaults to your own address.
+    pub to: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct TestEmailResult {
+    pub sent_to: String,
+}
+
+/// Send a test email with the settings in force.
+#[utoipa::path(
+    post,
+    path = "/admin/email/test",
+    tag = "admin",
+    security(("session_cookie" = [])),
+    request_body = TestEmail,
+    responses(
+        (status = 200, description = "Sent", body = TestEmailResult),
+        (status = 400, description = "Email is not configured, or the server refused it"),
+        (status = 404, description = "Not the super admin")
+    )
+)]
+pub async fn admin_test_email(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<TestEmail>,
+) -> Result<Json<TestEmailResult>, ApiError> {
+    access::require_super_admin(&user)?;
+    let to = input
+        .to
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(user.email.clone());
+    state
+        .mailer
+        .send(crate::mail::Mail {
+            to: to.clone(),
+            subject: "Woodmouse test email".to_string(),
+            text: "If you can read this, Woodmouse can send email.".to_string(),
+        })
+        .await
+        .map_err(ApiError::bad_request)?;
+    Ok(Json(TestEmailResult { sent_to: to }))
 }
