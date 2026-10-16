@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
@@ -34,6 +35,11 @@ const IndexRoute = IndexRouteImport.update({
 const AccountRoute = AccountRouteImport.update({
   id: '/account',
   path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -111,6 +117,7 @@ const WWorkspaceIdPProjectIdTTaskIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
@@ -129,6 +136,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
   '/invite/$token': typeof InviteTokenRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
@@ -167,6 +176,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/account'
+    | '/admin'
     | '/login'
     | '/invite/$token'
     | '/w/$workspaceId'
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
+    | '/admin'
     | '/login'
     | '/invite/$token'
     | '/w/$workspaceId/activity'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/account'
+    | '/admin'
     | '/login'
     | '/invite/$token'
     | '/w/$workspaceId'
@@ -221,6 +233,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
+  AdminRoute: typeof AdminRoute
   LoginRoute: typeof LoginRoute
   InviteTokenRoute: typeof InviteTokenRoute
   WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/account'
       fullPath: '/account'
       preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -390,6 +410,7 @@ const WWorkspaceIdRouteWithChildren = WWorkspaceIdRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
+  AdminRoute: AdminRoute,
   LoginRoute: LoginRoute,
   InviteTokenRoute: InviteTokenRoute,
   WWorkspaceIdRoute: WWorkspaceIdRouteWithChildren,

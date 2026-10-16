@@ -228,6 +228,11 @@ export function Sidebar({
           <UserAvatar name={me ? userLabel(me) : ""} size="md" />
           <span className="min-w-0 flex-1 truncate">{me ? userLabel(me) : ""}</span>
         </Link>
+        {me?.super_admin ? (
+          <Link to="/admin" onClick={onNavigate} className="hover:text-foreground">
+            Site admin
+          </Link>
+        ) : null}
         <Button variant="ghost" size="xs" onClick={() => logout.mutate({})}>
           Log out
         </Button>
