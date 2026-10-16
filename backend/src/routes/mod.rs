@@ -11,6 +11,7 @@ pub mod lists;
 pub mod members;
 pub mod pages;
 pub mod projects;
+pub mod references;
 pub mod saved_views;
 pub mod search;
 pub mod subtasks;
@@ -61,6 +62,7 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(saved_views::router())
         .merge(pages::router())
         .merge(history::router())
+        .merge(references::router())
         .merge(export::router())
         .merge(search::router())
         .merge(files::router(max_upload_bytes))

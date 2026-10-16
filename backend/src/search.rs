@@ -49,6 +49,19 @@ const SETUP: &[&str] = &[
     "CREATE TRIGGER IF NOT EXISTS search_tasks_ad AFTER DELETE ON tasks BEGIN
         DELETE FROM search_docs WHERE id = lower(hex(old.id));
     END",
+    "CREATE TRIGGER IF NOT EXISTS search_comments_ai AFTER INSERT ON comments BEGIN
+        INSERT INTO search_docs(id, kind, title, body)
+            VALUES (lower(hex(new.id)), 'comment', '', new.body)
+            ON CONFLICT(id) DO UPDATE SET body = excluded.body;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS search_comments_au AFTER UPDATE OF body ON comments BEGIN
+        INSERT INTO search_docs(id, kind, title, body)
+            VALUES (lower(hex(new.id)), 'comment', '', new.body)
+            ON CONFLICT(id) DO UPDATE SET body = excluded.body;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS search_comments_ad AFTER DELETE ON comments BEGIN
+        DELETE FROM search_docs WHERE id = lower(hex(old.id));
+    END",
     "CREATE TRIGGER IF NOT EXISTS search_pages_ai AFTER INSERT ON pages BEGIN
         INSERT INTO search_docs(id, kind, title) VALUES (lower(hex(new.id)), 'page', new.title)
             ON CONFLICT(id) DO UPDATE SET title = excluded.title;
@@ -80,6 +93,16 @@ pub async fn ensure_index(db: &mut toasty::Db) -> Result<(), ApiError> {
             .await
             .map_err(|e| err("creating the search index", e))?;
     }
+    // Comments joined the index after tasks and pages did: fill them in once for older databases.
+    toasty::sql::statement(
+        "INSERT INTO search_docs(id, kind, title, body)
+            SELECT lower(hex(id)), 'comment', '', body FROM comments
+            WHERE NOT EXISTS (SELECT 1 FROM search_docs WHERE kind = 'comment')
+            ON CONFLICT(id) DO NOTHING",
+    )
+    .exec(db)
+    .await
+    .map_err(|e| err("filling the search index", e))?;
     let rows = toasty::sql::query("SELECT COUNT(*) FROM search_docs")
         .exec(db)
         .await
@@ -247,35 +270,47 @@ pub async fn search(
     let sql = format!(
         "WITH scoped AS (
             SELECT lower(hex(p.id)) AS id, lower(hex(p.workspace_id)) AS ws,
-                   '' AS project, 0 AS done
+                   '' AS project, 0 AS done, p.title AS title, lower(hex(p.id)) AS target
             FROM pages p
             WHERE p.deleted_at IS NULL AND lower(hex(p.workspace_id)) IN ({marks})
             UNION ALL
-            SELECT lower(hex(t.id)), lower(hex(pr.workspace_id)), lower(hex(pr.id)), t.is_completed
+            SELECT lower(hex(t.id)), lower(hex(pr.workspace_id)), lower(hex(pr.id)), t.is_completed,
+                   t.title, lower(hex(t.id))
             FROM tasks t
             JOIN lists l ON l.id = t.list_id
             JOIN projects pr ON pr.id = l.project_id
             WHERE t.deleted_at IS NULL AND l.deleted_at IS NULL AND pr.deleted_at IS NULL
               AND lower(hex(pr.workspace_id)) IN ({marks})
+            UNION ALL
+            SELECT lower(hex(c.id)), lower(hex(pr.workspace_id)), lower(hex(pr.id)), t.is_completed,
+                   t.title, lower(hex(t.id))
+            FROM comments c
+            JOIN tasks t ON t.id = c.task_id
+            JOIN lists l ON l.id = t.list_id
+            JOIN projects pr ON pr.id = l.project_id
+            WHERE c.deleted_at IS NULL AND t.deleted_at IS NULL AND l.deleted_at IS NULL
+              AND pr.deleted_at IS NULL AND lower(hex(pr.workspace_id)) IN ({marks})
         )
-        SELECT d.kind, d.id, d.title, {snippet}, s.ws, s.project, s.done
+        SELECT d.kind, s.target, s.title, {snippet}, s.ws, s.project, s.done
         FROM {from} JOIN scoped s ON s.id = d.id
-        WHERE {matching} (?2 = '' OR d.kind = ?2)
+        WHERE {matching} (?2 = '' OR d.kind = ?2 OR (?2 = 'task' AND d.kind = 'comment'))
         ORDER BY {order} LIMIT ?3"
     );
     let mut q = toasty::sql::query(sql)
         .bind(expression.unwrap_or_default())
         .bind(kind_filter.to_string())
-        .bind(limit as i64);
+        .bind((limit * 4) as i64);
     for ws in workspaces {
         q = q.bind(key(*ws));
     }
     let rows = q.exec(db).await.map_err(|e| err("searching", e))?;
     let parse = |s: String| uuid::Uuid::parse_str(&s).ok();
-    Ok(rows
+    let mut seen = std::collections::HashSet::new();
+    let mut hits: Vec<Hit> = rows
         .iter()
         .filter_map(|row| {
-            let is_task = str_at(row, 0) == "task";
+            // A comment is found as the task it belongs to.
+            let is_task = matches!(str_at(row, 0).as_str(), "task" | "comment");
             let snippet = Some(str_at(row, 3)).filter(|s| !s.trim().is_empty());
             Some(Hit {
                 kind: if is_task { Kind::Task } else { Kind::Page },
@@ -287,5 +322,9 @@ pub async fn search(
                 is_completed: is_task.then(|| i64_at(row, 6) != 0),
             })
         })
-        .collect())
+        .filter(|hit| seen.insert(hit.id))
+        .collect();
+    // A task matching in its text and in comments is one result; the best match came first.
+    hits.truncate(limit);
+    Ok(hits)
 }

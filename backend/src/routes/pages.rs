@@ -13,7 +13,7 @@ use crate::access;
 use crate::auth::{self, CurrentUser};
 use crate::blocks::{BlockData, BlockKind, validate_blocks};
 use crate::error::ApiError;
-use crate::models::{Block, Page, Role, User};
+use crate::models::{Block, ContentLink, Page, Role, User};
 use crate::revisions;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
@@ -516,6 +516,20 @@ pub(crate) async fn write_blocks(
         .exec(&mut tx)
         .await?;
     }
+    // The references the content makes, kept in step with it.
+    ContentLink::filter_by_source_page_id(id)
+        .delete()
+        .exec(&mut tx)
+        .await?;
+    for (kind, target) in references(blocks) {
+        toasty::create!(ContentLink {
+            source_page_id: id,
+            target_id: target,
+            target_kind: kind.to_string(),
+        })
+        .exec(&mut tx)
+        .await?;
+    }
     tx.commit().await?;
     crate::search::index_page_body(db, id, blocks).await?;
     let next_version = page.version + 1;
@@ -526,4 +540,23 @@ pub(crate) async fn write_blocks(
         .exec(db)
         .await?;
     Ok(())
+}
+
+/// The distinct pages and tasks a page's content refers to, as (`"page"` or `"task"`, id).
+fn references(blocks: &[BlockData]) -> Vec<(&'static str, uuid::Uuid)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = vec![];
+    for span in blocks.iter().flat_map(|b| &b.spans) {
+        if let Some(m) = &span.mention
+            && seen.insert(m.task_id)
+        {
+            out.push(("task", m.task_id));
+        }
+        if let Some(p) = &span.page_link
+            && seen.insert(p.page_id)
+        {
+            out.push(("page", p.page_id));
+        }
+    }
+    out
 }

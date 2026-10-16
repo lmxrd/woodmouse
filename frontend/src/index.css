@@ -326,3 +326,8 @@
 .wiki-editor .wiki-ref.ProseMirror-selectednode {
   outline: 2px solid var(--ring);
 }
+.wiki-editor .wiki-ref[data-gone] {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  background: transparent;
+}

@@ -73,7 +73,11 @@ export function HistoryPanel({
                   >
                     <span>{revision.saved_at ? when(revision.saved_at) : "Original"}</span>
                     <span className="label-mono text-muted-foreground">
-                      {revision.saved_by ? userLabel(revision.saved_by) : "Unknown"}
+                      {revision.saved_by
+                        ? userLabel(revision.saved_by)
+                        : revision.saved_at
+                          ? "Unknown"
+                          : "As first written"}
                     </span>
                   </button>
                 </li>

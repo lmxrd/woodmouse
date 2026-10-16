@@ -9,7 +9,14 @@ function reference(name: string, dataAttr: string, prefix: string) {
     atom: true,
     selectable: true,
     addAttributes() {
-      return { id: { default: null }, label: { default: "" } };
+      return {
+        id: { default: null },
+        // What was saved: shown when the target cannot be looked up.
+        label: { default: "" },
+        // Display only (not saved): the target's current title, and whether it is in the trash.
+        shown: { default: null, rendered: false },
+        gone: { default: false, rendered: false },
+      };
     },
     parseHTML: () => [{ tag: `span[${dataAttr}]` }],
     renderHTML: ({ node, HTMLAttributes }) => [
@@ -18,10 +25,11 @@ function reference(name: string, dataAttr: string, prefix: string) {
         [dataAttr]: node.attrs.id,
         class: "wiki-ref",
         role: "link",
+        ...(node.attrs.gone ? { "data-gone": "", title: "In the trash" } : {}),
       }),
-      `${prefix}${node.attrs.label || "Untitled"}`,
+      `${prefix}${node.attrs.shown || node.attrs.label || "Untitled"}`,
     ],
-    renderText: ({ node }) => `${prefix}${node.attrs.label}`,
+    renderText: ({ node }) => `${prefix}${node.attrs.shown || node.attrs.label}`,
   });
 }
 

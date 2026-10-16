@@ -6,7 +6,7 @@ import { getPage, pingPresence, saveBlocks } from "woodmouse-client";
 import type { Editor as Editor_, PageDetail } from "woodmouse-client";
 import { listPagesQueryKey, updatePageMutation } from "woodmouse-client/react-query";
 
-import { fromBlocks, toBlocks } from "../../lib/editorBlocks";
+import { fromBlocks, toBlocks, type RefLookup } from "../../lib/editorBlocks";
 import { userLabel } from "../../lib/user";
 import { SaveStatus } from "../SaveStatus";
 import { Button } from "../ui/button";
@@ -31,12 +31,15 @@ export function PageEditor({
   workspaceId,
   editable,
   saveRef,
+  refs,
 }: {
   page: PageDetail;
   workspaceId: string;
   editable: boolean;
   /** Filled with a function that saves pending edits now (so the owner can do so before, say, a restore). */
   saveRef?: RefObject<(() => Promise<void>) | null>;
+  /** The current titles of what the content refers to, loaded before the editor opens. */
+  refs?: RefLookup;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -108,7 +111,7 @@ export function PageEditor({
 
   const editor = useEditor({
     extensions,
-    content: fromBlocks(page.blocks),
+    content: fromBlocks(page.blocks, refs),
     editable,
     editorProps: { attributes: { class: "wiki-editor", "aria-label": "Page content" } },
     onUpdate: ({ transaction }) => {
@@ -209,7 +212,7 @@ export function PageEditor({
 
   const loadTheirs = () => {
     if (conflict && conflict !== "unknown") {
-      editor?.commands.setContent(fromBlocks(conflict.blocks), { emitUpdate: false });
+      editor?.commands.setContent(fromBlocks(conflict.blocks, refs), { emitUpdate: false });
       version.current = conflict.version;
     }
     dirty.current = false;

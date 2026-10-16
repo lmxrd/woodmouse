@@ -68,3 +68,6 @@
   an edit that starts a new session (different editor, 10-minute pause, hourly in long sessions); restores force
   a version of the current content first. Never deleted. Markdown export is `src/markdown.rs` plus
   `routes/export.rs` (zip via the `zip` crate).
+- References: `ContentLink` rows (page -> page or task) are rewritten from the blocks inside `write_blocks`, so
+  they can never disagree with the content. `routes/references.rs` serves backlinks and `resolve` (current
+  titles, deleted flag); links in content store ids, the label is a display fallback only.

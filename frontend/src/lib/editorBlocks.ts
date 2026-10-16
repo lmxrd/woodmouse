@@ -1,5 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
-import type { Attrs, BlockData, BlockKind, Mark, Span } from "woodmouse-client";
+import type { Attrs, BlockData, BlockKind, Mark, Resolved, Span } from "woodmouse-client";
 
 /**
  * The editor is only a view of the page: the stored form is a flat list of blocks (see the backend's
@@ -81,18 +81,31 @@ export function toBlocks(doc: JSONContent): BlockData[] {
   });
 }
 
-function inlineOf(spans: Span[] | undefined): JSONContent[] {
+function inlineOf(spans: Span[] | undefined, refs?: RefLookup): JSONContent[] {
   const out: JSONContent[] = [];
   for (const span of spans ?? []) {
     if (span.mention) {
+      // `shown` and `gone` only affect display: what is saved is the id and the stored label.
+      const now = refs?.tasks.get(span.mention.task_id);
       out.push({
         type: "taskMention",
-        attrs: { id: span.mention.task_id, label: span.mention.label },
+        attrs: {
+          id: span.mention.task_id,
+          label: span.mention.label,
+          shown: now?.title,
+          gone: now?.deleted ?? false,
+        },
       });
     } else if (span.page_link) {
+      const now = refs?.pages.get(span.page_link.page_id);
       out.push({
         type: "pageLink",
-        attrs: { id: span.page_link.page_id, label: span.page_link.label },
+        attrs: {
+          id: span.page_link.page_id,
+          label: span.page_link.label,
+          shown: now?.title,
+          gone: now?.deleted ?? false,
+        },
       });
     } else if (span.text) {
       const marks: NonNullable<JSONContent["marks"]> = (span.marks ?? []).map((type) => ({ type }));
@@ -106,8 +119,31 @@ function inlineOf(spans: Span[] | undefined): JSONContent[] {
   return out;
 }
 
-/** Stored blocks -> editor document. */
-export function fromBlocks(blocks: BlockData[]): JSONContent {
+/** The current title of what mentions and page links point at (see `referencedIds`). */
+export interface RefLookup {
+  pages: Map<string, { title: string; deleted: boolean }>;
+  tasks: Map<string, { title: string; deleted: boolean }>;
+}
+
+export function lookupOf(resolved: Resolved): RefLookup {
+  const entries = (list: Resolved["pages"]) =>
+    new Map(list.map((r) => [r.id, { title: r.title, deleted: r.deleted }]));
+  return { pages: entries(resolved.pages), tasks: entries(resolved.tasks) };
+}
+
+/** The ids of the pages and tasks that blocks refer to. */
+export function referencedIds(blocks: BlockData[]): { pageIds: string[]; taskIds: string[] } {
+  const pages = new Set<string>();
+  const tasks = new Set<string>();
+  for (const span of blocks.flatMap((b) => b.spans ?? [])) {
+    if (span.page_link) pages.add(span.page_link.page_id);
+    if (span.mention) tasks.add(span.mention.task_id);
+  }
+  return { pageIds: [...pages], taskIds: [...tasks] };
+}
+
+/** Stored blocks -> editor document. With `refs`, mentions and links show their target's current title. */
+export function fromBlocks(blocks: BlockData[], refs?: RefLookup): JSONContent {
   const content = blocks.map((block): JSONContent => {
     const attrs = block.attrs ?? {};
     const type = NODE_OF[block.type];
@@ -115,7 +151,7 @@ export function fromBlocks(blocks: BlockData[]): JSONContent {
     const children =
       block.type === "code"
         ? (block.spans ?? []).flatMap((s) => (s.text ? [{ type: "text", text: s.text }] : []))
-        : inlineOf(block.spans);
+        : inlineOf(block.spans, refs);
     const node: JSONContent = { type };
     if (block.type === "heading") node.attrs = { level: attrs.level ?? 1 };
     else if (block.type === "todo_item")

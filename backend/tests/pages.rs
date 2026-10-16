@@ -910,3 +910,122 @@ async fn markdown_export_of_a_page_and_of_the_whole_wiki() {
     std::io::Read::read_to_string(&mut zip.by_name("Home base.md").unwrap(), &mut text_).unwrap();
     assert!(text_.contains("[Plan](Home%20base/Plan.md)"), "{text_}");
 }
+
+impl Fx {
+    async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
+        let res = request(
+            &self.app,
+            post_json(uri, &body.to_string(), Some(&self.cookie)),
+        )
+        .await;
+        (res.status(), json_of(res).await)
+    }
+    /// A task in a new project, as (project id, task id).
+    async fn task(&self, title: &str) -> (String, String) {
+        let (_, project) = self
+            .post(
+                &format!("/api/workspaces/{}/projects", self.ws),
+                json!({ "name": "P" }),
+            )
+            .await;
+        let project = project["id"].as_str().unwrap().to_string();
+        let lists = self
+            .json_get(&format!("/api/projects/{project}/lists"))
+            .await;
+        let (_, task) = self
+            .post(
+                &format!("/api/lists/{}/tasks", lists[0]["id"].as_str().unwrap()),
+                json!({ "title": title }),
+            )
+            .await;
+        (project, task["id"].as_str().unwrap().to_string())
+    }
+}
+
+#[tokio::test]
+async fn references_are_derived_from_content_and_resolved_with_current_titles() {
+    let fx = fixture().await;
+    let source = fx.page("Source", None).await;
+    let target = fx.page("Target", None).await;
+    let (_, task) = fx.task("Order oak").await;
+
+    let doc = json!([{ "type": "paragraph", "spans": [
+        { "page_link": { "page_id": target, "label": "Old name" } },
+        { "mention": { "task_id": task, "label": "Order oak" } },
+        { "page_link": { "page_id": target, "label": "again" } }
+    ] }]);
+    let (status, _) = fx.save(&source, doc).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let back = fx.json_get(&format!("/api/pages/{target}/backlinks")).await;
+    assert_eq!(back, json!([{ "id": source, "title": "Source" }]));
+    let back = fx.json_get(&format!("/api/tasks/{task}/backlinks")).await;
+    assert_eq!(back.as_array().unwrap().len(), 1);
+
+    // Titles come from the records, not from the label stored in the content.
+    fx.patch(&target, json!({ "title": "New name" })).await;
+    let (_, resolved) = fx
+        .post(
+            &format!("/api/workspaces/{}/resolve", fx.ws),
+            json!({ "page_ids": [target], "task_ids": [task] }),
+        )
+        .await;
+    assert_eq!(resolved["pages"][0]["title"], "New name");
+    assert_eq!(resolved["pages"][0]["deleted"], false);
+    assert_eq!(resolved["tasks"][0]["title"], "Order oak");
+
+    // Ids from elsewhere are left out; deleted targets are reported as deleted.
+    let other_ws = create_workspace(&fx.app, &fx.cookie, "Work").await;
+    let (_, nothing) = fx
+        .post(
+            &format!("/api/workspaces/{other_ws}/resolve"),
+            json!({ "page_ids": [target], "task_ids": [task] }),
+        )
+        .await;
+    assert_eq!(nothing, json!({ "pages": [], "tasks": [] }));
+    let res = request(
+        &fx.app,
+        delete(&format!("/api/pages/{target}"), Some(&fx.cookie)),
+    )
+    .await;
+    assert!(res.status().is_success());
+    let (_, resolved) = fx
+        .post(
+            &format!("/api/workspaces/{}/resolve", fx.ws),
+            json!({ "page_ids": [target], "task_ids": [] }),
+        )
+        .await;
+    assert_eq!(resolved["pages"][0]["deleted"], true);
+
+    // Removing the links from the content removes the references; a deleted source is not listed.
+    fx.save(&source, json!([])).await;
+    let back = fx.json_get(&format!("/api/tasks/{task}/backlinks")).await;
+    assert_eq!(back, json!([]));
+}
+
+#[tokio::test]
+async fn comments_are_searchable_as_their_task() {
+    let fx = fixture().await;
+    let (_, task) = fx.task("Sand the table").await;
+    let (status, _) = fx
+        .post(
+            &format!("/api/tasks/{task}/comments"),
+            json!({ "body": "we need 120 grit sandpaper" }),
+        )
+        .await;
+    assert!(status.is_success(), "{status}");
+    let hits = fx
+        .json_get(&format!("/api/workspaces/{}/search?q=sandpaper", fx.ws))
+        .await;
+    assert_eq!(hits.as_array().unwrap().len(), 1);
+    assert_eq!(hits[0]["id"], task);
+    assert_eq!(hits[0]["kind"], "task");
+    assert_eq!(hits[0]["title"], "Sand the table");
+    assert!(hits[0]["snippet"].as_str().unwrap().contains("sandpaper"));
+
+    // Matching in both the title and a comment is still one result.
+    let hits = fx
+        .json_get(&format!("/api/workspaces/{}/search?q=sand", fx.ws))
+        .await;
+    assert_eq!(hits.as_array().unwrap().len(), 1);
+}

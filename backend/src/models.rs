@@ -551,3 +551,22 @@ pub struct TaskRevision {
     /// Unix epoch seconds when this version was recorded.
     pub created_at: i64,
 }
+
+/// A reference from a page's content to a page or task (`@task` mention or `[[page]]` link), derived from
+/// the blocks each time they are saved. It powers "Referenced by" and never holds anything the blocks
+/// do not.
+#[derive(Debug, toasty::Model)]
+pub struct ContentLink {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    #[index]
+    pub source_page_id: uuid::Uuid,
+
+    #[index]
+    pub target_id: uuid::Uuid,
+
+    /// `page` or `task`.
+    pub target_kind: String,
+}

@@ -204,7 +204,7 @@ export function editorExtensions({
             .chain()
             .focus()
             .insertContentAt(range, [
-              { type: "taskMention", attrs: { id: hit.id, label: hit.title } },
+              { type: "taskMention", attrs: { id: hit.id, label: hit.title, shown: hit.title } },
               { type: "text", text: " " },
             ])
             .run(),
@@ -221,7 +221,7 @@ export function editorExtensions({
             .chain()
             .focus()
             .insertContentAt(range, [
-              { type: "pageLink", attrs: { id: hit.id, label: hit.title } },
+              { type: "pageLink", attrs: { id: hit.id, label: hit.title, shown: hit.title } },
               { type: "text", text: " " },
             ])
             .run(),

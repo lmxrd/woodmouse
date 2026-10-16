@@ -1,5 +1,7 @@
 import type { PageSummary } from "woodmouse-client";
 
+import { positionBetween } from "./position";
+
 export interface PageNode {
   page: PageSummary;
   depth: number;
@@ -47,4 +49,34 @@ export function ancestorIds(pages: PageSummary[], id: string): string[] {
     cursor = byId.get(cursor)?.parent_id;
   }
   return result;
+}
+
+export type DropZone = "before" | "into" | "after";
+
+/** Which part of a row the pointer is over: the top quarter, the bottom quarter, or the middle. */
+export function zoneAt(pointerY: number, top: number, height: number): DropZone {
+  const ratio = (pointerY - top) / height;
+  return ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "into";
+}
+
+/**
+ * What dropping page `dragged` on `target` changes: `before` and `after` make it a sibling at that spot,
+ * `into` makes it the last child. `null` when nothing should happen (onto itself or below itself).
+ */
+export function dropChange(
+  pages: PageSummary[],
+  dragged: string,
+  target: string,
+  zone: DropZone,
+): { parent_id: string | null; position?: number } | null {
+  if (subtreeIds(pages, dragged).has(target)) return null;
+  const to = pages.find((p) => p.id === target);
+  if (!to) return null;
+  if (zone === "into") return { parent_id: target };
+  const parent = to.parent_id ?? null;
+  const siblings = pages
+    .filter((p) => (p.parent_id ?? null) === parent && p.id !== dragged)
+    .sort((a, b) => a.position - b.position);
+  const index = siblings.findIndex((p) => p.id === target) + (zone === "after" ? 1 : 0);
+  return { parent_id: parent, position: positionBetween(siblings, index) };
 }

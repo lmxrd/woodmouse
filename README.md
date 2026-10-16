@@ -40,6 +40,11 @@ Woodmouse is a self-hosted task manager for a household or small team.
   a page; external links can use any URL format. Edits save automatically. If someone else is editing the
   same page you are told, and a save based on an outdated version is refused so nothing is silently
   overwritten (keep yours or load theirs). Deleted pages go to the trash with their subpages.
+- **Links between notes and tasks**: a page's `@task` mentions and `[[page]]` links are recorded on every
+  save, so a page shows "Referenced by" the pages that link to it and a task shows "Mentioned in". Links
+  hold ids, and show the target's current title (the stored label is only a fallback); a link to something
+  in the trash is struck through and works again when it is restored. Pages can be dragged in the sidebar
+  and the wiki overview: onto the middle of a page to nest, onto an edge to place beside it.
 - **History and export**: a page keeps earlier versions (a version is saved when someone else edits, after a
   ten-minute pause, or once an hour in a long session). The page menu's Version history shows them with a
   preview and restores one; the content being replaced is kept first, so a restore can be undone. A task's
@@ -47,7 +52,7 @@ Woodmouse is a self-hosted task manager for a household or small team.
   wiki as a zip from the Wiki overview, with folders following the tree and links between pages kept).
 - **Search**: ⌘K (or Ctrl+K) searches page and task titles and text with SQLite full-text search (words match
   as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
-  items are never found. The `@` and `[[` pickers use the same search.
+  items are never found. Task comments are searched too (a match shows as its task). The `@` and `[[` pickers use the same search.
 - **My tasks** shows everything assigned to you across a workspace, grouped by due date.
 - **Trash**: nothing is permanently deleted. Deleting a project, list, task, comment, label or view moves it
   (with what it contains) to the trash, where members with write access can restore it. The only permanent

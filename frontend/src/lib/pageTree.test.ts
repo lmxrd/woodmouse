@@ -1,7 +1,7 @@
 import type { PageSummary } from "woodmouse-client";
 import { describe, expect, it } from "vitest";
 
-import { ancestorIds, buildPageTree, subtreeIds } from "./pageTree";
+import { ancestorIds, buildPageTree, dropChange, subtreeIds, zoneAt } from "./pageTree";
 
 const page = (id: string, parent_id: string | null, position: number): PageSummary => ({
   id,
@@ -26,5 +26,29 @@ describe("page tree", () => {
 
   it("shows orphans at the top", () => {
     expect(buildPageTree([page("x", "gone", 1)]).map((n) => n.page.id)).toEqual(["x"]);
+  });
+});
+
+describe("dropping a page", () => {
+  // a(1) b(2) at the top; c(2) and its child d below a.
+  it("puts it before or after a sibling with a position between the neighbours", () => {
+    expect(dropChange(pages, "b", "a", "before")).toEqual({ parent_id: null, position: 0 });
+    expect(dropChange(pages, "a", "b", "after")).toEqual({ parent_id: null, position: 3 });
+    expect(dropChange(pages, "d", "c", "before")).toEqual({ parent_id: "a", position: 1 });
+  });
+
+  it("nests into the target as its last child", () => {
+    expect(dropChange(pages, "b", "a", "into")).toEqual({ parent_id: "a" });
+  });
+
+  it("refuses to drop a page onto itself or below itself", () => {
+    expect(dropChange(pages, "a", "a", "into")).toBeNull();
+    expect(dropChange(pages, "a", "d", "before")).toBeNull();
+  });
+
+  it("tells the zone from the pointer position", () => {
+    expect(zoneAt(101, 100, 40)).toBe("before");
+    expect(zoneAt(120, 100, 40)).toBe("into");
+    expect(zoneAt(139, 100, 40)).toBe("after");
   });
 });

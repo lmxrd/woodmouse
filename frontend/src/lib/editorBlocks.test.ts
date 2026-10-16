@@ -1,7 +1,7 @@
 import type { BlockData } from "woodmouse-client";
 import { describe, expect, it } from "vitest";
 
-import { fromBlocks, toBlocks } from "./editorBlocks";
+import { fromBlocks, lookupOf, referencedIds, toBlocks } from "./editorBlocks";
 
 const blocks: BlockData[] = [
   { type: "heading", attrs: { level: 2 }, spans: [{ text: "Title" }] },
@@ -51,5 +51,27 @@ describe("editor <-> blocks", () => {
 
   it("opens an empty page as one empty paragraph", () => {
     expect(fromBlocks([])).toEqual({ type: "doc", content: [{ type: "paragraph" }] });
+  });
+});
+
+describe("references", () => {
+  it("lists what blocks refer to and looks up current titles", () => {
+    const ids = referencedIds(blocks);
+    expect(ids).toEqual({ pageIds: ["p1"], taskIds: ["t1"] });
+
+    const refs = lookupOf({
+      pages: [{ id: "p1", title: "Budget 2027", deleted: false }],
+      tasks: [{ id: "t1", title: "Order oak", deleted: true }],
+    });
+    const doc = fromBlocks(blocks, refs);
+    const spans = doc.content?.[1].content ?? [];
+    expect(spans.find((n) => n.type === "pageLink")?.attrs).toMatchObject({
+      label: "Budget",
+      shown: "Budget 2027",
+      gone: false,
+    });
+    expect(spans.find((n) => n.type === "taskMention")?.attrs).toMatchObject({ gone: true });
+    // Display-only details are not saved: the stored label stays as it was.
+    expect(toBlocks(doc)).toEqual(blocks);
   });
 });

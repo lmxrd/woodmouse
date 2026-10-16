@@ -17,6 +17,7 @@ import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Field } from "../Field";
 import { MarkdownEditor } from "../MarkdownEditor";
 import { SaveStatus } from "../SaveStatus";
+import { MentionedIn } from "./MentionedIn";
 import { TaskHistory } from "./TaskHistory";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -201,6 +202,7 @@ function TaskForm({
         </Field>
 
         <SubtaskTree task={task} editable={canWrite} onOpenTask={onOpenTask} />
+        <MentionedIn taskId={task.id} workspaceId={workspaceId} />
         <TaskLinks
           taskId={task.id}
           workspaceId={workspaceId}
