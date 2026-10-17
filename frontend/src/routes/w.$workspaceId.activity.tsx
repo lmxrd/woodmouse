@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { ActivityPage } from "../components/ActivityPage";
+import { ActivityPage } from "../components/activity/ActivityPage";
 
 interface ActivitySearch {
   project?: string;

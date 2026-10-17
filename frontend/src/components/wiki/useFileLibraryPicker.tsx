@@ -4,7 +4,7 @@ import type { Editor } from "@tiptap/core";
 import { listFilesOptions } from "woodmouse-client/react-query";
 
 import { formatBytes } from "../../lib/upload";
-import { ResponsiveDialog } from "../ResponsiveDialog";
+import { ResponsiveDialog } from "../common/ResponsiveDialog";
 import { insertFileBlock } from "./editor/files";
 
 /** The editor event the "File from library" slash item raises to open the picker. */

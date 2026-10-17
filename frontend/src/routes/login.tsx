@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PublicUser } from "woodmouse-client";
 import { authStatusOptions, bootstrapMutation, loginMutation } from "woodmouse-client/react-query";
 
-import { AuthField as Field, AuthSheet, ErrorNote } from "../components/AuthSheet";
+import { AuthField as Field, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { finishLogin } from "../lib/auth";

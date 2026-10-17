@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Label } from "woodmouse-client";
 
-import { LabelTag } from "../LabelTag";
+import { LabelTag } from "../common/LabelTag";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 
-import { MobileNav } from "../components/MobileNav";
-import { Sidebar } from "../components/Sidebar";
+import { MobileNav } from "../components/layout/MobileNav";
+import { Sidebar } from "../components/layout/Sidebar";
 import { SearchPalette } from "../components/search/SearchPalette";
 import { requireLogin } from "../lib/auth";
 

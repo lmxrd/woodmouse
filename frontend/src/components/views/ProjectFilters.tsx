@@ -13,10 +13,10 @@ import {
   type ProjectSearch,
   type ProjectView,
   type TaskStatus,
-} from "../lib/projectSearch";
-import { userLabel } from "../lib/user";
-import { FilterSelect } from "./FilterSelect";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+} from "../../lib/projectSearch";
+import { userLabel } from "../../lib/user";
+import { FilterSelect } from "../common/FilterSelect";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 const projectRoute = getRouteApi("/w/$workspaceId/p/$projectId");
 

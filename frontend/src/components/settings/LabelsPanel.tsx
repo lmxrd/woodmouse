@@ -10,7 +10,7 @@ import {
 
 import { LABEL_COLORS } from "../../lib/labelColors";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
-import { InlineAdd } from "../InlineAdd";
+import { InlineAdd } from "../common/InlineAdd";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";

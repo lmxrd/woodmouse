@@ -10,7 +10,7 @@ import {
 
 import { calendarFeedUrl } from "../../lib/api";
 import { useFormatters } from "../../lib/useFormatters";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Button } from "../ui/button";
 import { NewCalendarLink } from "./NewCalendarLink";
 

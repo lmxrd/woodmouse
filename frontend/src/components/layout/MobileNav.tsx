@@ -1,8 +1,8 @@
 import { useState } from "react";
 
 import { Sidebar } from "./Sidebar";
-import { Button } from "./ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Button } from "../ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 
 /** Phone-only top bar with a menu button that opens the sidebar as a left drawer. */
 export function MobileNav({

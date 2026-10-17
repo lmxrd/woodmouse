@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { listActivityOptions } from "woodmouse-client/react-query";
 
-import { ActivityItem } from "../ActivityItem";
+import { ActivityItem } from "../activity/ActivityItem";
 
 /** The activity feed of one task. */
 export function TaskActivity({ taskId, workspaceId }: { taskId: string; workspaceId: string }) {

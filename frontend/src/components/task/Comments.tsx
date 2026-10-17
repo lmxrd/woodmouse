@@ -13,9 +13,9 @@ import {
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";
 import { HistoryPanel } from "../history/HistoryPanel";
-import { Markdown } from "../Markdown";
-import { MarkdownEditor } from "../MarkdownEditor";
-import { UserAvatar } from "../UserAvatar";
+import { Markdown } from "../common/Markdown";
+import { MarkdownEditor } from "../common/MarkdownEditor";
+import { UserAvatar } from "../common/UserAvatar";
 import { Button } from "../ui/button";
 
 /** The comments of a task (markdown), with a composer. Authors edit; authors and admins delete. */

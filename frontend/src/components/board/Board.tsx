@@ -30,18 +30,18 @@ import {
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
-import { afterIdAt, provisionalPosition } from "../lib/position";
-import { taskFilterQuery } from "../lib/projectSearch";
-import { useWorkspaceRole } from "../lib/useWorkspaceRole";
-import { ActionMenu } from "./ActionMenu";
-import { ConfirmDialog } from "./ConfirmDialog";
-import { InlineAdd } from "./InlineAdd";
-import { ProjectFilters } from "./ProjectFilters";
-import { RenameInput } from "./RenameInput";
-import { BoardColumn } from "./board/BoardColumn";
-import { SortableTaskCard, TaskCardOverlay } from "./board/TaskCard";
-import { Button } from "./ui/button";
-import { isDone } from "../lib/task";
+import { afterIdAt, provisionalPosition } from "../../lib/position";
+import { taskFilterQuery } from "../../lib/projectSearch";
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
+import { ActionMenu } from "../common/ActionMenu";
+import { ConfirmDialog } from "../common/ConfirmDialog";
+import { InlineAdd } from "../common/InlineAdd";
+import { ProjectFilters } from "../views/ProjectFilters";
+import { RenameInput } from "../common/RenameInput";
+import { BoardColumn } from "./BoardColumn";
+import { SortableTaskCard, TaskCardOverlay } from "./TaskCard";
+import { Button } from "../ui/button";
+import { isDone } from "../../lib/task";
 
 const projectRoute = getRouteApi("/w/$workspaceId/p/$projectId");
 

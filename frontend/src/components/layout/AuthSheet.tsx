@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Label } from "./ui/label";
+import { Label } from "../ui/label";
 
 /** The standalone ruled card used by login, first-run setup and invite acceptance. */
 export function AuthSheet({

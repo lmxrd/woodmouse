@@ -3,9 +3,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { TrashItem } from "woodmouse-client";
 import { listTrashOptions, restoreItemMutation } from "woodmouse-client/react-query";
 
-import { useFormatters } from "../lib/useFormatters";
-import { userLabel } from "../lib/user";
-import { Button } from "./ui/button";
+import { useFormatters } from "../../lib/useFormatters";
+import { userLabel } from "../../lib/user";
+import { Button } from "../ui/button";
 
 const KIND_LABEL: Record<TrashItem["kind"], string> = {
   project: "Project",

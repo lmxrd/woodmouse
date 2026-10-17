@@ -8,8 +8,8 @@ import { pageExportUrl } from "../../lib/api";
 import { useWatch } from "../notifications/WatchButton";
 import { afterIdAt } from "../../lib/position";
 import { subtreeIds } from "../../lib/pageTree";
-import { ActionMenu } from "../ActionMenu";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { ActionMenu } from "../common/ActionMenu";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { MovePageDialog } from "./MovePageDialog";
 import { usePageActions } from "./usePageActions";
 

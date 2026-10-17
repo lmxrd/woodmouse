@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 
 /** A dashed "+ Label" button that turns into a one-line form; Enter submits, Escape cancels. */
 export function InlineAdd({

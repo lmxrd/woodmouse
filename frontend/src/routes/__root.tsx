@@ -1,7 +1,7 @@
 import { createRootRouteWithContext } from "@tanstack/react-router";
 import { Link } from "@tanstack/react-router";
 
-import { RootLayout } from "../components/RootLayout";
+import { RootLayout } from "../components/layout/RootLayout";
 import type { RouterContext } from "../router";
 
 function NotFound() {

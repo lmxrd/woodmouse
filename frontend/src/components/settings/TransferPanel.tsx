@@ -13,7 +13,7 @@ import {
 } from "../../lib/transfer";
 import { userLabel } from "../../lib/user";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
-import { Field } from "../Field";
+import { Field } from "../common/Field";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 
 /**
  * A dialog that fills the screen on phones and is a centered panel from `sm` up.

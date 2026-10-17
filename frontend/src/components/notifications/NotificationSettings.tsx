@@ -6,8 +6,8 @@ import {
   updateNotificationSettingsMutation,
 } from "woodmouse-client/react-query";
 
-import { Field } from "../Field";
-import { Section } from "../AccountPage";
+import { Field } from "../common/Field";
+import { Section } from "../settings/AccountPage";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);

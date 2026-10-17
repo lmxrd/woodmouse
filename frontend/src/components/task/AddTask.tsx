@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import type { CreateTaskRequest, List } from "woodmouse-client";
 import { createInboxTaskMutation, createTaskMutation } from "woodmouse-client/react-query";
 
-import { InlineAdd } from "../InlineAdd";
+import { InlineAdd } from "../common/InlineAdd";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 /** The value of the "no list" choice: the project's inbox. */

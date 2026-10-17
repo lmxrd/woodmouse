@@ -15,9 +15,9 @@ import {
 } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
-import { Field } from "../Field";
-import { MarkdownEditor } from "../MarkdownEditor";
-import { SaveStatus } from "../SaveStatus";
+import { Field } from "../common/Field";
+import { MarkdownEditor } from "../common/MarkdownEditor";
+import { SaveStatus } from "../common/SaveStatus";
 import { MentionedIn } from "./MentionedIn";
 import { TaskHistory } from "./TaskHistory";
 import { Button } from "../ui/button";

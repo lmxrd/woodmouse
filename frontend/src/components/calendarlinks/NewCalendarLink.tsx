@@ -8,7 +8,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { cn } from "../../lib/utils";
-import { Field } from "../Field";
+import { Field } from "../common/Field";
 import { Button } from "../ui/button";
 import {
   Dialog,

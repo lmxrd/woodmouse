@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createViewMutation, listViewsOptions } from "woodmouse-client/react-query";
 
-import type { ProjectSearch, ProjectView } from "../lib/projectSearch";
-import { useWorkspaceRole } from "../lib/useWorkspaceRole";
-import { ManageViewsDialog } from "./views/ManageViewsDialog";
-import { SaveViewDialog } from "./views/SaveViewDialog";
-import { Button } from "./ui/button";
+import type { ProjectSearch, ProjectView } from "../../lib/projectSearch";
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
+import { ManageViewsDialog } from "./ManageViewsDialog";
+import { SaveViewDialog } from "./SaveViewDialog";
+import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +16,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+} from "../ui/dropdown-menu";
 
 const VIEWS: { value: ProjectView; label: string }[] = [
   { value: "board", label: "Board" },

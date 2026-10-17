@@ -10,22 +10,22 @@ import {
   meOptions,
 } from "woodmouse-client/react-query";
 
-import { userLabel } from "../lib/user";
-import { useWorkspaceRole } from "../lib/useWorkspaceRole";
-import { NotificationBell } from "./notifications/NotificationBell";
-import { cn } from "../lib/utils";
-import { UserAvatar } from "./UserAvatar";
-import { PageTree } from "./wiki/PageTree";
-import { usePageActions } from "./wiki/usePageActions";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { userLabel } from "../../lib/user";
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
+import { NotificationBell } from "../notifications/NotificationBell";
+import { cn } from "../../lib/utils";
+import { UserAvatar } from "../common/UserAvatar";
+import { PageTree } from "../wiki/PageTree";
+import { usePageActions } from "../wiki/usePageActions";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+} from "../ui/dropdown-menu";
 
 export function Sidebar({
   workspaceId,

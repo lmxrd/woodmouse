@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 
-import { ResponsiveDialog } from "../components/ResponsiveDialog";
+import { ResponsiveDialog } from "../components/common/ResponsiveDialog";
 import { TaskDetail } from "../components/task/TaskDetail";
 import { Button } from "../components/ui/button";
 

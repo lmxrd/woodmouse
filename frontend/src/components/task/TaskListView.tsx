@@ -8,16 +8,16 @@ import {
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
-import { PRIORITIES } from "../lib/priority";
-import { useWorkspaceRole } from "../lib/useWorkspaceRole";
-import { taskFilterQuery, type ProjectSearch } from "../lib/projectSearch";
-import { ProjectFilters } from "./ProjectFilters";
-import { Segmented } from "./Segmented";
-import { SprintGroups } from "./sprints/SprintGroups";
-import { SprintFormDialog } from "./sprints/SprintDialogs";
-import { AddTask } from "./task/AddTask";
-import { Button } from "./ui/button";
-import { TaskTable } from "./task/TaskTable";
+import { PRIORITIES } from "../../lib/priority";
+import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
+import { taskFilterQuery, type ProjectSearch } from "../../lib/projectSearch";
+import { ProjectFilters } from "../views/ProjectFilters";
+import { Segmented } from "../common/Segmented";
+import { SprintGroups } from "../sprints/SprintGroups";
+import { SprintFormDialog } from "../sprints/SprintDialogs";
+import { AddTask } from "./AddTask";
+import { Button } from "../ui/button";
+import { TaskTable } from "./TaskTable";
 
 const projectRoute = getRouteApi("/w/$workspaceId/p/$projectId");
 

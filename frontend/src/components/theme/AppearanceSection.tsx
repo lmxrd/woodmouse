@@ -10,7 +10,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { effectiveChoice, paletteOf, type Mode } from "../../lib/themes";
-import { Segmented } from "../Segmented";
+import { Segmented } from "../common/Segmented";
 import { ThemePicker, type ThemeValue } from "./ThemePicker";
 
 const MODES: { value: Mode; label: string }[] = [

@@ -10,10 +10,10 @@ import {
 } from "woodmouse-client/react-query";
 
 import { userLabel } from "../../lib/user";
-import { ConfirmDialog } from "../ConfirmDialog";
-import { Field } from "../Field";
-import { ResponsiveDialog } from "../ResponsiveDialog";
-import { UserAvatar } from "../UserAvatar";
+import { ConfirmDialog } from "../common/ConfirmDialog";
+import { Field } from "../common/Field";
+import { ResponsiveDialog } from "../common/ResponsiveDialog";
+import { UserAvatar } from "../common/UserAvatar";
 import { InviteLinkBox } from "../settings/InviteLinkBox";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";

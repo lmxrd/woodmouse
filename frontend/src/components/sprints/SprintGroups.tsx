@@ -7,8 +7,8 @@ import { formatDuration } from "../../lib/duration";
 import type { TaskSort } from "../../lib/projectSearch";
 import { isDone } from "../../lib/task";
 import { useFormatters } from "../../lib/useFormatters";
-import { ActionMenu } from "../ActionMenu";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { ActionMenu } from "../common/ActionMenu";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { TaskTable } from "../task/TaskTable";
 import { CompleteSprintDialog, SprintFormDialog } from "./SprintDialogs";
 

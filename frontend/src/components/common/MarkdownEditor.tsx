@@ -1,8 +1,8 @@
 import { useState } from "react";
 
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 import { Markdown } from "./Markdown";
-import { Textarea } from "./ui/textarea";
+import { Textarea } from "../ui/textarea";
 
 /**
  * A markdown text box with Write and Preview tabs. Controlled: the owner decides when to save.

@@ -1,4 +1,4 @@
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 
 /** A row of mutually exclusive choices, joined together. */
 export function Segmented<T extends string>({

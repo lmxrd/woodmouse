@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { MyTasks } from "../components/MyTasks";
+import { MyTasks } from "../components/task/MyTasks";
 import { validateProjectSearch, type ProjectSearch } from "../lib/projectSearch";
 
 type MyTasksSearch = Pick<ProjectSearch, "status"> & { project?: string };

@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { acceptInviteMutation, getInviteOptions } from "woodmouse-client/react-query";
 
-import { AuthField, AuthSheet, ErrorNote } from "../components/AuthSheet";
+import { AuthField, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { finishLogin } from "../lib/auth";

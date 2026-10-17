@@ -1,4 +1,4 @@
-import { Input } from "./ui/input";
+import { Input } from "../ui/input";
 
 /** An input that replaces a title while renaming: Enter or blur saves, Escape cancels. */
 export function RenameInput({

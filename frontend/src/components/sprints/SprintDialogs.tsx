@@ -8,8 +8,8 @@ import {
 } from "woodmouse-client/react-query";
 
 import { fromDateInput, toDateInput } from "../../lib/dates";
-import { Field } from "../Field";
-import { ResponsiveDialog } from "../ResponsiveDialog";
+import { Field } from "../common/Field";
+import { ResponsiveDialog } from "../common/ResponsiveDialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";

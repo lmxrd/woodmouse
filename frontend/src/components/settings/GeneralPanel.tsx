@@ -8,8 +8,8 @@ import {
 } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
-import { ConfirmDialog } from "../ConfirmDialog";
-import { Field } from "../Field";
+import { ConfirmDialog } from "../common/ConfirmDialog";
+import { Field } from "../common/Field";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";

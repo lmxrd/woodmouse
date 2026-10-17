@@ -4,11 +4,11 @@ import { getRouteApi } from "@tanstack/react-router";
 import type { ActivityView } from "woodmouse-client";
 import { listActivityOptions, listProjectsOptions } from "woodmouse-client/react-query";
 
-import { dayKey } from "../lib/format";
-import { useFormatters } from "../lib/useFormatters";
+import { dayKey } from "../../lib/format";
+import { useFormatters } from "../../lib/useFormatters";
 import { ActivityItem } from "./ActivityItem";
-import { FilterSelect } from "./FilterSelect";
-import { Button } from "./ui/button";
+import { FilterSelect } from "../common/FilterSelect";
+import { Button } from "../ui/button";
 
 const route = getRouteApi("/w/$workspaceId/activity");
 const PAGE = 50;

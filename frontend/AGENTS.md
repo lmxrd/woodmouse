@@ -31,7 +31,9 @@
   using `createFileRoute` (see the existing files). The plugin in
   `vite.config.ts` regenerates `src/routeTree.gen.ts` on dev/build — it is
   committed; do not edit it by hand.
-- Shared UI goes in `src/components/` (e.g. `RootLayout`); shared helpers and
+- UI goes in `src/components/`, one folder per feature (`task/`, `board/`, `wiki/`, `admin/`, ...); `layout/` is the
+  app shell (`RootLayout`, `Sidebar`), `common/` the small pieces used everywhere (dialogs, fields, avatars) and `ui/`
+  the shadcn primitives. Shared helpers and
   clients go in `src/lib/` (e.g. `queryClient`).
 - Data fetching: TanStack Query (`useQuery`/`useMutation`). Tune defaults in
   `src/lib/queryClient.ts`; wire real endpoints by replacing `queryFn`s in

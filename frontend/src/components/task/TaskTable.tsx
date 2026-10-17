@@ -7,8 +7,8 @@ import { userLabel } from "../../lib/user";
 import type { TaskSort } from "../../lib/projectSearch";
 import { PRIORITY_BADGE, isHotPriority } from "../../lib/priority";
 import { cn } from "../../lib/utils";
-import { LabelTag } from "../LabelTag";
-import { AvatarStack } from "../UserAvatar";
+import { LabelTag } from "../common/LabelTag";
+import { AvatarStack } from "../common/UserAvatar";
 import { Checkbox } from "../ui/checkbox";
 import { isDone } from "../../lib/task";
 

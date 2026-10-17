@@ -8,16 +8,16 @@ import {
   updateProjectMutation,
 } from "woodmouse-client/react-query";
 
-import { ActionMenu } from "../components/ActionMenu";
+import { ActionMenu } from "../components/common/ActionMenu";
 import { CalendarLinks } from "../components/calendarlinks/CalendarLinks";
-import { ResponsiveDialog } from "../components/ResponsiveDialog";
-import { Board } from "../components/Board";
+import { ResponsiveDialog } from "../components/common/ResponsiveDialog";
+import { Board } from "../components/board/Board";
 import { CalendarView } from "../components/calendar/CalendarView";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ConfirmDialog } from "../components/common/ConfirmDialog";
 import { TimelineView } from "../components/timeline/TimelineView";
-import { ProjectViewMenu } from "../components/ProjectViewMenu";
-import { RenameInput } from "../components/RenameInput";
-import { TaskListView } from "../components/TaskListView";
+import { ProjectViewMenu } from "../components/views/ProjectViewMenu";
+import { RenameInput } from "../components/common/RenameInput";
+import { TaskListView } from "../components/task/TaskListView";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { useWorkspaceRole } from "../lib/useWorkspaceRole";

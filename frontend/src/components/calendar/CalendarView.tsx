@@ -36,7 +36,7 @@ import { dayIso } from "../../lib/time";
 import { useFormatters } from "../../lib/useFormatters";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { cn } from "../../lib/utils";
-import { ProjectFilters } from "../ProjectFilters";
+import { ProjectFilters } from "../views/ProjectFilters";
 import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { eventTone } from "./CalendarEvent";

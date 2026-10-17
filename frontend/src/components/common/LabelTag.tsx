@@ -1,4 +1,4 @@
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 
 /** A small-caps label chip, with a dot in the label's color when it has one. */
 export function LabelTag({

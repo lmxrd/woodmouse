@@ -5,7 +5,7 @@ import { deleteViewMutation, updateViewMutation } from "woodmouse-client/react-q
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
-import { RenameInput } from "../RenameInput";
+import { RenameInput } from "../common/RenameInput";
 import { useState } from "react";
 import { userLabel } from "../../lib/user";
 

@@ -8,7 +8,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { HistoryPanel } from "../history/HistoryPanel";
-import { Markdown } from "../Markdown";
+import { Markdown } from "../common/Markdown";
 
 function Preview({ revisionId }: { revisionId: string }) {
   const { data } = useQuery(getTaskRevisionOptions({ path: { id: revisionId } }));

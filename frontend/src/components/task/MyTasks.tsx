@@ -9,14 +9,14 @@ import {
   updateTaskMutation,
 } from "woodmouse-client/react-query";
 
-import { dueBucket, type DueBucket } from "../lib/dates";
-import { useFormatters } from "../lib/useFormatters";
-import type { TaskStatus } from "../lib/projectSearch";
-import { cn } from "../lib/utils";
-import { FilterSelect } from "./FilterSelect";
-import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
-import { isDone } from "../lib/task";
+import { dueBucket, type DueBucket } from "../../lib/dates";
+import { useFormatters } from "../../lib/useFormatters";
+import type { TaskStatus } from "../../lib/projectSearch";
+import { cn } from "../../lib/utils";
+import { FilterSelect } from "../common/FilterSelect";
+import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
+import { isDone } from "../../lib/task";
 
 const route = getRouteApi("/w/$workspaceId/my-tasks");
 

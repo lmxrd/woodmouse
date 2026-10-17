@@ -19,7 +19,7 @@ import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { cn } from "../../lib/utils";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useUploader } from "./useUploader";

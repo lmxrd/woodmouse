@@ -8,15 +8,15 @@ import {
   updateMeMutation,
 } from "woodmouse-client/react-query";
 
-import { DATE_FORMATS, TIME_FORMATS, formatDateTime } from "../lib/format";
-import { browserTimezone } from "../lib/useDetectTimezone";
-import { CalendarLinks } from "./calendarlinks/CalendarLinks";
-import { AppearanceSection } from "./theme/AppearanceSection";
-import { Field } from "./Field";
-import { SaveStatus } from "./SaveStatus";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { DATE_FORMATS, TIME_FORMATS, formatDateTime } from "../../lib/format";
+import { browserTimezone } from "../../lib/useDetectTimezone";
+import { CalendarLinks } from "../calendarlinks/CalendarLinks";
+import { AppearanceSection } from "../theme/AppearanceSection";
+import { Field } from "../common/Field";
+import { SaveStatus } from "../common/SaveStatus";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 const TIME_LABEL = { "24h": "24 hour", "12h": "12 hour" } as const;
 

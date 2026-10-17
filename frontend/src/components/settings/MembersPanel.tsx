@@ -11,8 +11,8 @@ import { listMembersOptions, meOptions } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { userLabel } from "../../lib/user";
-import { Field } from "../Field";
-import { UserAvatar } from "../UserAvatar";
+import { Field } from "../common/Field";
+import { UserAvatar } from "../common/UserAvatar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";

@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 
 /**
  * Renders markdown (GitHub flavour: tables, task lists, strikethrough). Raw HTML in the source is

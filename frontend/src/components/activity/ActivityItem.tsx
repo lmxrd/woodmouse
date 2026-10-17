@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import type { ActivityView } from "woodmouse-client";
 
-import { actorLabel, describeActivity } from "../lib/activity";
-import { useFormatters } from "../lib/useFormatters";
-import { UserAvatar } from "./UserAvatar";
+import { actorLabel, describeActivity } from "../../lib/activity";
+import { useFormatters } from "../../lib/useFormatters";
+import { UserAvatar } from "../common/UserAvatar";
 
 /** One line of an activity feed: who, what, and when. */
 export function ActivityItem({ entry, workspaceId }: { entry: ActivityView; workspaceId: string }) {

@@ -1,7 +1,7 @@
 import type { Member, PublicUser } from "woodmouse-client";
 
 import { userLabel } from "../../lib/user";
-import { UserAvatar } from "../UserAvatar";
+import { UserAvatar } from "../common/UserAvatar";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
