@@ -12,6 +12,7 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::limited;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::{BlockData, validate_blocks};
@@ -84,11 +85,11 @@ pub struct CreatePage {
 pub struct UpdatePage {
     pub title: Option<String>,
     /// Move under another page; `null` moves to the top level.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub parent_id: Option<Option<uuid::Uuid>>,
     /// Place right after this sibling; `null` places first. When moving to another parent without
     /// `after_id`, the page goes last.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub after_id: Option<Option<uuid::Uuid>>,
 }
 
@@ -103,25 +104,13 @@ pub struct SaveBlocks {
     pub force: bool,
 }
 
-fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: serde::Deserialize<'de>,
-    D: serde::Deserializer<'de>,
-{
-    serde::Deserialize::deserialize(deserializer).map(Some)
-}
-
+/// A page title: at most 200 characters; an empty one becomes "Untitled".
 fn clean_title(title: &str) -> Result<String, ApiError> {
-    let title = title.trim();
-    if title.chars().count() > MAX_TITLE {
-        return Err(ApiError::bad_request(format!(
-            "title can be at most {MAX_TITLE} characters"
-        )));
-    }
+    let title = limited(title, "title", MAX_TITLE)?;
     Ok(if title.is_empty() {
         "Untitled".to_string()
     } else {
-        title.to_string()
+        title
     })
 }
 

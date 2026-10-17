@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::{description, required};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
@@ -27,18 +28,6 @@ pub struct CreateWorkspace {
     pub name: String,
     #[serde(default)]
     pub description: String,
-}
-
-const MAX_DESCRIPTION: usize = 2000;
-
-pub(crate) fn clean_description(text: &str) -> Result<String, ApiError> {
-    let text = text.trim();
-    if text.chars().count() > MAX_DESCRIPTION {
-        return Err(ApiError::bad_request(format!(
-            "description can be at most {MAX_DESCRIPTION} characters"
-        )));
-    }
-    Ok(text.to_string())
 }
 
 /// List the workspaces the current user can see: their memberships, or all of them for the super admin
@@ -98,11 +87,8 @@ pub async fn create_workspace(
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<CreateWorkspace>,
 ) -> Result<(StatusCode, Json<Workspace>), ApiError> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name is required"));
-    }
-    let description = clean_description(&input.description)?;
+    let name = required(&input.name, "name")?;
+    let description = description(&input.description)?;
 
     let mut db = state.writer().await;
     let mut tx = db.transaction().await?;
@@ -180,16 +166,12 @@ pub async fn update_workspace(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateWorkspace>,
 ) -> Result<Json<Workspace>, ApiError> {
-    let name = match &input.name {
-        Some(n) if n.trim().is_empty() => return Err(ApiError::bad_request("name is required")),
-        Some(n) => Some(n.trim().to_string()),
-        None => None,
-    };
-    let description = input
-        .description
+    let name = input
+        .name
         .as_deref()
-        .map(clean_description)
+        .map(|n| required(n, "name"))
         .transpose()?;
+    let description = input.description.as_deref().map(description).transpose()?;
     let mut db = state.writer().await;
     access::require_access(&mut *db, &user, id, Role::Admin).await?;
     let mut workspace = Workspace::get_by_id(&mut *db, &id).await?;

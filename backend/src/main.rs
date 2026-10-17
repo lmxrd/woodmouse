@@ -150,9 +150,10 @@ async fn run_backup(
     dir: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dir = dir
-        .or_else(|| std::env::var("BACKUP_DIR").ok())
-        .unwrap_or_else(|| "backups".to_string());
-    let path = woodmouse::jobs::backup(state, std::path::Path::new(&dir))
+        .map(std::path::PathBuf::from)
+        .or_else(woodmouse::config::backup_dir)
+        .unwrap_or_else(|| "backups".into());
+    let path = woodmouse::jobs::backup(state, &dir)
         .await
         .map_err(|_| "the backup failed")?;
     println!("{}", path.display());

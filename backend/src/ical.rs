@@ -2,6 +2,8 @@
 
 use std::fmt::Write;
 
+use jiff::civil::{Date, DateTime};
+
 /// A task as it appears in a feed.
 pub struct FeedTask {
     pub id: uuid::Uuid,
@@ -9,37 +11,16 @@ pub struct FeedTask {
     pub description: String,
     pub project: String,
     pub priority: &'static str,
-    /// Epoch seconds of the start date at 00:00 UTC, as the app stores dates.
-    pub start: Option<i64>,
-    pub due: Option<i64>,
+    /// The start and due dates as the app stores them (a day at 00:00 UTC): only the day counts.
+    pub start: Option<DateTime>,
+    pub due: Option<DateTime>,
     pub completed: bool,
     /// Where the task opens in the app.
     pub url: String,
 }
 
-/// The calendar date (year, month, day) a stored date means: dates are saved as 00:00 UTC of the day, so
-/// this is exact (the half-day offset only tolerates values that are a little off).
-pub fn date_of(epoch: i64) -> (i64, u32, u32) {
-    civil_from_days((epoch + 43_200).div_euclid(86_400))
-}
-
-/// Days since 1970-01-01 to (year, month, day) (proleptic Gregorian; Howard Hinnant's algorithm).
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
-fn date_value(days: i64) -> String {
-    let (y, m, d) = civil_from_days(days);
-    format!("{y:04}{m:02}{d:02}")
+fn date_value(date: Date) -> String {
+    date.strftime("%Y%m%d").to_string()
 }
 
 /// Escape text values (RFC 5545 section 3.3.11).
@@ -73,19 +54,8 @@ fn line(out: &mut String, text: &str) {
     out.push_str("\r\n");
 }
 
-fn timestamp(epoch: i64) -> String {
-    let (y, m, d) = civil_from_days(epoch.div_euclid(86_400));
-    let secs = epoch.rem_euclid(86_400);
-    format!(
-        "{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z",
-        secs / 3600,
-        secs % 3600 / 60,
-        secs % 60
-    )
-}
-
 /// The calendar. Tasks without a start or due date are left out; a completed task is marked done.
-pub fn calendar(name: &str, tasks: &[FeedTask], now: i64) -> String {
+pub fn calendar(name: &str, tasks: &[FeedTask], now: DateTime) -> String {
     let mut out = String::new();
     line(&mut out, "BEGIN:VCALENDAR");
     line(&mut out, "VERSION:2.0");
@@ -103,11 +73,13 @@ pub fn calendar(name: &str, tasks: &[FeedTask], now: i64) -> String {
             (Some(s), None) => (s, s),
             (None, None) => continue,
         };
-        let first_day = (first + 43_200).div_euclid(86_400);
-        let last_day = (last + 43_200).div_euclid(86_400);
+        let (first_day, last_day) = (first.date(), last.date());
         line(&mut out, "BEGIN:VEVENT");
         line(&mut out, &format!("UID:{}@woodmouse", task.id));
-        line(&mut out, &format!("DTSTAMP:{}", timestamp(now)));
+        line(
+            &mut out,
+            &format!("DTSTAMP:{}", now.strftime("%Y%m%dT%H%M%SZ")),
+        );
         line(
             &mut out,
             &format!("DTSTART;VALUE=DATE:{}", date_value(first_day)),
@@ -115,7 +87,10 @@ pub fn calendar(name: &str, tasks: &[FeedTask], now: i64) -> String {
         // The end of an all-day event is exclusive.
         line(
             &mut out,
-            &format!("DTEND;VALUE=DATE:{}", date_value(last_day + 1)),
+            &format!(
+                "DTEND;VALUE=DATE:{}",
+                date_value(last_day.tomorrow().unwrap_or(last_day))
+            ),
         );
         let title = if task.completed {
             format!("\u{2713} {}", task.title)
@@ -154,7 +129,7 @@ pub fn calendar(name: &str, tasks: &[FeedTask], now: i64) -> String {
 mod tests {
     use super::*;
 
-    fn task(start: Option<i64>, due: Option<i64>, completed: bool) -> FeedTask {
+    fn task(start: Option<DateTime>, due: Option<DateTime>, completed: bool) -> FeedTask {
         FeedTask {
             id: uuid::Uuid::nil(),
             title: "Order oak, worktop; now".into(),
@@ -169,23 +144,15 @@ mod tests {
     }
 
     #[test]
-    fn dates_are_the_calendar_day_the_saver_meant() {
-        // 2026-10-16 at local midnight in UTC+10, UTC and UTC-8.
-        let utc = 1_792_108_800;
-        assert_eq!(utc, 20_742 * 86_400);
-        assert_eq!(date_of(utc), (2026, 10, 16));
-        assert_eq!(date_of(utc - 10 * 3600), (2026, 10, 16));
-        assert_eq!(date_of(utc + 8 * 3600), (2026, 10, 16));
-        assert_eq!(date_of(0), (1970, 1, 1));
-        assert_eq!(date_of(951_782_400), (2000, 2, 29));
-    }
-
-    #[test]
     fn a_range_becomes_one_event_ending_after_the_last_day() {
-        let day = 20_742 * 86_400;
+        let day = jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0);
         let text = calendar(
             "My tasks",
-            &[task(Some(day), Some(day + 2 * 86_400), false)],
+            &[task(
+                Some(day),
+                Some(day.checked_add(jiff::Span::new().days(2)).unwrap()),
+                false,
+            )],
             day,
         );
         assert!(text.contains("DTSTART;VALUE=DATE:20261016\r\n"), "{text}");
@@ -197,24 +164,32 @@ mod tests {
 
     #[test]
     fn a_single_date_is_a_one_day_event_and_done_tasks_are_marked() {
-        let day = 20_742 * 86_400;
+        let day = jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0);
         let text = calendar("x", &[task(None, Some(day), true)], day);
         assert!(text.contains("DTSTART;VALUE=DATE:20261016\r\n"));
         assert!(text.contains("DTEND;VALUE=DATE:20261017\r\n"));
         assert!(text.contains("SUMMARY:\u{2713} Order oak"));
         assert!(text.contains("CATEGORIES:Done\r\n"));
         // A due date before the start counts as just the due date.
-        let text = calendar("x", &[task(Some(day + 5 * 86_400), Some(day), false)], day);
+        let text = calendar(
+            "x",
+            &[task(
+                Some(day.checked_add(jiff::Span::new().days(5)).unwrap()),
+                Some(day),
+                false,
+            )],
+            day,
+        );
         assert!(text.contains("DTEND;VALUE=DATE:20261017\r\n"));
     }
 
     #[test]
     fn undated_tasks_are_left_out_and_long_lines_fold() {
         let mut long = task(None, None, false);
-        assert!(!calendar("x", &[long.clone_dates()], 0).contains("BEGIN:VEVENT"));
-        long.due = Some(0);
+        assert!(!calendar("x", &[long.clone_dates()], DateTime::ZERO).contains("BEGIN:VEVENT"));
+        long.due = Some(DateTime::ZERO);
         long.title = "x".repeat(200);
-        let text = calendar("x", &[long], 0);
+        let text = calendar("x", &[long], DateTime::ZERO);
         assert!(text.split("\r\n").all(|l| l.len() <= 75), "{text}");
         assert!(text.ends_with("END:VCALENDAR\r\n"));
     }

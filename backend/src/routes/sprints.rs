@@ -10,6 +10,7 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::{limited, required_max};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
@@ -69,25 +70,6 @@ fn view(sprint: &Sprint, tasks: &[Task]) -> SprintView {
         done_count: own.iter().filter(|t| t.completed_at.is_some()).count(),
         estimate_minutes: own.iter().filter_map(|t| t.estimate_minutes).sum(),
     }
-}
-
-fn clean_name(name: &str) -> Result<String, ApiError> {
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > MAX_NAME {
-        return Err(ApiError::bad_request(format!(
-            "name is required and at most {MAX_NAME} characters"
-        )));
-    }
-    Ok(name.to_string())
-}
-
-fn clean_goal(goal: &str) -> Result<String, ApiError> {
-    if goal.chars().count() > MAX_GOAL {
-        return Err(ApiError::bad_request(format!(
-            "the goal can be at most {MAX_GOAL} characters"
-        )));
-    }
-    Ok(goal.trim().to_string())
 }
 
 fn check_dates(start: DateTime, end: DateTime) -> Result<(), ApiError> {
@@ -179,8 +161,8 @@ pub async fn create_sprint(
     Path(project_id): Path<uuid::Uuid>,
     Json(input): Json<CreateSprint>,
 ) -> Result<(StatusCode, Json<SprintView>), ApiError> {
-    let name = clean_name(&input.name)?;
-    let goal = clean_goal(&input.goal)?;
+    let name = required_max(&input.name, "name", MAX_NAME)?;
+    let goal = limited(&input.goal, "goal", MAX_GOAL)?;
     let (start, end) = (time::to_day(input.start_date), time::to_day(input.end_date));
     check_dates(start, end)?;
 
@@ -242,8 +224,16 @@ pub async fn update_sprint(
 ) -> Result<Json<SprintView>, ApiError> {
     let mut db = state.writer().await;
     let (mut sprint, _) = load(&mut *db, &user, id, Role::Write).await?;
-    let name = input.name.as_deref().map(clean_name).transpose()?;
-    let goal = input.goal.as_deref().map(clean_goal).transpose()?;
+    let name = input
+        .name
+        .as_deref()
+        .map(|n| required_max(n, "name", MAX_NAME))
+        .transpose()?;
+    let goal = input
+        .goal
+        .as_deref()
+        .map(|g| limited(g, "goal", MAX_GOAL))
+        .transpose()?;
     let start = input
         .start_date
         .map(time::to_day)

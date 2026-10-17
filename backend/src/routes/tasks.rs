@@ -14,10 +14,10 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{
-    Comment, FileRef, Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel, User,
+    Comment, FileRef, Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel,
 };
 use crate::revisions::{self, TaskContent};
-use crate::routes::auth::PublicUser;
+use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
 use crate::{ordering, time, trash};
 
@@ -108,46 +108,37 @@ pub struct UpdateTaskRequest {
     pub is_completed: Option<bool>,
     pub priority: Option<Priority>,
     /// Absent leaves the due date unchanged; `null` clears it. Only the day counts.
-    #[serde(default, deserialize_with = "double_date")]
+    #[serde(default, deserialize_with = "crate::time::utc_patch::deserialize")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub due_date: Option<Option<DateTime>>,
     /// Absent leaves the start date unchanged; `null` clears it. Only the day counts.
-    #[serde(default, deserialize_with = "double_date")]
+    #[serde(default, deserialize_with = "crate::time::utc_patch::deserialize")]
     #[schema(value_type = Option<String>, format = DateTime)]
     pub start_date: Option<Option<DateTime>>,
     /// Plan it in one of the project's open sprints; `null` takes it out of its sprint (the backlog).
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub sprint_id: Option<Option<uuid::Uuid>>,
     /// Expected work in minutes. Absent leaves it unchanged; `null` clears it.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub estimate_minutes: Option<Option<i64>>,
     /// Work done so far in minutes. Absent leaves it unchanged; `null` clears it.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub spent_minutes: Option<Option<i64>>,
     /// Place the task right after this sibling (`null`: first). Absent keeps its place, unless it moves
     /// to another list or parent, where it goes last.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub after_id: Option<Option<uuid::Uuid>>,
     /// Move the task to another list of its project; `null` moves it to the project's inbox.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub list_id: Option<Option<uuid::Uuid>>,
     /// Make this a subtask of another task (it then moves to that task's list); `null` makes it
     /// a top-level task again. A task cannot go below itself or one of its own subtasks.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub parent_id: Option<Option<uuid::Uuid>>,
     /// When provided, replaces the assignee set.
     pub assignee_ids: Option<Vec<uuid::Uuid>>,
     /// When provided, replaces the label set.
     pub label_ids: Option<Vec<uuid::Uuid>>,
-}
-
-/// `null` vs absent distinction for clearing optional fields on PATCH.
-fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: serde::Deserialize<'de>,
-    D: serde::Deserializer<'de>,
-{
-    serde::Deserialize::deserialize(deserializer).map(Some)
 }
 
 /// A task can only be planned in an open (live, not completed) sprint of its own project.
@@ -176,13 +167,6 @@ fn validate_minutes(minutes: Option<i64>) -> Result<(), ApiError> {
         ));
     }
     Ok(())
-}
-
-fn double_date<'de, D>(deserializer: D) -> Result<Option<Option<DateTime>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    time::utc_patch::deserialize(deserializer)
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -1008,13 +992,8 @@ async fn record_changes(
             if ids.is_empty() {
                 continue;
             }
-            let names: Vec<String> = User::all()
-                .filter(in_list(User::fields().id(), ids))
-                .exec(db)
-                .await?
-                .into_iter()
-                .map(|u| if u.name.is_empty() { u.email } else { u.name })
-                .collect();
+            let people = People::load(db, ids.iter().copied()).await?;
+            let names: Vec<String> = ids.into_iter().filter_map(|id| people.label(id)).collect();
             events.push((
                 kind,
                 serde_json::json!({ "title": after.title, "who": names }),
@@ -1158,18 +1137,7 @@ pub(crate) async fn hydrate_tasks(
         .exec(db)
         .await?;
 
-    let user_ids: HashSet<uuid::Uuid> = assignee_rows.iter().map(|a| a.user_id).collect();
-    let users: Vec<User> = if user_ids.is_empty() {
-        vec![]
-    } else {
-        User::all()
-            .filter(in_list(
-                User::fields().id(),
-                user_ids.into_iter().collect::<Vec<_>>(),
-            ))
-            .exec(db)
-            .await?
-    };
+    let people = People::load(db, assignee_rows.iter().map(|a| a.user_id)).await?;
     let label_ids: HashSet<uuid::Uuid> = label_rows.iter().map(|l| l.label_id).collect();
     let labels: Vec<Label> = if label_ids.is_empty() {
         vec![]
@@ -1183,8 +1151,6 @@ pub(crate) async fn hydrate_tasks(
             .await?
     };
 
-    let users_by_id: HashMap<uuid::Uuid, PublicUser> =
-        users.iter().map(|u| (u.id, PublicUser::from(u))).collect();
     let labels_by_id: HashMap<uuid::Uuid, Label> = labels
         .into_iter()
         .filter(|l| l.deleted_at.is_none())
@@ -1193,11 +1159,8 @@ pub(crate) async fn hydrate_tasks(
 
     let mut assignees_by_task: HashMap<uuid::Uuid, Vec<PublicUser>> = HashMap::new();
     for row in assignee_rows {
-        if let Some(user) = users_by_id.get(&row.user_id) {
-            assignees_by_task
-                .entry(row.task_id)
-                .or_default()
-                .push(user.clone());
+        if let Some(user) = people.public(row.user_id) {
+            assignees_by_task.entry(row.task_id).or_default().push(user);
         }
     }
     let mut labels_by_task: HashMap<uuid::Uuid, Vec<Label>> = HashMap::new();

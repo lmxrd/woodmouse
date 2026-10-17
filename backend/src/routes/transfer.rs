@@ -2,7 +2,7 @@
 
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
 
@@ -11,6 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::attachment;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
@@ -30,19 +31,6 @@ pub fn router() -> OpenApiRouter<AppState> {
                 .routes(routes!(import_workspace_data))
                 .layer(DefaultBodyLimit::max(MAX_IMPORT_BYTES)),
         )
-}
-
-fn attachment(name: &str, content_type: &str, body: String) -> Response {
-    let mut response = (StatusCode::OK, body).into_response();
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type).expect("static"),
-    );
-    if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{name}\"")) {
-        headers.insert(header::CONTENT_DISPOSITION, v);
-    }
-    response
 }
 
 fn ids(text: &Option<String>) -> Result<Vec<uuid::Uuid>, ApiError> {

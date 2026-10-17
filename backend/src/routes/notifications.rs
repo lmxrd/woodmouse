@@ -5,15 +5,14 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Notification, NotificationSetting, Role, User, Watch};
-use crate::routes::auth::PublicUser;
+use crate::models::{Notification, NotificationSetting, Role, Watch};
+use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
 use crate::time;
 
@@ -80,22 +79,11 @@ pub async fn list_notifications(
     }
     rows.sort_by_key(|n| std::cmp::Reverse((n.created_at, n.id)));
     rows.truncate(filters.limit.unwrap_or(30).clamp(1, 100));
-    let actor_ids: Vec<uuid::Uuid> = rows.iter().filter_map(|n| n.actor_id).collect();
-    let actors = if actor_ids.is_empty() {
-        vec![]
-    } else {
-        User::all()
-            .filter(in_list(User::fields().id(), actor_ids))
-            .exec(db)
-            .await?
-    };
+    let people = People::load(db, rows.iter().filter_map(|n| n.actor_id)).await?;
     Ok(Json(
         rows.into_iter()
             .map(|n| NotificationView {
-                actor: n
-                    .actor_id
-                    .and_then(|id| actors.iter().find(|u| u.id == id))
-                    .map(PublicUser::from),
+                actor: people.public(n.actor_id),
                 data: serde_json::from_str(&n.data).unwrap_or_default(),
                 read: n.read_at.is_some(),
                 id: n.id,

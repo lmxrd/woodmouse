@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::auth;
+use crate::config;
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::time;
@@ -75,8 +76,7 @@ pub async fn run_daily(state: &AppState) {
             Err(_) => tracing::warn!("removing expired sessions failed"),
         }
     }
-    if let Ok(dir) = std::env::var("BACKUP_DIR") {
-        let dir = PathBuf::from(dir);
+    if let Some(dir) = config::backup_dir() {
         match backup(state, &dir).await {
             Ok(path) => {
                 tracing::info!(path = %path.display(), "backup written");
@@ -117,9 +117,7 @@ pub fn spawn(state: AppState) {
 
 /// The address the app is reached at, for links in email (`PUBLIC_URL`), without a trailing slash.
 fn public_base() -> String {
-    std::env::var("PUBLIC_URL")
-        .map(|u| u.trim_end_matches('/').to_string())
-        .unwrap_or_default()
+    config::public_url().unwrap_or_default()
 }
 
 /// The person's local date at `now` (their timezone, or UTC while they have none).

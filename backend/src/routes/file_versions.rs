@@ -8,7 +8,6 @@ use axum::response::Response;
 use jiff::civil::DateTime;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -17,7 +16,7 @@ use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{File, FileVersion, Role, User};
-use crate::routes::auth::PublicUser;
+use crate::routes::auth::{People, PublicUser};
 use crate::routes::files::{FileView, file_view, serve_blob};
 use crate::state::AppState;
 use crate::{time, trash};
@@ -111,25 +110,14 @@ pub async fn list_file_versions(
     load(db, &user, id, Role::Read).await?;
     let mut versions = FileVersion::filter_by_file_id(id).exec(db).await?;
     versions.sort_by_key(|v| std::cmp::Reverse(v.number));
-    let uploader_ids: Vec<uuid::Uuid> = versions.iter().map(|v| v.uploaded_by).collect();
-    let users = if uploader_ids.is_empty() {
-        vec![]
-    } else {
-        User::all()
-            .filter(in_list(User::fields().id(), uploader_ids))
-            .exec(db)
-            .await?
-    };
+    let people = People::load(db, versions.iter().map(|v| v.uploaded_by)).await?;
     let newest = versions.first().map(|v| v.number);
     Ok(Json(
         versions
             .into_iter()
             .map(|v| FileVersionView {
                 current: Some(v.number) == newest,
-                uploaded_by: users
-                    .iter()
-                    .find(|u| u.id == v.uploaded_by)
-                    .map(PublicUser::from),
+                uploaded_by: people.public(v.uploaded_by),
                 id: v.id,
                 number: v.number,
                 name: v.name,

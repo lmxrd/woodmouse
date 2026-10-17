@@ -19,7 +19,7 @@ use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{File, FileRef, FileVersion, Role, Task, User, WikiPage};
-use crate::routes::auth::PublicUser;
+use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
 use crate::time;
 
@@ -108,21 +108,14 @@ async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<Fi
         ))
         .exec(db)
         .await?;
-    let uploader_ids: Vec<uuid::Uuid> = files.iter().map(|f| f.uploaded_by).collect();
-    let users = User::all()
-        .filter(in_list(User::fields().id(), uploader_ids))
-        .exec(db)
-        .await?;
+    let people = People::load(db, files.iter().map(|f| f.uploaded_by)).await?;
     Ok(files
         .into_iter()
         .map(|f| FileView {
             id: f.id,
             workspace_id: f.workspace_id,
             previewable: INLINE_TYPES.contains(&f.mime.as_str()),
-            uploaded_by: users
-                .iter()
-                .find(|u| u.id == f.uploaded_by)
-                .map(PublicUser::from),
+            uploaded_by: people.public(f.uploaded_by),
             used_in: refs.iter().filter(|r| r.file_id == f.id).count(),
             versions: version_rows
                 .iter()

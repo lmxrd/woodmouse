@@ -17,9 +17,9 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{
-    AuditLog, Comment, File, Label, List, Project, Role, SavedView, Sprint, Task, User, WikiPage,
+    AuditLog, Comment, File, Label, List, Project, Role, SavedView, Sprint, Task, WikiPage,
 };
-use crate::routes::auth::PublicUser;
+use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
 use crate::{time, trash};
 use jiff::civil::DateTime;
@@ -332,18 +332,7 @@ pub async fn list_trash(
         }
     }
 
-    let user_ids: Vec<uuid::Uuid> = raw.iter().filter_map(|r| r.5).collect();
-    let users: HashMap<uuid::Uuid, PublicUser> = if user_ids.is_empty() {
-        HashMap::new()
-    } else {
-        User::all()
-            .filter(in_list(User::fields().id(), user_ids))
-            .exec(db)
-            .await?
-            .iter()
-            .map(|u| (u.id, PublicUser::from(u)))
-            .collect()
-    };
+    let people = People::load(db, raw.iter().filter_map(|r| r.5)).await?;
 
     let mut items: Vec<TrashItem> = raw
         .into_iter()
@@ -354,7 +343,7 @@ pub async fn list_trash(
                 name,
                 context,
                 deleted_at,
-                deleted_by: by.and_then(|u| users.get(&u).cloned()),
+                deleted_by: people.public(by),
                 child_count,
             },
         )

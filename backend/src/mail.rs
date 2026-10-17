@@ -10,6 +10,7 @@ use lettre::message::Mailbox;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
+use crate::config;
 use crate::models::EmailSettings;
 
 /// A plain-text email.
@@ -47,23 +48,15 @@ impl SmtpConfig {
     }
 }
 
-fn non_empty(value: Option<String>) -> Option<String> {
-    value
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}
-
 /// The settings from the environment alone.
 pub fn env_config() -> SmtpConfig {
     SmtpConfig {
-        host: non_empty(std::env::var("SMTP_HOST").ok()),
-        port: std::env::var("SMTP_PORT")
-            .ok()
-            .and_then(|p| p.trim().parse().ok()),
-        username: non_empty(std::env::var("SMTP_USER").ok()),
-        password: non_empty(std::env::var("SMTP_PASSWORD").ok()),
-        from: non_empty(std::env::var("SMTP_FROM").ok()),
-        tls: non_empty(std::env::var("SMTP_TLS").ok()).unwrap_or_else(|| "starttls".to_string()),
+        host: config::var("SMTP_HOST"),
+        port: config::var("SMTP_PORT").and_then(|p| p.parse().ok()),
+        username: config::var("SMTP_USER"),
+        password: config::var("SMTP_PASSWORD"),
+        from: config::var("SMTP_FROM"),
+        tls: config::var("SMTP_TLS").unwrap_or_else(|| "starttls".to_string()),
     }
 }
 
@@ -71,22 +64,22 @@ pub fn env_config() -> SmtpConfig {
 pub async fn effective_config(db: &mut dyn toasty::Executor) -> SmtpConfig {
     let mut config = env_config();
     if let Ok(Some(row)) = EmailSettings::filter_by_id(1).first().exec(db).await {
-        if let Some(host) = non_empty(row.host) {
+        if let Some(host) = config::non_empty(row.host) {
             config.host = Some(host);
         }
         if let Some(port) = row.port.and_then(|p| u16::try_from(p).ok()) {
             config.port = Some(port);
         }
-        if let Some(user) = non_empty(row.username) {
+        if let Some(user) = config::non_empty(row.username) {
             config.username = Some(user);
         }
-        if let Some(password) = non_empty(row.password) {
+        if let Some(password) = config::non_empty(row.password) {
             config.password = Some(password);
         }
-        if let Some(from) = non_empty(row.sender) {
+        if let Some(from) = config::non_empty(row.sender) {
             config.from = Some(from);
         }
-        if let Some(tls) = non_empty(row.tls) {
+        if let Some(tls) = config::non_empty(row.tls) {
             config.tls = tls;
         }
     }
@@ -188,7 +181,7 @@ impl Mailer for Outbox {
 /// Email an invite link (when mail is configured and `PUBLIC_URL` says where the app lives), in the
 /// background. Best effort: a failure is only logged, the admin still sees the link.
 pub fn send_invite(mailer: Arc<dyn Mailer>, to: String, name: String, token: String) {
-    let Ok(base) = std::env::var("PUBLIC_URL") else {
+    let Some(base) = config::public_url() else {
         return;
     };
     tokio::spawn(async move {

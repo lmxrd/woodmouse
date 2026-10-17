@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::required;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
@@ -84,10 +85,7 @@ pub async fn create_list(
     Path(project_id): Path<uuid::Uuid>,
     Json(input): Json<CreateList>,
 ) -> Result<(StatusCode, Json<List>), ApiError> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name is required"));
-    }
+    let name = required(&input.name, "name")?;
 
     let mut db = state.writer().await;
     access::require_project_access(&mut *db, &user, project_id, Role::Write).await?;
@@ -101,7 +99,7 @@ pub async fn create_list(
     );
     let list = toasty::create!(List {
         project_id,
-        name: name.to_string(),
+        name,
         position,
     })
     .exec(&mut *db)
@@ -158,11 +156,7 @@ pub async fn update_list(
 
     let mut update = list.update();
     if let Some(name) = input.name {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(ApiError::bad_request("name is required"));
-        }
-        update = update.name(name.to_string());
+        update = update.name(required(&name, "name")?);
     }
     update.exec(&mut *db).await?;
     Ok(Json(list))

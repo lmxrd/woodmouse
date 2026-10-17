@@ -6,11 +6,11 @@ use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::{description, required};
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{Project, Role};
-use crate::routes::workspaces::clean_description;
 use crate::state::AppState;
 use crate::{time, trash};
 
@@ -87,12 +87,8 @@ pub async fn create_project(
     Path(workspace_id): Path<uuid::Uuid>,
     Json(input): Json<CreateProject>,
 ) -> Result<(StatusCode, Json<Project>), ApiError> {
-    let name = input.name.trim();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("name is required"));
-    }
-
-    let description = clean_description(&input.description)?;
+    let name = required(&input.name, "name")?;
+    let description = description(&input.description)?;
 
     let mut db = state.writer().await;
     access::require_access(&mut *db, &user, workspace_id, Role::Write).await?;
@@ -100,7 +96,7 @@ pub async fn create_project(
     // A project's inbox is not a list: it is the tasks that have none.
     let project = toasty::create!(Project {
         workspace_id,
-        name: name.to_string(),
+        name,
         description,
     })
     .exec(&mut *db)
@@ -154,20 +150,12 @@ pub async fn update_project(
 ) -> Result<Json<Project>, ApiError> {
     let mut db = state.writer().await;
     let mut project = access::require_project(&mut *db, &user, id, Role::Write).await?;
-    let description = input
-        .description
-        .as_deref()
-        .map(clean_description)
-        .transpose()?;
+    let description = input.description.as_deref().map(description).transpose()?;
 
     if input.name.is_some() || description.is_some() {
         let mut update = project.update();
         if let Some(name) = input.name {
-            let name = name.trim();
-            if name.is_empty() {
-                return Err(ApiError::bad_request("name is required"));
-            }
-            update = update.name(name.to_string());
+            update = update.name(required(&name, "name")?);
         }
         if let Some(description) = description {
             update = update.description(description);

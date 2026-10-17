@@ -5,15 +5,14 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{AuditLog, Role, User, Visibility};
-use crate::routes::auth::PublicUser;
+use crate::models::{AuditLog, Role, Visibility};
+use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
 use crate::time;
 
@@ -110,15 +109,7 @@ pub async fn list_activity(
     matched.sort_by_key(|e| std::cmp::Reverse((e.created_at, e.id)));
     matched.truncate(wanted);
 
-    let actor_ids: Vec<uuid::Uuid> = matched.iter().filter_map(|a| a.actor_id).collect();
-    let actors: Vec<User> = if actor_ids.is_empty() {
-        vec![]
-    } else {
-        User::all()
-            .filter(in_list(User::fields().id(), actor_ids))
-            .exec(db)
-            .await?
-    };
+    let people = People::load(db, matched.iter().filter_map(|a| a.actor_id)).await?;
     Ok(Json(
         matched
             .into_iter()
@@ -127,10 +118,7 @@ pub async fn list_activity(
                 ActivityView {
                     id: a.id,
                     kind: a.action,
-                    actor: a
-                        .actor_id
-                        .and_then(|id| actors.iter().find(|u| u.id == id))
-                        .map(PublicUser::from),
+                    actor: people.public(a.actor_id),
                     project_id: data["project_id"]
                         .as_str()
                         .and_then(|s| uuid::Uuid::parse_str(s).ok()),

@@ -13,6 +13,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
+use crate::config;
 use crate::error::ApiError;
 use crate::integrity::{self, Problem};
 use crate::models::{
@@ -268,19 +269,11 @@ pub struct UpdateUser {
     /// Enable or disable the account. Disabling ends its sessions and blocks every way in.
     pub active: Option<bool>,
     /// Access to every workspace at this role; `null` removes it.
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::api::double_option")]
     pub global_role: Option<Option<Role>>,
     /// Display name; an empty string clears it.
     pub name: Option<String>,
     pub email: Option<String>,
-}
-
-fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: serde::Deserialize<'de>,
-    D: serde::Deserializer<'de>,
-{
-    serde::Deserialize::deserialize(deserializer).map(Some)
 }
 
 /// Enable or disable an account, or change its global role. The super admin's own account cannot be
@@ -621,7 +614,7 @@ pub async fn admin_backup(
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<BackupResult>, ApiError> {
     access::require_super_admin(&user)?;
-    let dir = PathBuf::from(std::env::var("BACKUP_DIR").unwrap_or_else(|_| "backups".to_string()));
+    let dir = config::backup_dir().unwrap_or_else(|| PathBuf::from("backups"));
     let path = jobs::backup(&state, &dir).await?;
     {
         let mut db = state.writer().await;

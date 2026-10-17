@@ -14,7 +14,9 @@ use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::limited;
 use crate::auth::CurrentUser;
+use crate::config;
 use crate::error::ApiError;
 use crate::ical::{self, FeedTask};
 use crate::models::{CalendarLink, Priority, Project, Role, Task, TaskAssignee, User, Workspace};
@@ -216,12 +218,7 @@ pub async fn create_calendar_link(
             (Some(workspace), Some(id), name)
         }
     };
-    let name = input.name.as_deref().map(str::trim).unwrap_or("");
-    if name.chars().count() > MAX_NAME {
-        return Err(ApiError::bad_request(format!(
-            "name can be at most {MAX_NAME} characters"
-        )));
-    }
+    let name = limited(input.name.as_deref().unwrap_or(""), "name", MAX_NAME)?;
     let link = toasty::create!(CalendarLink {
         user_id: user.id,
         scope: input.scope.as_str().to_string(),
@@ -391,15 +388,10 @@ async fn tasks_for(
     Ok(out)
 }
 
-/// Epoch seconds of a stored UTC date-time.
-fn epoch(dt: DateTime) -> i64 {
-    time::timestamp(dt).as_second()
-}
-
 /// Where the app is reached from, for the links inside events.
 fn public_base(headers: &HeaderMap) -> String {
-    if let Ok(url) = std::env::var("PUBLIC_URL") {
-        return url.trim_end_matches('/').to_string();
+    if let Some(url) = config::public_url() {
+        return url;
     }
     let host = headers
         .get(header::HOST)
@@ -483,13 +475,13 @@ pub async fn feed(
                 title: task.title,
                 description: task.description,
                 project: project_name,
-                start: task.start_date.map(epoch),
-                due: task.due_date.map(epoch),
+                start: task.start_date,
+                due: task.due_date,
                 completed: task.completed_at.is_some(),
             },
         )
         .collect();
-    let body = ical::calendar(&link.name, &feed, epoch(now));
+    let body = ical::calendar(&link.name, &feed, now);
     Ok((
         StatusCode::OK,
         [

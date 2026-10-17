@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -84,6 +86,52 @@ impl From<&User> for PublicUser {
             global_role: user.global_role,
             active: user.active,
         }
+    }
+}
+
+/// People looked up in one go, to show who did what.
+pub struct People(HashMap<uuid::Uuid, User>);
+
+impl People {
+    /// Load the users with these ids (duplicates and unknown ids are fine).
+    pub async fn load(
+        db: &mut dyn toasty::Executor,
+        ids: impl IntoIterator<Item = uuid::Uuid>,
+    ) -> Result<Self, ApiError> {
+        let ids: Vec<uuid::Uuid> = ids
+            .into_iter()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let users = if ids.is_empty() {
+            vec![]
+        } else {
+            User::all()
+                .filter(User::fields().id().in_list(ids))
+                .exec(db)
+                .await?
+        };
+        Ok(Self(users.into_iter().map(|u| (u.id, u)).collect()))
+    }
+
+    pub fn user(&self, id: uuid::Uuid) -> Option<&User> {
+        self.0.get(&id)
+    }
+
+    /// The person as the API shows them; `None` for no id or an unknown one.
+    pub fn public(&self, id: impl Into<Option<uuid::Uuid>>) -> Option<PublicUser> {
+        self.user(id.into()?).map(PublicUser::from)
+    }
+
+    /// Their display name, or their email while they have none.
+    pub fn label(&self, id: uuid::Uuid) -> Option<String> {
+        self.user(id).map(|u| {
+            if u.name.is_empty() {
+                u.email.clone()
+            } else {
+                u.name.clone()
+            }
+        })
     }
 }
 

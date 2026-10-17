@@ -28,6 +28,7 @@
   app instead of meeting SQLite's "database is locked"; it derefs to `Db`). Helpers take
   `&mut dyn toasty::Executor`, so they work with a `Db` and with a transaction. There is no global DB mutex.
   Never hold the writer while calling `Rooms` (they take it themselves).
+- Shared route helpers (PATCH `double_option`, text validation, downloads) are in `src/api.rs`; `routes::auth::People` loads users by id for "who did it" fields; env settings go through `src/config.rs`.
 - Handlers live in `src/routes/`; every handler carries a `#[utoipa::path]`
   annotation. The annotation is the single source of truth — register new
   handlers in `src/routes/mod.rs` via `utoipa_axum::routes!` (group handlers
@@ -50,13 +51,13 @@
   `start_date`/`due_date` are a day at 00:00 UTC (`time::to_day`). `time::now()` is whole seconds.
 - Relations are `#[belongs_to]` fields for typed navigation only: Toasty enforces them in its query engine, not
   as database constraints. `GET /admin/integrity` and `woodmouse check` report orphaned rows.
-- Ordering (tasks, lists, wiki pages): integer `position`s 20 apart (`src/ordering.rs`). The API takes
+- Ordering (tasks, lists, wiki pages): integer `position`s 20 apart (`src/content/ordering.rs`). The API takes
   `after_id` (`null` = first), never a number; neighbours are renumbered only when there is no room.
 
 ## Conventions by feature
 
 - **Soft deletes only.** Projects, lists, tasks, labels, comments, saved views, wiki pages and workspaces are
-  never destroyed: they get `deleted_at` (see `src/trash.rs`) and every read path must hide them. Who deleted
+  never destroyed: they get `deleted_at` (see `src/content/trash.rs`) and every read path must hide them. Who deleted
   something is in the audit log, not on the row. The `access::require_*` helpers already treat deleted items as
   not found; use `access::*_workspace` only where Trash needs to see them. Cascades stamp children with the
   parent's `deleted_at`, and restore matches on that timestamp. A deleted workspace is restored by the super
@@ -67,7 +68,7 @@
   (`visibility = workspace`), `Entry::admin` only in the super admin's audit view. `data` is thin (snapshotted
   titles, ids, old and new values), never content; edits carry `revision_id`. No IP addresses or browsers are
   stored. Add the new action's wording to `frontend/src/lib/activity.ts` if it appears in the feed.
-- **Revisions** (`src/revisions.rs`, `Revision`): one table for earlier versions of tasks, pages and comments;
+- **Revisions** (`src/content/revisions.rs`, `Revision`): one table for earlier versions of tasks, pages and comments;
   a revision holds the new content and the actor. Tasks and comments: every save is a revision. Pages: the
   newest revision is updated in place within an editing session (10 minutes, other editors share it for 2
   minutes); a REST save or restore always starts a new one. Admins can redact a revision's content.
@@ -92,11 +93,11 @@
   preferences (`date_format`, `time_format`) are stored on the user.
 - Task listing supports `from`/`to` (a task is scheduled from its start, or due, date to its due, or start,
   date; overlap counts) and `unscheduled`, which the calendar and timeline use.
-- Wiki: a page (`WikiPage`) holds its blocks as versioned JSON in `content` (`src/blocks.rs`, `{"version": 1,
+- Wiki: a page (`WikiPage`) holds its blocks as versioned JSON in `content` (`src/content/blocks.rs`, `{"version": 1,
   "blocks": [...]}`; Markdown is only the export format; the editor is only a view). `pages::save_content` is the
   one place that replaces content: it keeps references, the search index and the revision in step. Content saves
   carry `base_version` and bump `WikiPage.version`; a stale save is a 409. Presence ("who else is editing") is in
-  memory only (`AppState.presence`). Search is SQLite FTS5 (`src/search.rs`): `search_docs` + `search_fts`,
+  memory only (`AppState.presence`). Search is SQLite FTS5 (`src/content/search.rs`): `search_docs` + `search_fts`,
   created by `ensure_index` at startup and in test setup, kept current by triggers on `tasks`, comments and page
   titles plus `index_page_body` on content saves. Visibility (workspace, soft delete) is decided at query time
   by joins, so deleting or restoring never touches the index.
@@ -131,7 +132,7 @@
   env vars), `mail::Outbox` in tests (`AppState::with_mailer`).
 - **Files**: `File` describes the newest `FileVersion`; `POST /files/{id}/versions` keeps the old bytes (same id),
   `DELETE /files/{id}` is soft (Trash kind `file`), cleanup removes every version's bytes.
-- **Import/export** (`src/transfer.rs`, `routes/transfer.rs`): one plan type (`Export`) for the JSON document and
+- **Import/export** (`src/transfer/` (`export`, `tasks_csv`, `import`), `routes/transfer.rs`): one plan type (`Export`) for the JSON document and
   for parsed CSV rows; `transfer::apply` previews first (`dry_run`), refuses with the report (422) while there are
   problems or people without a choice (`user_map`: map to a member, create, or skip), and otherwise writes
   everything in one transaction (`create_task_tx` takes the caller's executor), so it is all or nothing. Woodmouse's own schema only; members in a file are reported, never created.

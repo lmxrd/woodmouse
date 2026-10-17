@@ -4,11 +4,11 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
+use crate::api::attachment;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::markdown::page_to_markdown;
@@ -41,46 +41,6 @@ fn file_name(title: &str) -> String {
     } else {
         cleaned.chars().take(100).collect()
     }
-}
-
-fn percent_encode(text: &str) -> String {
-    text.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
-fn attachment(name: &str, content_type: &'static str, body: Vec<u8>) -> Response {
-    let ascii: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_graphic() || c == ' ' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .replace('"', "_");
-    (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, content_type.to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!(
-                    "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
-                    percent_encode(name)
-                ),
-            ),
-        ],
-        body,
-    )
-        .into_response()
 }
 
 /// Download a page as a Markdown file.
@@ -157,7 +117,7 @@ fn relative_link(from: &[String], to: &[String]) -> String {
     let from_dir = &from[..from.len() - 1];
     let common = from_dir.iter().zip(to).take_while(|(a, b)| a == b).count();
     let mut parts: Vec<String> = vec!["..".to_string(); from_dir.len() - common];
-    parts.extend(to[common..].iter().map(|p| percent_encode(p)));
+    parts.extend(to[common..].iter().map(|p| crate::api::percent_encode(p)));
     parts.join("/")
 }
 

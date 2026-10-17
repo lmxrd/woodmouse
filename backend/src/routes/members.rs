@@ -15,7 +15,7 @@ use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{Project, Role, Task, TaskAssignee, User, UserInvite, WorkspaceMember};
-use crate::routes::auth::{PublicUser, validate_identity};
+use crate::routes::auth::{People, PublicUser, validate_identity};
 use crate::state::AppState;
 use crate::time;
 
@@ -139,20 +139,11 @@ pub async fn list_members(
     if memberships.is_empty() {
         return Ok(Json(vec![]));
     }
-    let user_ids: Vec<uuid::Uuid> = memberships.iter().map(|m| m.user_id).collect();
-    let users = User::all()
-        .filter(in_list(User::fields().id(), user_ids))
-        .exec(db)
-        .await?;
+    let people = People::load(db, memberships.iter().map(|m| m.user_id)).await?;
 
     let mut members: Vec<Member> = memberships
         .into_iter()
-        .filter_map(|m| {
-            users
-                .iter()
-                .find(|u| u.id == m.user_id)
-                .map(|u| member_of(u, m.role))
-        })
+        .filter_map(|m| people.user(m.user_id).map(|u| member_of(u, m.role)))
         .collect();
     members.sort_by_key(|m| m.user.name.to_lowercase());
     Ok(Json(members))

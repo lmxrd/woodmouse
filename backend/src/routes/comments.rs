@@ -14,7 +14,7 @@ use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{Comment, Revision, Role, Task, User};
 use crate::revisions;
-use crate::routes::auth::PublicUser;
+use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
 use crate::time;
 use jiff::civil::DateTime;
@@ -59,15 +59,7 @@ async fn views(
     db: &mut dyn toasty::Executor,
     comments: Vec<Comment>,
 ) -> Result<Vec<CommentView>, ApiError> {
-    let author_ids: Vec<uuid::Uuid> = comments.iter().map(|c| c.author_id).collect();
-    let authors: Vec<User> = if author_ids.is_empty() {
-        vec![]
-    } else {
-        User::all()
-            .filter(in_list(User::fields().id(), author_ids))
-            .exec(db)
-            .await?
-    };
+    let people = People::load(db, comments.iter().map(|c| c.author_id)).await?;
     let comment_ids: Vec<uuid::Uuid> = comments.iter().map(|c| c.id).collect();
     let revision_rows: Vec<Revision> = if comment_ids.is_empty() {
         vec![]
@@ -92,10 +84,7 @@ async fn views(
         .map(|(c, edited_at)| CommentView {
             id: c.id,
             task_id: c.task_id,
-            author: authors
-                .iter()
-                .find(|u| u.id == c.author_id)
-                .map(PublicUser::from),
+            author: people.public(c.author_id),
             body: c.body,
             created_at: c.created_at,
             edited_at,
