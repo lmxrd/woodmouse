@@ -3,7 +3,7 @@
 [tools]
 node = "26"      # frontend (react-csr / astro-site)
 pnpm = "12"      # frontend package manager (jsr: prefix needs >= 12)
-rust = "1.99.0"  # backend (rust-api); toasty requires >= 1.95
+rust = { version = "1.99.0", targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"] }  # backend (rust-api); toasty requires >= 1.95; musl for the static release binary
 watchexec = "2.8.0"  # backend hot reload (dev:backend)
 
 [tasks.dev]
@@ -32,14 +32,18 @@ description = "Fill an empty dev database with mock data (run `mise run clean` f
 dir = "backend"
 run = "cargo run -- seed"
 
+# rust-embed needs frontend/dist to exist to compile the main binary, hence the build.
 [tasks."check:backend"]
 description = "Run backend checks (rustfmt, clippy)"
 dir = "backend"
+depends = ["build:frontend"]
 run = "mise run check"
 
+# The typecheck needs the generated API client.
 [tasks."check:frontend"]
 description = "Run frontend checks (typecheck, lint, format)"
 dir = "frontend"
+depends = ["gen:client"]
 run = "pnpm check"
 
 [tasks."build:frontend"]
@@ -51,7 +55,7 @@ run = "pnpm build"
 [tasks."install:frontend"]
 description = "Install frontend workspace dependencies"
 dir = "frontend"
-run = "pnpm install --no-frozen-lockfile"
+run = "pnpm install"  # frozen automatically when CI is set
 
 # Client generation pipeline: spec (backend only, no frontend bundle needed)
 # -> heyapi openapi-ts -> frontend/packages/client/src (never committed).
@@ -77,6 +81,26 @@ run = "cargo build"
 [tasks.build]
 description = "Build frontend (generates the client first), then backend with the bundle embedded"
 run = "mise run build:frontend && mise run build:backend"
+
+[tasks."test:backend"]
+description = "Run the backend tests"
+dir = "backend"
+depends = ["build:frontend"]
+run = "cargo test"
+
+[tasks."test:frontend"]
+description = "Run the frontend tests"
+dir = "frontend"
+depends = ["install:frontend"]
+run = "pnpm test"
+
+[tasks.test]
+description = "Run each stack's tests"
+depends = ["test:backend", "test:frontend"]
+
+[tasks."build:docker"]
+description = "Build the container image (natively, for this machine's architecture)"
+run = "podman build -t woodmouse ."
 
 [tasks.check]
 description = "Run each stack's checks"

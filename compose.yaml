@@ -1,0 +1,21 @@
+# Self-hosting: `docker compose up -d`, then open http://localhost:8000 and create the first account.
+# The database, uploaded files and backups live in the `data` volume. The image is the one the release
+# publishes; use `build: .` instead to build it from this checkout.
+services:
+  woodmouse:
+    image: ghcr.io/lmxrd/woodmouse:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - data:/data
+    environment:
+      # Where the app is reached from, for links in email and calendar feeds.
+      # PUBLIC_URL: https://tasks.example.com
+      # Set when served over HTTPS, so session cookies are marked Secure.
+      # WOODMOUSE_SECURE_COOKIES: "1"
+      # Email is off until SMTP is set (see the README).
+      # SMTP_HOST: smtp.example.com
+
+volumes:
+  data:

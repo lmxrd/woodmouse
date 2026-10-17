@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The quality gates, exactly as locally: the tools come from mise.toml
+  # and the checks and tests are the same tasks. The default target on
+  # the bare runner — no matrix, no cross compiling — and nothing is
+  # pushed: releases publish, CI only verifies.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-check-${{ hashFiles('backend/Cargo.lock') }}
+      - run: mise run check
+      - run: mise run test
+
+  # The builds run in parallel once the checks pass: the release build,
+  # and the image. Separate cache keys, since the checks cache a debug
+  # target directory and this one a release one.
+  build:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('backend/Cargo.lock') }}
+      - run: mise run build
+
+  # The image builds from source inside the Dockerfile, which brings its
+  # own toolchains, so no mise here. Built, never pushed.
+  docker:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build .

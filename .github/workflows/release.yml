@@ -1,0 +1,164 @@
+name: Release
+
+# Every push to main updates the release PR (version bump and changelog,
+# from the conventional commits). Merging it creates the tag and the
+# GitHub release, and only then do the jobs below run: natively on an
+# amd64 and an arm64 runner (no cross compiling, no emulation) they build
+# the Linux binaries, attached to the release, and the image, pushed to
+# the GitHub Container Registry as one multi-arch manifest. CI never
+# pushes, except the lockfile fix below on the release PR's branch.
+#
+# Needs "Allow GitHub Actions to create and approve pull requests" in the
+# repository's Actions settings.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+
+      # release-please bumps the version in backend/Cargo.toml but cannot
+      # bump the woodmouse entry of backend/Cargo.lock (its toml updater does
+      # not match it), so cargo does it on the release PR's branch. `-w`
+      # touches only the workspace's own packages, never a dependency.
+      # A push with the default token starts no workflow; the next push to
+      # main makes release-please rewrite the branch, and this runs again.
+      - uses: actions/checkout@v7
+        if: steps.release.outputs.prs_created == 'true'
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+
+      - name: Update Cargo.lock on the release PR
+        if: steps.release.outputs.prs_created == 'true'
+        run: |
+          cargo update --workspace --manifest-path backend/Cargo.toml
+          if git diff --quiet -- backend/Cargo.lock; then
+            echo "Cargo.lock is up to date"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add backend/Cargo.lock
+            git commit -m "chore: update Cargo.lock to the release version"
+            git push
+          fi
+
+  # musl binaries are static and run on any Linux.
+  binaries:
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-latest, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+      - uses: jdx/mise-action@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      # The frontend builds from the OpenAPI spec the backend writes first.
+      - run: mise run build:frontend
+      - name: Build and attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          target="$(uname -m)-unknown-linux-musl"
+          cargo build --release --manifest-path backend/Cargo.toml --bin woodmouse --target "$target"
+          mkdir dist
+          cp "backend/target/$target/release/woodmouse" "dist/woodmouse-linux-${{ matrix.arch }}"
+          gh release upload "$TAG" dist/* --clobber
+
+  # Each runner pushes its image by digest only; `manifest` tags them.
+  image:
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-latest, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+      - run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+      - run: |
+          mkdir digests
+          touch "digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+
+  # The tags 1.2.3, 1.2 and latest (prereleases get only the exact
+  # version), pointing at both images.
+  manifest:
+    needs: [release-please, image]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag }}
+            type=raw,value=latest,enable=${{ !contains(needs.release-please.outputs.tag, '-') }}
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " $(ls digests))

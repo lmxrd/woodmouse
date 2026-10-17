@@ -132,6 +132,15 @@ The backend reads these environment variables (all optional):
 Files are stored behind a small `FileStore` trait (`backend/src/storage.rs`) and each file records which backend
 holds it, so another store (for example a Nextcloud/WebDAV share) can be added later, and several can coexist.
 
+### Running with Docker
+
+`docker compose up -d` starts the released image (`ghcr.io/lmxrd/woodmouse`) on port 8000 with the database,
+uploads and backups in the `data` volume (`compose.yaml`; set `PUBLIC_URL`, SMTP and the like there). The image
+sets `DATABASE_URL`, `DATA_DIR` and `BACKUP_DIR` to `/data`, so a daily backup is written there. Build it from
+a checkout with `mise run build:docker`. Releases are cut by release-please from conventional commit titles
+(`.github/workflows/release.yml`): merging the release PR tags the version, attaches static Linux binaries and
+pushes the multi-arch image.
+
 ### Backups and checks
 
 - `woodmouse backup [DIR]` (or the super admin's `POST /api/admin/backup`) writes a consistent copy of the

@@ -1,0 +1,68 @@
+# Dependency updates, weekly. Every title below is a Conventional Commit
+# (`chore(deps): bump ...`), because pull requests are squash merged with
+# their title and release-please reads it (see the `PR title` workflow);
+# `chore` releases nothing by itself, a release happens when a feature or a
+# fix does. CI (`mise run check` and `mise run test`) runs on each pull
+# request, which is what makes the grouped minor and patch updates safe to
+# merge. Majors are grouped too, but in a pull request of their own, so that
+# the safe updates never wait for a breaking one.
+version: 2
+
+updates:
+  # The backend. Cargo.lock is bumped with the manifest.
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+      cargo-major:
+        update-types: [major]
+
+  # The frontend, a pnpm workspace (Dependabot reads pnpm-lock.yaml through
+  # this ecosystem).
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+      npm-major:
+        update-types: [major]
+
+  # The versions of the actions the workflows use.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The images of the Dockerfile. Node and Rust are left to a person: their
+  # versions are pinned in mise.toml too (and Node's must be an LTS), and
+  # the three places change together. alpine:3 follows its own tag.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      - dependency-name: node
+      - dependency-name: rust
