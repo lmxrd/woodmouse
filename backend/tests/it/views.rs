@@ -1,11 +1,9 @@
 //! Saved views: private vs shared, who may edit, and trash.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::Value;
 
-use common::*;
+use crate::common::*;
 
 async fn json(res: axum::http::Response<axum::body::Body>) -> Value {
     serde_json::from_str(&body_string(res.into_body()).await).expect("valid json")
@@ -39,7 +37,7 @@ async fn member(
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: user.id,
-        expires_at: common::far_future()
+        expires_at: crate::common::far_future()
     })
     .exec(&mut db.clone())
     .await

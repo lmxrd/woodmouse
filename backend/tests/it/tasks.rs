@@ -1,12 +1,10 @@
 //! Phase 1 integration tests: projects, lists, tasks, labels — CRUD, access
 //! enforcement, assignees, filtering, sorting, and delete cascades.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::Value;
 
-use common::*;
+use crate::common::*;
 
 struct Fixture {
     app: axum::Router,
@@ -525,7 +523,7 @@ async fn access_isolation_and_roles() {
     toasty::create!(woodmouse::models::Session {
         token: other_token.clone(),
         user_id: other.id,
-        expires_at: common::far_future(),
+        expires_at: crate::common::far_future(),
     })
     .exec(&mut db.clone())
     .await
@@ -808,7 +806,7 @@ async fn workspace_members_listing() {
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: stranger.id,
-        expires_at: common::far_future(),
+        expires_at: crate::common::far_future(),
     })
     .exec(&mut db.clone())
     .await

@@ -16,7 +16,7 @@ import { editorExtensions } from "../components/wiki/editor/extensions";
  *
  * Regenerate with `pnpm vitest run -u src/lib/yjsFixtures.test.ts` (the file is a vitest file snapshot).
  */
-const FIXTURES = "../../../backend/tests/fixtures/editor_docs.json";
+const FIXTURES = "../../../backend/tests/it/fixtures/editor_docs.json";
 
 const schema = getSchema(
   editorExtensions({ workspaceId: "x", queryClient: {} as QueryClient, readOnly: true }),

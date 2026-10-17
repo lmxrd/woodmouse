@@ -1,10 +1,8 @@
 //! The seed command fills an empty database, leaves it consistent, and refuses a used one.
 
-mod common;
-
 #[tokio::test]
 async fn seeding_fills_an_empty_database_once() {
-    let (_, db) = common::app_with_db().await;
+    let (_, db) = crate::common::app_with_db().await;
     let state = woodmouse::state::AppState::new(db.clone());
     let router = || {
         woodmouse::routes::api(state.clone())

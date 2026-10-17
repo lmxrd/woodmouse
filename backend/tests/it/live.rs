@@ -1,8 +1,6 @@
 //! Live editing over a real WebSocket: clients exchange Yjs updates through the room, and what they
 //! write is saved as the page's blocks.
 
-mod common;
-
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -15,7 +13,7 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, GetString, ReadTxn, Transact, WriteTxn, XmlTextPrelim};
 
-use common::*;
+use crate::common::*;
 
 struct Fx {
     app: axum::Router,

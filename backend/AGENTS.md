@@ -108,8 +108,8 @@
   (an `XmlFragment` named `default`, laid out as the editor's collaboration extension writes it). Connections
   speak the y-websocket protocol; the hub follows `yrs-warp` (MIT), ported to axum and the current `yrs`.
   `convert.rs` turns the document into blocks (and back, to seed a room); the frontend test
-  `yjsFixtures.test.ts` writes `tests/fixtures/editor_docs.json` from the real editor schema and
-  `tests/live_convert.rs` reads it, so the two cannot drift (regenerate with `pnpm vitest run -u
+  `yjsFixtures.test.ts` writes `tests/it/fixtures/editor_docs.json` from the real editor schema and
+  `tests/it/live_convert.rs` reads it, so the two cannot drift (regenerate with `pnpm vitest run -u
   src/lib/yjsFixtures.test.ts` after changing node types or attributes). ~2s after the last edit the room
   saves through `pages::save_content` (attributed to the last editor); the Yjs state is kept in `PageDoc` with
   an `epoch` that changes whenever the document is rebuilt from blocks (REST save, restore): sockets then close

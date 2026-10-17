@@ -1,11 +1,9 @@
 //! Soft delete and Trash: deleted things disappear everywhere, cascade as a group, and restore.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::Value;
 
-use common::*;
+use crate::common::*;
 
 struct Fx {
     app: axum::Router,
@@ -381,7 +379,7 @@ async fn trash_needs_write_access() {
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: reader.id,
-        expires_at: common::far_future(),
+        expires_at: crate::common::far_future(),
     })
     .exec(&mut db.clone())
     .await

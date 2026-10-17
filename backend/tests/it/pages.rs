@@ -1,11 +1,9 @@
 //! The wiki: page tree, block content and its validation, permissions, and trash.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use common::*;
+use crate::common::*;
 
 /// The body as JSON, or as a string when it is not JSON (extractor rejections are plain text).
 async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
@@ -313,7 +311,7 @@ async fn permissions_and_workspace_isolation() {
             toasty::create!(woodmouse::models::Session {
                 token: token.clone(),
                 user_id: user.id,
-                expires_at: common::far_future()
+                expires_at: crate::common::far_future()
             })
             .exec(&mut db.clone())
             .await
@@ -414,7 +412,7 @@ async fn permissions_and_workspace_isolation() {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: common::far_future()
+            expires_at: crate::common::far_future()
         })
         .exec(&mut fx.db.clone())
         .await
@@ -707,7 +705,7 @@ impl Fx {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: common::far_future()
+            expires_at: crate::common::far_future()
         })
         .exec(db)
         .await

@@ -1,11 +1,9 @@
 //! The activity feed: what gets recorded, and the workspace / project / task scopes.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::Value;
 
-use common::*;
+use crate::common::*;
 
 async fn json(res: axum::http::Response<axum::body::Body>) -> Value {
     serde_json::from_str(&body_string(res.into_body()).await).expect("valid json")

@@ -1,11 +1,9 @@
 //! Sprints: dated buckets of a project's tasks, completing them, and how they interact with tasks.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use common::*;
+use crate::common::*;
 
 struct Fx {
     app: axum::Router,

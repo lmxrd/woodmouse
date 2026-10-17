@@ -18,7 +18,7 @@ fn documents_written_by_the_editor_become_the_blocks_the_editor_saves() {
     use base64::Engine;
     let text = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/editor_docs.json"
+        "/tests/it/fixtures/editor_docs.json"
     ))
     .unwrap();
     let fixtures: Vec<Fixture> = serde_json::from_str(&text).unwrap();

@@ -1,11 +1,9 @@
 //! Integration tests: auth flow against the real router and an in-memory
 //! SQLite database.
 
-mod common;
-
 use axum::http::StatusCode;
 
-use common::*;
+use crate::common::*;
 
 #[tokio::test]
 async fn health_probes() {
@@ -236,7 +234,7 @@ async fn workspaces_access_is_enforced() {
     toasty::create!(woodmouse::models::Session {
         token: other_token.clone(),
         user_id: other.id,
-        expires_at: common::far_future(), // 2100-01-01
+        expires_at: crate::common::far_future(), // 2100-01-01
     })
     .exec(&mut db.clone())
     .await

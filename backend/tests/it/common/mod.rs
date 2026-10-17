@@ -19,14 +19,14 @@ pub async fn app() -> axum::Router {
     app_with_db().await.0
 }
 
-/// The router with a small upload limit, for testing size checks.
-pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db) {
+/// A fresh in-memory database: the schema from the migrations (so the tests also prove they build a
+/// working database) and the search index.
+async fn database() -> toasty::Db {
     let db = toasty::Db::builder()
         .models(toasty::models!(woodmouse::*))
         .connect("sqlite::memory:")
         .await
         .expect("connect in-memory db");
-    // The schema comes from the migrations, so the tests also prove they build a working database.
     woodmouse::migrations::MIGRATIONS
         .apply(&db)
         .await
@@ -34,42 +34,31 @@ pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db)
     woodmouse::search::ensure_index(&mut db.clone())
         .await
         .unwrap_or_else(|_| panic!("create search index"));
+    db
+}
+
+fn router(state: AppState) -> axum::Router {
+    woodmouse::routes::api(state.clone())
+        .with_state(state)
+        .split_for_parts()
+        .0
+}
+
+/// The router with a small upload limit, for testing size checks.
+pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db) {
+    let db = database().await;
     let root = std::env::temp_dir().join(format!("woodmouse-test-{}", uuid::Uuid::new_v4()));
     let files = woodmouse::storage::FileStores::new(
         std::sync::Arc::new(woodmouse::storage::LocalDisk::new(root)),
         max_bytes,
     );
-    let state = AppState::with_files(db.clone(), files);
-    let router = woodmouse::routes::api(state.clone())
-        .with_state(state)
-        .split_for_parts()
-        .0;
-    (router, db)
+    (router(AppState::with_files(db.clone(), files)), db)
 }
 
+/// The router and a handle on its database (the clone shares the pool), to seed users and sessions directly.
 pub async fn app_with_db() -> (axum::Router, toasty::Db) {
-    let db = toasty::Db::builder()
-        .models(toasty::models!(woodmouse::*))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory db");
-    // The schema comes from the migrations, so the tests also prove they build a working database.
-    woodmouse::migrations::MIGRATIONS
-        .apply(&db)
-        .await
-        .expect("apply migrations");
-    woodmouse::search::ensure_index(&mut db.clone())
-        .await
-        .unwrap_or_else(|_| panic!("create search index"));
-
-    // The clone shares the pool, so it sees the same in-memory database the
-    // router uses — the tests can seed users and sessions directly.
-    let state = AppState::new(db.clone());
-    let router = woodmouse::routes::api(state.clone())
-        .with_state(AppState::new(db.clone()))
-        .split_for_parts()
-        .0;
-    (router, db)
+    let db = database().await;
+    (router(AppState::new(db.clone())), db)
 }
 
 pub async fn body_string(body: Body) -> String {

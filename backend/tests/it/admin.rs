@@ -1,11 +1,9 @@
 //! The site admin: users, deleted workspaces, the audit log, the integrity check and backups.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use common::*;
+use crate::common::*;
 
 async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
     serde_json::from_str(&body_string(res.into_body()).await).unwrap_or(Value::Null)

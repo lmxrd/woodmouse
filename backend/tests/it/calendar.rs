@@ -1,11 +1,9 @@
 //! Calendar links: secret feed URLs for tasks with dates, managed by their owners.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use common::*;
+use crate::common::*;
 
 struct Fx {
     app: axum::Router,
@@ -72,7 +70,7 @@ impl Fx {
         toasty::create!(woodmouse::models::Session {
             token: token.clone(),
             user_id: user.id,
-            expires_at: common::far_future()
+            expires_at: crate::common::far_future()
         })
         .exec(db)
         .await

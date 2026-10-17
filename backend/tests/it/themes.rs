@@ -1,11 +1,9 @@
 //! Appearance: workspace theme (admins), personal choice per workspace, and light/dark mode.
 
-mod common;
-
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use common::*;
+use crate::common::*;
 
 async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
     let text = body_string(res.into_body()).await;
@@ -50,7 +48,7 @@ async fn workspace_themes_personal_choices_and_mode() {
     toasty::create!(woodmouse::models::Session {
         token: token.clone(),
         user_id: user.id,
-        expires_at: common::far_future()
+        expires_at: crate::common::far_future()
     })
     .exec(db)
     .await

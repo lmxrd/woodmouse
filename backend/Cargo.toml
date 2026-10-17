@@ -44,3 +44,9 @@ csv = "1.4.0"
 
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"
+
+# Password hashing is deliberately slow; unoptimized it makes logins (and so the tests) crawl.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

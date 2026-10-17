@@ -1,7 +1,5 @@
 //! Notifications, watching, email (instant and digest), deadlines and the email settings.
 
-mod common;
-
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -9,7 +7,7 @@ use serde_json::{Value, json};
 use woodmouse::mail::Outbox;
 use woodmouse::state::AppState;
 
-use common::*;
+use crate::common::*;
 
 struct Fx {
     app: axum::Router,
