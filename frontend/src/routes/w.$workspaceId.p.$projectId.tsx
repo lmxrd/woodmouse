@@ -42,7 +42,6 @@ function ProjectPage() {
   const queryClient = useQueryClient();
   const rename = useMutation({
     ...updateProjectMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const remove = useMutation({
     ...deleteProjectMutation(),

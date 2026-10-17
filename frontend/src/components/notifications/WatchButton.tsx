@@ -1,9 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   getPageWatchOptions,
-  getPageWatchQueryKey,
   getTaskWatchOptions,
-  getTaskWatchQueryKey,
   setPageWatchMutation,
   setTaskWatchMutation,
 } from "woodmouse-client/react-query";
@@ -12,7 +10,6 @@ import { Button } from "../ui/button";
 
 /** Whether the signed-in person watches a task or page, and a way to change it, for both kinds. */
 export function useWatch(kind: "task" | "page", id: string) {
-  const queryClient = useQueryClient();
   const taskQuery = useQuery({
     ...getTaskWatchOptions({ path: { id } }),
     enabled: kind === "task",
@@ -21,15 +18,8 @@ export function useWatch(kind: "task" | "page", id: string) {
     ...getPageWatchOptions({ path: { id } }),
     enabled: kind === "page",
   });
-  const refresh = () =>
-    queryClient.invalidateQueries({
-      queryKey:
-        kind === "task"
-          ? getTaskWatchQueryKey({ path: { id } })
-          : getPageWatchQueryKey({ path: { id } }),
-    });
-  const setTask = useMutation({ ...setTaskWatchMutation(), onSuccess: refresh });
-  const setPage = useMutation({ ...setPageWatchMutation(), onSuccess: refresh });
+  const setTask = useMutation(setTaskWatchMutation());
+  const setPage = useMutation(setPageWatchMutation());
   const watching = (kind === "task" ? taskQuery.data : pageQuery.data)?.watching ?? false;
   return {
     watching,

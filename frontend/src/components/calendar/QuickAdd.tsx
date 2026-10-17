@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { List } from "woodmouse-client";
 import { createInboxTaskMutation, createTaskMutation } from "woodmouse-client/react-query";
 
@@ -23,18 +23,15 @@ export function QuickAdd({
   projectId: string;
   lists: List[];
 }) {
-  const queryClient = useQueryClient();
   const { localDay } = useFormatters();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [listId, setListId] = useState<string | undefined>(undefined);
   const create = useMutation({
     ...createTaskMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const createInbox = useMutation({
     ...createInboxTaskMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const target = listId ?? INBOX;
 

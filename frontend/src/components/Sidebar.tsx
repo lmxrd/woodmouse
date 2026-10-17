@@ -59,7 +59,6 @@ export function Sidebar({
   const createProject = useMutation({
     ...createProjectMutation(),
     onSuccess: async (project) => {
-      await queryClient.invalidateQueries();
       void navigate({
         to: "/w/$workspaceId/p/$projectId",
         params: { workspaceId, projectId: project.id },
@@ -68,6 +67,7 @@ export function Sidebar({
   });
   const logout = useMutation({
     ...logoutMutation(),
+    meta: { invalidate: false },
     onSuccess: () => {
       queryClient.clear();
       void navigate({ to: "/login" });

@@ -54,11 +54,9 @@ export function AppearanceSection() {
 }
 
 function WorkspaceTheme({ workspace, mode }: { workspace: Workspace; mode: Mode }) {
-  const queryClient = useQueryClient();
   const { data: view } = useQuery(getThemeOptions({ path: { id: workspace.id } }));
   const save = useMutation({
     ...setMyThemeMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   if (!view) return null;
 

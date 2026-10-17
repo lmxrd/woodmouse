@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
   deleteWorkspaceMutation,
@@ -16,19 +16,16 @@ import { Textarea } from "../ui/textarea";
 
 /** The workspace's name and description, and (for admins) deleting it. */
 export function GeneralPanel({ workspaceId }: { workspaceId: string }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { isAdmin } = useWorkspaceRole(workspaceId);
   const { data: workspaces } = useQuery(listWorkspacesOptions());
   const workspace = workspaces?.find((w) => w.id === workspaceId);
   const update = useMutation({
     ...updateWorkspaceMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const remove = useMutation({
     ...deleteWorkspaceMutation(),
     onSuccess: async () => {
-      await queryClient.invalidateQueries();
       void navigate({ to: "/" });
     },
   });

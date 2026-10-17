@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { List, SprintView, TaskResponse } from "woodmouse-client";
 import { deleteSprintMutation } from "woodmouse-client/react-query";
 
@@ -42,14 +42,12 @@ export function SprintGroups({
   onSort: (column: TaskSort) => void;
   onToggleDone: (task: TaskResponse, done: boolean) => void;
 }) {
-  const queryClient = useQueryClient();
   const { date } = useFormatters();
   const [editing, setEditing] = useState<SprintView | null>(null);
   const [completing, setCompleting] = useState<SprintView | null>(null);
   const [deleting, setDeleting] = useState<SprintView | null>(null);
   const remove = useMutation({
     ...deleteSprintMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
 
   const open = sprints.filter((s) => !s.completed_at);

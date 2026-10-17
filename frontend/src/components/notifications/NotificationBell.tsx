@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { NotificationView } from "woodmouse-client";
 import {
@@ -17,7 +17,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 /** The notifications button with its unread count; opens the list. Polls the count once a minute. */
 export function NotificationBell({ onNavigate }: { onNavigate?: () => void }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { when } = useFormatters();
   const [open, setOpen] = useState(false);
@@ -29,9 +28,8 @@ export function NotificationBell({ onNavigate }: { onNavigate?: () => void }) {
     ...listNotificationsOptions({ query: { limit: 30 } }),
     enabled: open,
   });
-  const refresh = () => queryClient.invalidateQueries();
-  const markRead = useMutation({ ...markNotificationReadMutation(), onSuccess: refresh });
-  const markAll = useMutation({ ...markAllNotificationsReadMutation(), onSuccess: refresh });
+  const markRead = useMutation(markNotificationReadMutation());
+  const markAll = useMutation(markAllNotificationsReadMutation());
   const count = unread?.count ?? 0;
 
   const openItem = (n: NotificationView) => {

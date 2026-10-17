@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { TrashItem } from "woodmouse-client";
 import { listTrashOptions, restoreItemMutation } from "woodmouse-client/react-query";
 
@@ -30,7 +30,6 @@ function detail(item: TrashItem): string {
 /** Everything deleted in the workspace. Deleting is always soft: items can be restored from here. */
 export function TrashPage({ workspaceId }: { workspaceId: string }) {
   const { when } = useFormatters();
-  const queryClient = useQueryClient();
   const { data: items, isError } = useQuery({
     ...listTrashOptions({ path: { id: workspaceId } }),
     retry: false,
@@ -41,7 +40,6 @@ export function TrashPage({ workspaceId }: { workspaceId: string }) {
     meta: { inline: true },
     onMutate: () => setFailed(null),
     onError: (_e, vars) => setFailed(vars.path.item_id),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
 
   return (

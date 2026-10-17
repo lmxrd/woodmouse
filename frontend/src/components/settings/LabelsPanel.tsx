@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { LabelWithCount } from "woodmouse-client";
 import {
   createLabelMutation,
@@ -17,14 +17,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 /** Workspace labels: rename, recolor from a fixed palette, delete. Editing needs write access. */
 export function LabelsPanel({ workspaceId }: { workspaceId: string }) {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries();
   const { data: labels } = useQuery(listLabelsOptions({ path: { workspace_id: workspaceId } }));
   const { canWrite: canEdit } = useWorkspaceRole(workspaceId);
 
-  const create = useMutation({ ...createLabelMutation(), onSuccess: refresh });
-  const update = useMutation({ ...updateLabelMutation(), onSuccess: refresh });
-  const remove = useMutation({ ...deleteLabelMutation(), onSuccess: refresh });
+  const create = useMutation(createLabelMutation());
+  const update = useMutation(updateLabelMutation());
+  const remove = useMutation(deleteLabelMutation());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const row = (label: LabelWithCount) => (

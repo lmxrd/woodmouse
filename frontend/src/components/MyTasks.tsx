@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import type { TaskResponse } from "woodmouse-client";
 import {
@@ -36,7 +36,6 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
     void navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
 
   const { date } = useFormatters();
-  const queryClient = useQueryClient();
   const { data: me } = useQuery(meOptions());
   const { data: projects } = useQuery(listProjectsOptions({ path: { workspace_id: workspaceId } }));
   const { data: tasks } = useQuery({
@@ -53,7 +52,6 @@ export function MyTasks({ workspaceId }: { workspaceId: string }) {
   });
   const update = useMutation({
     ...updateTaskMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const [showLater, setShowLater] = useState(false);
 

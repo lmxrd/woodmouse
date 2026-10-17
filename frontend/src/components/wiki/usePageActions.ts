@@ -22,8 +22,8 @@ export function usePageActions(workspaceId: string) {
       });
     },
   });
-  const update = useMutation({ ...updatePageMutation(), onSuccess: refresh });
-  const remove = useMutation({ ...deletePageMutation(), onSuccess: refresh });
+  const update = useMutation(updatePageMutation());
+  const remove = useMutation(deletePageMutation());
 
   return {
     /** A new "Untitled" page (top level, or below `parentId`), opened with its title ready to edit. */

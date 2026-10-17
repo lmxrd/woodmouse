@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { adminAuditLogOptions, adminRedactRevisionMutation } from "woodmouse-client/react-query";
 
 import { userLabel } from "../../lib/user";
@@ -35,14 +35,12 @@ export function AuditTab({
   action: string | undefined;
   onAction: (action: string | undefined) => void;
 }) {
-  const queryClient = useQueryClient();
   const { dateTime } = useFormatters();
   const [limit, setLimit] = useState(PAGE);
   const [redacting, setRedacting] = useState<string | null>(null);
   const { data: entries } = useQuery(adminAuditLogOptions({ query: { action, limit } }));
   const redact = useMutation({
     ...adminRedactRevisionMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
 
   return (

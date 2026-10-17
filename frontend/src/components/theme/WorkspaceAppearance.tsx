@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getThemeOptions, setWorkspaceThemeMutation } from "woodmouse-client/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
@@ -7,12 +7,10 @@ import { ThemePicker, type ThemeValue } from "./ThemePicker";
 
 /** The workspace's palette and accent: the default for everyone who has not chosen their own. */
 export function WorkspaceAppearance({ workspaceId }: { workspaceId: string }) {
-  const queryClient = useQueryClient();
   const { isAdmin } = useWorkspaceRole(workspaceId);
   const { data: view } = useQuery(getThemeOptions({ path: { id: workspaceId } }));
   const save = useMutation({
     ...setWorkspaceThemeMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   if (!view) return null;
 

@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { createWorkspaceMutation, listWorkspacesOptions } from "woodmouse-client/react-query";
 
 import { InlineAdd } from "../components/InlineAdd";
@@ -18,12 +18,10 @@ export const Route = createFileRoute("/")({
 
 /** Only reached when the user belongs to no workspace yet. */
 function FirstWorkspace() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const create = useMutation({
     ...createWorkspaceMutation(),
     onSuccess: async (workspace) => {
-      await queryClient.invalidateQueries();
       void navigate({ to: "/w/$workspaceId", params: { workspaceId: workspace.id } });
     },
   });

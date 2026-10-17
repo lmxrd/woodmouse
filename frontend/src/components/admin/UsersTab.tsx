@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { AdminUser, Role } from "woodmouse-client";
 import {
   adminCreateUserMutation,
@@ -83,7 +83,6 @@ export function UsersTab({ meId }: { meId: string }) {
 }
 
 function NewUser({ onDone }: { onDone: () => void }) {
-  const queryClient = useQueryClient();
   const [role, setRole] = useState<string>(NONE);
   const { data: workspaces } = useQuery(adminListWorkspacesOptions());
   // Workspace id -> the role to add them with.
@@ -91,7 +90,6 @@ function NewUser({ onDone }: { onDone: () => void }) {
   const create = useMutation({
     ...adminCreateUserMutation(),
     meta: { inline: true },
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const created = create.data;
 
@@ -266,13 +264,11 @@ function Memberships({ user }: { user: AdminUser }) {
 }
 
 function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
-  const queryClient = useQueryClient();
   const [invite, setInvite] = useState<string | null>(null);
   const [disabling, setDisabling] = useState(false);
   const update = useMutation({
     ...adminUpdateUserMutation(),
     meta: { inline: true },
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const reinvite = useMutation({
     ...adminReissueInviteMutation(),

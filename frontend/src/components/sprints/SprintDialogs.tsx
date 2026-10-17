@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { SprintView } from "woodmouse-client";
 import {
   completeSprintMutation,
@@ -33,10 +33,8 @@ export function SprintFormDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries();
-  const create = useMutation({ ...createSprintMutation(), onSuccess: refresh });
-  const update = useMutation({ ...updateSprintMutation(), onSuccess: refresh });
+  const create = useMutation(createSprintMutation());
+  const update = useMutation(updateSprintMutation());
   const [error, setError] = useState<string | null>(null);
 
   return (
@@ -132,12 +130,10 @@ export function CompleteSprintDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const queryClient = useQueryClient();
   const [target, setTarget] = useState(BACKLOG);
   const complete = useMutation({
     ...completeSprintMutation(),
     onSuccess: async () => {
-      await queryClient.invalidateQueries();
       onOpenChange(false);
     },
   });

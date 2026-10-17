@@ -71,11 +71,11 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
   const { data: allTasks } = useQuery(tasksQuery);
 
   const refresh = () => queryClient.invalidateQueries();
-  const createList = useMutation({ ...createListMutation(), onSuccess: refresh });
-  const createTask = useMutation({ ...createTaskMutation(), onSuccess: refresh });
-  const createInboxTask = useMutation({ ...createInboxTaskMutation(), onSuccess: refresh });
-  const renameList = useMutation({ ...updateListMutation(), onSuccess: refresh });
-  const deleteList = useMutation({ ...deleteListMutation(), onSuccess: refresh });
+  const createList = useMutation(createListMutation());
+  const createTask = useMutation(createTaskMutation());
+  const createInboxTask = useMutation(createInboxTaskMutation());
+  const renameList = useMutation(updateListMutation());
+  const deleteList = useMutation(deleteListMutation());
   // Moves update the cache first so the card stays where it was dropped instead of jumping back.
   const updateTask = useMutation({
     ...updateTaskMutation(),

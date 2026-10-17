@@ -31,11 +31,9 @@ export function useUploader(workspaceId: string): {
   const { data: config } = useQuery(getConfigOptions());
   const attach = useMutation({
     ...attachFileMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const attachPage = useMutation({
     ...attachPageFileMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const [uploading, setUploading] = useState(0);
   const [duplicates, setDuplicates] = useState<PendingDuplicate[]>([]);

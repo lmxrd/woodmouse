@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { FileView } from "woodmouse-client";
 import {
   attachFileMutation,
@@ -12,6 +12,7 @@ import {
 } from "woodmouse-client/react-query";
 
 import { fileContentUrl } from "../../lib/api";
+import { FileThumb } from "../files/FileThumb";
 import { formatBytes } from "../../lib/upload";
 import { userLabel } from "../../lib/user";
 import { cn } from "../../lib/utils";
@@ -34,7 +35,6 @@ export function Attachments({
   workspaceId: string;
   editable: boolean;
 }) {
-  const queryClient = useQueryClient();
   const targetId = taskId ?? pageId ?? "";
   const { data: taskFiles } = useQuery({
     ...listAttachmentsOptions({ path: { id: targetId } }),
@@ -45,11 +45,10 @@ export function Attachments({
     enabled: !!pageId,
   });
   const attachments = taskId ? taskFiles : pageFiles;
-  const refresh = () => queryClient.invalidateQueries();
-  const attachTask = useMutation({ ...attachFileMutation(), onSuccess: refresh });
-  const attachPage = useMutation({ ...attachPageFileMutation(), onSuccess: refresh });
-  const detachTask = useMutation({ ...detachFileMutation(), onSuccess: refresh });
-  const detachPage = useMutation({ ...detachPageFileMutation(), onSuccess: refresh });
+  const attachTask = useMutation(attachFileMutation());
+  const attachPage = useMutation(attachPageFileMutation());
+  const detachTask = useMutation(detachFileMutation());
+  const detachPage = useMutation(detachPageFileMutation());
   const attachFile = (fileId: string) =>
     taskId
       ? attachTask.mutate({ path: { id: taskId }, body: { file_id: fileId } })
@@ -160,7 +159,6 @@ export function Attachments({
 }
 
 function AttachmentChip({ file, onRemove }: { file: FileView; onRemove?: () => void }) {
-  const extension = file.name.includes(".") ? file.name.split(".").pop()!.slice(0, 4) : "file";
   return (
     <div className="flex items-center gap-2 border border-border bg-card p-1.5">
       <a
@@ -170,18 +168,7 @@ function AttachmentChip({ file, onRemove }: { file: FileView; onRemove?: () => v
         className="flex min-w-0 items-center gap-2 hover:underline"
         download={file.previewable ? undefined : file.name}
       >
-        {file.previewable ? (
-          <img
-            src={fileContentUrl(file.id)}
-            alt=""
-            className="size-9 shrink-0 object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <span className="label-mono grid size-9 shrink-0 place-items-center bg-accent text-[10px] text-accent-foreground">
-            {extension}
-          </span>
-        )}
+        <FileThumb file={file} />
         <span className="min-w-0">
           <span className="block max-w-44 truncate text-sm">{file.name}</span>
           <span className="label-mono block text-muted-foreground">

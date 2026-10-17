@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createViewMutation, listViewsOptions } from "woodmouse-client/react-query";
 
 import type { ProjectSearch, ProjectView } from "../lib/projectSearch";
@@ -57,12 +57,10 @@ export function ProjectViewMenu({
   /** Replace the view settings with a saved view's. */
   onApply: (params: Record<string, unknown>) => void;
 }) {
-  const queryClient = useQueryClient();
   const { canWrite } = useWorkspaceRole(workspaceId);
   const { data: views } = useQuery(listViewsOptions({ path: { id: projectId } }));
   const create = useMutation({
     ...createViewMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const [saving, setSaving] = useState(false);
   const [managing, setManaging] = useState(false);

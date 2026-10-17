@@ -51,8 +51,8 @@ export function CalendarLinks({
     listCalendarLinksOptions({ query: { workspace_id: workspaceId, project_id: projectId } }),
   );
   const refresh = () => queryClient.invalidateQueries();
-  const revoke = useMutation({ ...revokeCalendarLinkMutation(), onSuccess: refresh });
-  const revokeAll = useMutation({ ...revokeCalendarLinksMutation(), onSuccess: refresh });
+  const revoke = useMutation(revokeCalendarLinkMutation());
+  const revokeAll = useMutation(revokeCalendarLinksMutation());
   const [revoking, setRevoking] = useState<CalendarLinkView | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [creating, setCreating] = useState(false);

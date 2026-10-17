@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { AdminUser, Role } from "woodmouse-client";
 import {
   addMemberMutation,
@@ -15,11 +15,9 @@ export const NO_ACCESS = "none";
  * needed (`null` removes it). The server keeps the rule that a workspace needs an admin.
  */
 export function useSetMembership() {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries();
-  const add = useMutation({ ...addMemberMutation(), onSuccess: refresh });
-  const update = useMutation({ ...updateMemberMutation(), onSuccess: refresh });
-  const remove = useMutation({ ...removeMemberMutation(), onSuccess: refresh });
+  const add = useMutation(addMemberMutation());
+  const update = useMutation(updateMemberMutation());
+  const remove = useMutation(removeMemberMutation());
   return {
     pending: add.isPending || update.isPending || remove.isPending,
     set: (user: AdminUser, workspaceId: string, role: Role | null) => {

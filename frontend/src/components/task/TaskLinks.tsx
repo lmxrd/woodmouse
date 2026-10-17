@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { LinkKind, TaskLinkView } from "woodmouse-client";
 import {
@@ -41,16 +41,13 @@ export function TaskLinks({
   editable: boolean;
   onOpenTask: (taskId: string) => void;
 }) {
-  const queryClient = useQueryClient();
   const { data: links } = useQuery(listLinksOptions({ path: { id: taskId } }));
-  const refresh = () => queryClient.invalidateQueries();
   const add = useMutation({
     ...addLinkMutation(),
-    onSuccess: refresh,
     meta: { inline: true },
     onError: () => toast.error("Those tasks are already linked that way."),
   });
-  const remove = useMutation({ ...removeLinkMutation(), onSuccess: refresh });
+  const remove = useMutation(removeLinkMutation());
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState<(typeof CHOICES)[number]["value"]>("relates_to");
   const { data: candidates } = useQuery({

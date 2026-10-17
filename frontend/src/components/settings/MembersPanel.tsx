@@ -74,7 +74,6 @@ export function MembersPanel({ workspaceId }: { workspaceId: string }) {
   const changeRole = useMutation({
     ...updateMemberMutation(),
     meta: { inline: true },
-    onSuccess: refresh,
   });
   const remove = useMutation({
     ...removeMemberMutation(),

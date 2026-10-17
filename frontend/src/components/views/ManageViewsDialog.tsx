@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { SavedViewResponse } from "woodmouse-client";
 import { deleteViewMutation, updateViewMutation } from "woodmouse-client/react-query";
 
@@ -24,10 +24,8 @@ export function ManageViewsDialog({
   /** The view settings in effect now, for "Update to current". */
   currentParams: Record<string, string>;
 }) {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries();
-  const update = useMutation({ ...updateViewMutation(), onSuccess: refresh });
-  const remove = useMutation({ ...deleteViewMutation(), onSuccess: refresh });
+  const update = useMutation(updateViewMutation());
+  const remove = useMutation(deleteViewMutation());
   const [renaming, setRenaming] = useState<string | null>(null);
 
   return (

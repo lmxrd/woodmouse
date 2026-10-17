@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   adminListWorkspacesOptions,
@@ -30,7 +30,6 @@ export function WorkspacesTab({
   view: "list" | "matrix";
   onView: (view: "list" | "matrix") => void;
 }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { dateTime } = useFormatters();
   const { data: workspaces } = useQuery(adminListWorkspacesOptions());
@@ -38,12 +37,10 @@ export function WorkspacesTab({
   const [expanded, setExpanded] = useState<string | null>(null);
   const restore = useMutation({
     ...adminRestoreWorkspaceMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const create = useMutation({
     ...createWorkspaceMutation(),
     onSuccess: async (workspace) => {
-      await queryClient.invalidateQueries();
       setCreating(false);
       void navigate({
         to: "/settings/admin/workspaces/$workspaceId",

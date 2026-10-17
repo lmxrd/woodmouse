@@ -12,6 +12,7 @@ import {
   unusedFilesOptions,
 } from "woodmouse-client/react-query";
 
+import { FileThumb } from "./FileThumb";
 import { fileContentUrl, fileVersionContentUrl } from "../../lib/api";
 import { formatBytes, uploadFileVersion } from "../../lib/upload";
 import { useFormatters } from "../../lib/useFormatters";
@@ -60,7 +61,6 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
   const { uploadFiles, isUploading, dialog } = useUploader(workspaceId);
   const remove = useMutation({
     ...deleteFileMutation(),
-    onSuccess: () => queryClient.invalidateQueries(),
   });
   const addVersion = async (file: FileView, upload: File) => {
     const result = await uploadFileVersion(file.id, upload);
@@ -288,22 +288,6 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
         onConfirm={() => cleanup.mutate({ path: { id: workspaceId } })}
       />
     </div>
-  );
-}
-
-function FileThumb({ file }: { file: FileView }) {
-  const extension = file.name.includes(".") ? file.name.split(".").pop()!.slice(0, 4) : "file";
-  return file.previewable ? (
-    <img
-      src={fileContentUrl(file.id)}
-      alt=""
-      className="size-9 shrink-0 object-cover"
-      loading="lazy"
-    />
-  ) : (
-    <span className="label-mono grid size-9 shrink-0 place-items-center bg-accent text-[10px] text-accent-foreground">
-      {extension}
-    </span>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { CommentView } from "woodmouse-client";
 import {
   addCommentMutation,
@@ -28,14 +28,12 @@ export function Comments({
   editable: boolean;
   isAdmin: boolean;
 }) {
-  const queryClient = useQueryClient();
   const { when, dateTime } = useFormatters();
   const { data: me } = useQuery(meOptions());
   const { data: comments } = useQuery(listCommentsOptions({ path: { id: taskId } }));
-  const refresh = () => queryClient.invalidateQueries();
-  const add = useMutation({ ...addCommentMutation(), onSuccess: refresh });
-  const update = useMutation({ ...updateCommentMutation(), onSuccess: refresh });
-  const remove = useMutation({ ...deleteCommentMutation(), onSuccess: refresh });
+  const add = useMutation(addCommentMutation());
+  const update = useMutation(updateCommentMutation());
+  const remove = useMutation(deleteCommentMutation());
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
   const [history, setHistory] = useState<string | null>(null);

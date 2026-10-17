@@ -120,11 +120,10 @@ function TaskForm({
   const update = useMutation({
     ...updateTaskMutation(),
     meta: { inline: true },
-    onSuccess: refresh,
   });
   const save = (body: Parameters<typeof update.mutate>[0]["body"]) =>
     update.mutate({ path: { id: task.id }, body });
-  const createLabel = useMutation({ ...createLabelMutation(), onSuccess: refresh });
+  const createLabel = useMutation(createLabelMutation());
   const remove = useMutation({
     ...deleteTaskMutation(),
     onSuccess: () => {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import {
   listListsOptions,
@@ -40,8 +40,6 @@ export function TaskListView({
     search.sort === "title" || search.sort === "due_date" ? search.sort : undefined;
 
   const { canWrite } = useWorkspaceRole(workspaceId);
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries();
   const { data: lists } = useQuery(listListsOptions({ path: { project_id: projectId } }));
   const { data: sprints } = useQuery(listSprintsOptions({ path: { project_id: projectId } }));
   const grouped = search.group === "sprint";
@@ -57,7 +55,7 @@ export function TaskListView({
       },
     }),
   );
-  const update = useMutation({ ...updateTaskMutation(), onSuccess: refresh });
+  const update = useMutation(updateTaskMutation());
 
   const tasks =
     search.sort === "priority" && fetched

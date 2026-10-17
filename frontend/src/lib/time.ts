@@ -17,11 +17,6 @@ export function instant(iso: string): number {
   return Math.floor(new Date(iso).getTime() / 1000);
 }
 
-/** The current moment as an API timestamp. */
-export function nowIso(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
 /** A day from the API (`2026-10-16T00:00:00Z`) as the epoch second of that date at local midnight. */
 export function dayEpoch(iso: string): number;
 export function dayEpoch(iso: string | null | undefined): number | null;

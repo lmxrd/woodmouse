@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import type { CreateTaskRequest, List } from "woodmouse-client";
 import { createInboxTaskMutation, createTaskMutation } from "woodmouse-client/react-query";
 
@@ -27,10 +27,8 @@ export function AddTask({
   extra?: Partial<CreateTaskRequest>;
   className?: string;
 }) {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries();
-  const createInList = useMutation({ ...createTaskMutation(), onSuccess: refresh });
-  const createInInbox = useMutation({ ...createInboxTaskMutation(), onSuccess: refresh });
+  const createInList = useMutation(createTaskMutation());
+  const createInInbox = useMutation(createInboxTaskMutation());
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const target = picked ?? (lists.some((l) => l.id === defaultListId) ? defaultListId! : INBOX);
   const name = target === INBOX ? "Inbox" : (lists.find((l) => l.id === target)?.name ?? "Inbox");

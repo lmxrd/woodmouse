@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { TaskResponse } from "woodmouse-client";
 import {
   createSubtaskMutation,
@@ -26,11 +26,9 @@ export function SubtaskTree({
   editable: boolean;
   onOpenTask: (taskId: string) => void;
 }) {
-  const queryClient = useQueryClient();
   const { data: subtasks } = useQuery(listSubtasksOptions({ path: { id: task.id } }));
-  const refresh = () => queryClient.invalidateQueries();
-  const create = useMutation({ ...createSubtaskMutation(), onSuccess: refresh });
-  const update = useMutation({ ...updateTaskMutation(), onSuccess: refresh });
+  const create = useMutation(createSubtaskMutation());
+  const update = useMutation(updateTaskMutation());
   const [hideCompleted, setHideCompleted] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [addingUnder, setAddingUnder] = useState<string | null>(null);
