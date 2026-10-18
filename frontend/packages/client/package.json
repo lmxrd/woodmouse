@@ -9,7 +9,7 @@
     "./react-query": "./src/@tanstack/react-query.gen.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.104.2"
+    "@tanstack/react-query": "^5.104.3"
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.99.0"
