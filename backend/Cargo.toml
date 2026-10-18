@@ -45,8 +45,14 @@ csv = "1.4.0"
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"
 
+# Smaller, faster release binaries; the release workflow and the image
+# both build with this profile.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
 # Password hashing is deliberately slow; unoptimized it makes logins (and so the tests) crawl.
-[profile.dev.package.argon2]
-opt-level = 3
-[profile.dev.package.blake2]
-opt-level = 3
+[profile.dev.package]
+argon2={opt-level = 3}
+blake2={opt-level = 3}

@@ -4,7 +4,7 @@
 //!   GET  /api/health     - liveness probe
 //!   GET  /api/auth/*     - bootstrap (first user), login/logout, me
 //!   /                    - embedded CSR frontend (SPA fallback)
-//!   /swagger-ui         - Swagger UI
+//!   /swagger-ui         - Swagger UI (only with WOODMOUSE_SWAGGER_UI set)
 //!
 //! Commands: `woodmouse` serves; `woodmouse seed` fills an empty database with mock data; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
 //! consistent copy of the database (default `BACKUP_DIR`, or `backups`).
@@ -89,8 +89,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(state.clone())
         .split_for_parts();
 
-    let app = router
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
+    // The API's description (swagger-ui) is served only when asked for:
+    // WOODMOUSE_SWAGGER_UI set and not "0", like WOODMOUSE_SECURE_COOKIES.
+    let swagger_ui = std::env::var("WOODMOUSE_SWAGGER_UI").is_ok_and(|v| v != "0");
+    let app = if swagger_ui {
+        router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
+    } else {
+        router
+    };
+
+    let app = app
         // Everything the API does not match is served from the embedded
         // frontend bundle, falling back to index.html for SPA routes.
         .fallback(frontend::handler)
@@ -102,7 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(8000);
     let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("listening on http://{addr} (swagger-ui at /swagger-ui)");
+    if swagger_ui {
+        tracing::info!("listening on http://{addr} (swagger-ui at /swagger-ui)");
+    } else {
+        tracing::info!("listening on http://{addr}");
+    }
 
     // Connection info lets the login slow-down tell addresses apart (kept in memory only).
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();

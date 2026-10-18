@@ -3,7 +3,7 @@
 [tools]
 node = "26"      # frontend (react-csr / astro-site)
 pnpm = "12"      # frontend package manager (jsr: prefix needs >= 12)
-rust = { version = "1.99.0", components = ["clippy", "rustfmt"], targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"] }  # backend (rust-api); toasty requires >= 1.95; musl for the static release binary
+rust = { version = "1.99.0", components = ["clippy", "llvm-tools", "rustfmt"], targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"] }  # backend (rust-api); toasty requires >= 1.95; musl for the static release binary
 watchexec = "2.8.0"  # backend hot reload (dev:backend)
 
 [tasks.dev]

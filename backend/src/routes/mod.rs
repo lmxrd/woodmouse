@@ -50,16 +50,43 @@ use crate::{openapi::ApiDoc, state::AppState};
 ///
 /// Everything nests under `/api`, which keeps the API cleanly separable from
 /// the SPA fallback and lets the dev frontend proxy a single prefix.
+///
+/// Building the routes needs no state ([`api_doc`] writes the OpenAPI
+/// document of the same routes without one); the auth layer and the upload
+/// limit that [`api`] adds on top change no operation.
 pub fn api(state: AppState) -> OpenApiRouter<AppState> {
-    let max_upload_bytes = state.files.max_upload_bytes;
-    // No session required.
-    let public = health::router()
+    // Session required — enforced by the layer for every route below.
+    let protected = protected(Some(state.files.max_upload_bytes)).route_layer(
+        middleware::from_extractor_with_state::<CurrentUser, _>(state),
+    );
+    nest(public().merge(protected))
+}
+
+/// The OpenAPI document of [`api`], for the `specs` binary (`cargo specs`).
+/// The same routes without the layers that need state: no database is
+/// opened (and no query could run anyway).
+pub fn api_doc() -> utoipa::openapi::OpenApi {
+    nest(public().merge(protected(None))).split_for_parts().1
+}
+
+/// Everything under `/api`.
+fn nest(routes: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
+    OpenApiRouter::with_openapi(ApiDoc::openapi()).nest("/api", routes)
+}
+
+/// No session required.
+fn public() -> OpenApiRouter<AppState> {
+    health::router()
         .merge(auth::public_router())
         .merge(invites::public_router())
-        .merge(calendar::public_router());
+        .merge(calendar::public_router())
+}
 
-    // Session required — enforced by the layer for every route below.
-    let protected = auth::protected_router()
+/// Session required — enforced by the auth layer that [`api`] adds for
+/// every route here. `max_upload_bytes` is the file routes' upload limit;
+/// `None` (building them for [`api_doc`]) applies none.
+fn protected(max_upload_bytes: Option<u64>) -> OpenApiRouter<AppState> {
+    auth::protected_router()
         .merge(admin::router())
         .merge(workspaces::router())
         .merge(members::router())
@@ -86,9 +113,4 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         .merge(task_links::router())
         .merge(labels::router())
         .merge(trash::router())
-        .route_layer(middleware::from_extractor_with_state::<CurrentUser, _>(
-            state,
-        ));
-
-    OpenApiRouter::with_openapi(ApiDoc::openapi()).nest("/api", public.merge(protected))
 }

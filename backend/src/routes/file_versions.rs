@@ -21,12 +21,14 @@ use crate::routes::files::{FileView, file_view, serve_blob};
 use crate::state::AppState;
 use crate::{time, trash};
 
-pub fn router(max_upload_bytes: u64) -> OpenApiRouter<AppState> {
-    let upload = OpenApiRouter::new()
-        .routes(routes!(upload_file_version))
-        .layer(DefaultBodyLimit::max(
-            max_upload_bytes as usize + 1024 * 1024,
-        ));
+/// Like `files::router`: the upload route gets the limit (or none, when
+/// building the routes for the OpenAPI document — `routes::api_doc`).
+pub fn router(max_upload_bytes: Option<u64>) -> OpenApiRouter<AppState> {
+    let upload = OpenApiRouter::new().routes(routes!(upload_file_version));
+    let upload = match max_upload_bytes {
+        Some(max) => upload.layer(DefaultBodyLimit::max(max as usize + 1024 * 1024)),
+        None => upload,
+    };
     OpenApiRouter::new()
         .merge(upload)
         .routes(routes!(list_file_versions))

@@ -25,6 +25,10 @@ jobs:
             ~/.cargo/git
             backend/target
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-check-${{ hashFiles('backend/Cargo.lock') }}
+          # An older lock's artifacts mostly match, so fall back to them
+          # instead of building from a cold cache.
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-check-
       - run: mise run check
       - run: mise run test
 
@@ -44,13 +48,24 @@ jobs:
             ~/.cargo/git
             backend/target
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-build-
       - run: mise run build
 
   # The image builds from source inside the Dockerfile, which brings its
-  # own toolchains, so no mise here. Built, never pushed.
+  # own toolchains, so no mise here. Built, never pushed. The cache scope
+  # is the release workflow's amd64 one: CI keeps it warm, releases find
+  # it warm (the dependency layers only rebuild when Cargo.lock changes).
   docker:
     needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: docker build .
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: woodmouse:ci
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max

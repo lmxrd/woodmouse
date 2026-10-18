@@ -24,13 +24,14 @@ use crate::state::AppState;
 use crate::time;
 
 /// Bodies of other routes stay small; uploads get the configured limit plus a little for the
-/// multipart framing.
-pub fn router(max_upload_bytes: u64) -> OpenApiRouter<AppState> {
-    let upload = OpenApiRouter::new()
-        .routes(routes!(upload_file))
-        .layer(DefaultBodyLimit::max(
-            max_upload_bytes as usize + 1024 * 1024,
-        ));
+/// multipart framing. `None` builds the routes for the OpenAPI document alone
+/// (`routes::api_doc`): the limit is a layer, not an operation.
+pub fn router(max_upload_bytes: Option<u64>) -> OpenApiRouter<AppState> {
+    let upload = OpenApiRouter::new().routes(routes!(upload_file));
+    let upload = match max_upload_bytes {
+        Some(max) => upload.layer(DefaultBodyLimit::max(max as usize + 1024 * 1024)),
+        None => upload,
+    };
     OpenApiRouter::new()
         .merge(upload)
         .routes(routes!(list_files))
