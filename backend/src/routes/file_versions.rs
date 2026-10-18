@@ -7,7 +7,6 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use jiff::civil::DateTime;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -19,6 +18,7 @@ use crate::models::{File, FileVersion, Role, User};
 use crate::routes::auth::{People, PublicUser};
 use crate::routes::files::{FileView, file_view, serve_blob};
 use crate::state::AppState;
+use crate::storage::sha256_hex;
 use crate::{time, trash};
 
 /// Like `files::router`: the upload route gets the limit (or none, when
@@ -222,7 +222,7 @@ pub async fn upload_file_version(
             state.files.max_upload_bytes / (1024 * 1024)
         )));
     }
-    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let sha256 = sha256_hex(&bytes);
 
     let mut db = state.writer().await;
     let db = &mut *db;
