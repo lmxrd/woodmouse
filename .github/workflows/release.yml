@@ -4,9 +4,10 @@ name: Release
 # from the conventional commits). Merging it creates the tag and the
 # GitHub release, and only then do the jobs below run: natively on an
 # amd64 and an arm64 runner (no cross compiling, no emulation) they build
-# the Linux binaries, attached to the release, and the image, pushed to
-# the GitHub Container Registry as one multi-arch manifest. CI never
-# pushes, except the lockfile fix below on the release PR's branch.
+# the Linux binaries, attached to the release, and the image — packaging
+# those very binaries, not compiling them again — pushed to the GitHub
+# Container Registry as one multi-arch manifest. CI never pushes,
+# except the lockfile fix below on the release PR's branch.
 #
 # Needs "Allow GitHub Actions to create and approve pull requests" in the
 # repository's Actions settings.
@@ -96,10 +97,20 @@ jobs:
           mkdir dist
           cp "backend/target/$target/release/woodmouse" "dist/woodmouse-linux-${{ matrix.arch }}"
           gh release upload "$TAG" dist/* --clobber
+      # The image job below packages this exact binary, instead of
+      # compiling it a second time inside a container.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.arch }}
+          path: dist/woodmouse-linux-${{ matrix.arch }}
+          if-no-files-found: error
 
-  # Each runner pushes its image by digest only; `manifest` tags them.
+  # Each runner packages the binary the binaries job built — the
+  # Dockerfile with the `bin` stage overridden by the artifact
+  # directory: no toolchain, no compile — and pushes its image by digest
+  # only; `manifest` tags them.
   image:
-    needs: release-please
+    needs: [release-please, binaries]
     if: needs.release-please.outputs.created == 'true'
     strategy:
       matrix:
@@ -115,6 +126,12 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag }}
       - run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: binary-${{ matrix.arch }}
+          path: image
+      # The `bin` build context expects the binary at its root.
+      - run: mv "image/woodmouse-linux-${{ matrix.arch }}" image/woodmouse
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -125,10 +142,9 @@ jobs:
         id: build
         with:
           context: .
+          build-contexts: bin=./image
           provenance: false
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
       - run: |
           mkdir digests
           touch "digests/${DIGEST#sha256:}"

@@ -32,40 +32,64 @@ jobs:
       - run: mise run check
       - run: mise run test
 
-  # The builds run in parallel once the checks pass: the release build,
-  # and the image. Separate cache keys, since the checks cache a debug
-  # target directory and this one a release one.
+  # The release binary: static musl (so it runs in the Alpine image),
+  # with the frontend embedded. rust-cache keeps it warm between runs.
+  # The checks already compiled everything in check mode, so this is
+  # the one real build — and the image below only packages it.
   build:
     needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@v3
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            backend/target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-build-
-      - run: mise run build
+          workspaces: backend
+      # The C toolchain for the bundled SQLite.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      # The binary embeds the frontend bundle, whose API client is
+      # generated from the OpenAPI spec: build:frontend does spec,
+      # client and bundle.
+      - run: mise run build:frontend
+      - run: cargo build --release --manifest-path backend/Cargo.toml --target x86_64-unknown-linux-musl --bin woodmouse
+      - run: mkdir dist && cp backend/target/x86_64-unknown-linux-musl/release/woodmouse dist/woodmouse-linux-amd64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-amd64
+          path: dist/woodmouse-linux-amd64
+          if-no-files-found: error
 
-  # The image builds from source inside the Dockerfile, which brings its
-  # own toolchains, so no mise here. Built, never pushed. The cache scope
-  # is the release workflow's amd64 one: CI keeps it warm, releases find
-  # it warm (the dependency layers only rebuild when Cargo.lock changes).
+  # The image: the binary from the build job, packaged by the Dockerfile
+  # with the `bin` stage overridden by the artifact directory — nothing
+  # compiles here, so there is no layer cache to keep warm and the job
+  # takes seconds. Built, never pushed; started once to check the
+  # health endpoint, so a packaging bug fails the PR, not the release.
   docker:
-    needs: checks
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: binary-amd64
+          path: image
+      # The `bin` build context expects the binary at its root.
+      - run: mv image/woodmouse-linux-amd64 image/woodmouse
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
+          build-contexts: bin=./image
           load: true
           tags: woodmouse:ci
-          cache-from: type=gha,scope=amd64
-          cache-to: type=gha,scope=amd64,mode=max
+      - name: Run the image and check its health endpoint
+        run: |
+          docker run --rm -d -p 8000:8000 --name woodmouse-ci woodmouse:ci
+          for _ in $(seq 1 10); do
+            if wget -q -O /dev/null http://127.0.0.1:8000/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs woodmouse-ci
+          exit 1
