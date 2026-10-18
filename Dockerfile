@@ -58,6 +58,10 @@ WORKDIR /repo/frontend
 # packageManager field is installed explicitly.
 RUN npm install --global pnpm@12.11.2
 COPY frontend/package.json frontend/pnpm-workspace.yaml frontend/pnpm-lock.yaml ./
+# The pnpmfile belongs with the manifests: pnpm validates its checksum
+# (pnpmfileChecksum in the lockfile) when it installs, and the hook gives
+# openapi-ts a typescript that still has the JS compiler API.
+COPY frontend/.pnpmfile.cjs ./
 COPY frontend/packages/client/package.json packages/client/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
