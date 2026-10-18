@@ -9,7 +9,6 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -21,6 +20,7 @@ use crate::error::ApiError;
 use crate::models::{File, FileRef, FileVersion, Role, Task, User, WikiPage};
 use crate::routes::auth::{People, PublicUser};
 use crate::state::AppState;
+use crate::storage::sha256_hex;
 use crate::time;
 
 /// Bodies of other routes stay small; uploads get the configured limit plus a little for the
@@ -278,7 +278,7 @@ pub async fn upload_file(
             state.files.max_upload_bytes / (1024 * 1024)
         )));
     }
-    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let sha256 = sha256_hex(&bytes);
     let mime = content_type.filter(|c| !c.is_empty()).unwrap_or_else(|| {
         mime_guess::from_path(&name)
             .first_or_octet_stream()

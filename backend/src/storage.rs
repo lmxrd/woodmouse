@@ -14,6 +14,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
+
+/// Lowercase hex SHA-256 of `bytes` — the digest recorded on file rows, used to
+/// deduplicate uploads and to spot identical file versions. sha2 0.11's digest
+/// output no longer formats as hex, so the encoding is done here.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(2 * digest.len());
+    for byte in digest.iter() {
+        use std::fmt::Write as _;
+        let _ = write!(&mut hex, "{byte:02x}");
+    }
+    hex
+}
 
 #[async_trait]
 pub trait FileStore: Send + Sync {
