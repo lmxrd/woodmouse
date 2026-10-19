@@ -8,12 +8,14 @@ on:
 permissions:
   contents: read
 
+# The three jobs are independent, so they run side by side: the checks, the
+# tests, and the release build with its image. Nothing is pushed: releases
+# publish, CI only verifies.
 jobs:
-  # The quality gates, exactly as locally: the tools come from mise.toml
-  # and the checks and tests are the same tasks. The default target on
-  # the bare runner — no matrix, no cross compiling — and nothing is
-  # pushed: releases publish, CI only verifies.
-  checks:
+  # The quality gates, exactly as locally: the tools come from mise.toml and
+  # the checks are the same task. The default target on the bare runner — no
+  # matrix, no cross compiling.
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -23,45 +25,42 @@ jobs:
           workspaces: packages/backend
           key: check
       - run: mise run check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/backend
+          key: test
       - run: mise run test
 
-  # The release binary: static musl (so it runs in the distroless image
-  # and on any Ubuntu or Debian), with the frontend embedded — the same
-  # task as locally. The image below only packages it.
+  # The release binary for each architecture, natively on its own runner
+  # (static musl, so it runs in the Alpine image and on any Ubuntu or
+  # Debian), with the frontend embedded — the same task as locally. The image
+  # is the binary packaged by the Dockerfile through the `bin` build context
+  # (nothing compiles in it), started once to check its health check, so a
+  # packaging bug fails the PR, not the release.
   build:
-    needs: checks
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-latest, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/build-binary
-      - uses: actions/upload-artifact@v7
-        with:
-          name: binary-amd64
-          path: packages/backend/target/dist/woodmouse
-          if-no-files-found: error
-
-  # The image: the binary from the build job, packaged by the Dockerfile
-  # with the `bin` stage overridden by the artifact directory — nothing
-  # compiles here, so there is no layer cache to keep warm and the job
-  # takes seconds. Built, never pushed; started once to check the
-  # health endpoint, so a packaging bug fails the PR, not the release.
-  docker:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: binary-amd64
-          path: image
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
-          build-contexts: bin=./image
+          build-contexts: bin=./packages/backend/target/dist
           load: true
           tags: woodmouse:ci
-      - name: Run the image and check its health endpoint
+      - name: Run the image and check its health check
         run: |
           docker run --rm -d --name woodmouse-ci woodmouse:ci
           # The image's own HEALTHCHECK (woodmouse healthcheck).
