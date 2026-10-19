@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { liveSession } from "woodmouse-client";
-import type { LiveSession, PageDetail } from "woodmouse-client";
-import { listPagesQueryKey, updatePageMutation } from "woodmouse-client/react-query";
+import { liveSession } from "woodmouse-sdk";
+import type { LiveSession, PageDetail } from "woodmouse-sdk";
+import { listPagesQueryKey, updatePageMutation } from "woodmouse-sdk/react-query";
 
 import { userLabel } from "../../lib/user";
 import { LiveBody } from "./LiveBody";

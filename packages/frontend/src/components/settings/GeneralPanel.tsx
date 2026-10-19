@@ -5,7 +5,7 @@ import {
   deleteWorkspaceMutation,
   listWorkspacesOptions,
   updateWorkspaceMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { ConfirmDialog } from "../common/ConfirmDialog";

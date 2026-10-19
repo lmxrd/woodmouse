@@ -18,7 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import type { List, TaskResponse, UpdateTaskRequest } from "woodmouse-client";
+import type { List, TaskResponse, UpdateTaskRequest } from "woodmouse-sdk";
 import {
   createInboxTaskMutation,
   createListMutation,
@@ -28,7 +28,7 @@ import {
   listTasksOptions,
   updateListMutation,
   updateTaskMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { afterIdAt, provisionalPosition } from "../../lib/position";
 import { taskFilterQuery } from "../../lib/projectSearch";

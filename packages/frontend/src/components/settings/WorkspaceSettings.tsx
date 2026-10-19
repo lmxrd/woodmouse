@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listWorkspacesOptions } from "woodmouse-client/react-query";
+import { listWorkspacesOptions } from "woodmouse-sdk/react-query";
 
 import { CalendarLinks } from "../calendarlinks/CalendarLinks";
 import { WorkspaceAppearance } from "../theme/WorkspaceAppearance";

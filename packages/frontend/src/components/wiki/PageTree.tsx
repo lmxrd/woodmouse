@@ -11,7 +11,7 @@ import {
   type DragMoveEvent,
 } from "@dnd-kit/core";
 import { Link } from "@tanstack/react-router";
-import type { PageSummary } from "woodmouse-client";
+import type { PageSummary } from "woodmouse-sdk";
 
 import {
   ancestorIds,

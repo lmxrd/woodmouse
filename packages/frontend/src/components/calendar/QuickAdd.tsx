@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import type { List } from "woodmouse-client";
-import { createInboxTaskMutation, createTaskMutation } from "woodmouse-client/react-query";
+import type { List } from "woodmouse-sdk";
+import { createInboxTaskMutation, createTaskMutation } from "woodmouse-sdk/react-query";
 
 import { dayIso } from "../../lib/time";
 import { useFormatters } from "../../lib/useFormatters";

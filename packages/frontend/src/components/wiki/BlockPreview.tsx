@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { BlockData } from "woodmouse-client";
+import type { BlockData } from "woodmouse-sdk";
 
 import { fromBlocks } from "../../lib/editorBlocks";
 import { editorExtensions } from "./editor/extensions";

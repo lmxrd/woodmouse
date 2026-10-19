@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PublicUser } from "woodmouse-client";
+import type { PublicUser } from "woodmouse-sdk";
 import {
   changePasswordMutation,
   meOptions,
   meQueryKey,
   updateMeMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { DATE_FORMATS, TIME_FORMATS, formatDateTime } from "../../lib/format";
 import { browserTimezone } from "../../lib/useDetectTimezone";

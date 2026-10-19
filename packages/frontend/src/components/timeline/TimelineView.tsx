@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 import {
   listListsOptions,
   listSprintsOptions,
   listTasksOptions,
   listWorkspaceLinksOptions,
   updateTaskMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { addDays, daysBetween, parseIsoDay, toIsoDay } from "../../lib/calendar";
 import { taskFilterQuery, type Zoom } from "../../lib/projectSearch";

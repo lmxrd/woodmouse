@@ -6,7 +6,7 @@ import {
   listSprintsOptions,
   listTasksOptions,
   updateTaskMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { PRIORITIES } from "../../lib/priority";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";

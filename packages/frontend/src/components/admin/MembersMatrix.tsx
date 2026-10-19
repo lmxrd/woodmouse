@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { adminListUsersOptions, adminListWorkspacesOptions } from "woodmouse-client/react-query";
+import { adminListUsersOptions, adminListWorkspacesOptions } from "woodmouse-sdk/react-query";
 
 import { userLabel } from "../../lib/user";
 import { RoleSelect, useSetMembership } from "./memberships";

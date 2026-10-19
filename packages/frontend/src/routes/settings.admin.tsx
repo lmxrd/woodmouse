@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { meOptions } from "woodmouse-client/react-query";
+import { meOptions } from "woodmouse-sdk/react-query";
 
 /** Everything under here is for the super admin; anyone else is sent back to their account. */
 export const Route = createFileRoute("/settings/admin")({

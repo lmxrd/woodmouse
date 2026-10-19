@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { CalendarLinkView, LinkScope } from "woodmouse-client";
+import type { CalendarLinkView, LinkScope } from "woodmouse-sdk";
 import {
   createCalendarLinkMutation,
   listProjectsOptions,
   listWorkspacesOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { cn } from "../../lib/utils";
 import { Field } from "../common/Field";

@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { createWorkspaceMutation, listWorkspacesOptions } from "woodmouse-client/react-query";
+import { createWorkspaceMutation, listWorkspacesOptions } from "woodmouse-sdk/react-query";
 
 import { InlineAdd } from "../components/common/InlineAdd";
 import { requireLogin } from "../lib/auth";

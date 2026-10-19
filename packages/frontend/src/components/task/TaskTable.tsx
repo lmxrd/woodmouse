@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import type { List, TaskResponse } from "woodmouse-client";
+import type { List, TaskResponse } from "woodmouse-sdk";
 
 import { isDueNow } from "../../lib/dates";
 import { useFormatters } from "../../lib/useFormatters";

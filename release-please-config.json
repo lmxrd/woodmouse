@@ -13,7 +13,7 @@
         },
         {
           "type": "json",
-          "path": "packages/frontend/src/client/package.json",
+          "path": "packages/sdk/package.json",
           "jsonpath": "$.version"
         },
         {

@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { LinkKind, TaskLinkView } from "woodmouse-client";
+import type { LinkKind, TaskLinkView } from "woodmouse-sdk";
 import {
   addLinkMutation,
   listLinksOptions,
   listTasksOptions,
   removeLinkMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { Button } from "../ui/button";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "../ui/command";

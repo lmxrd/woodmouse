@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ActivityView } from "woodmouse-client";
+import type { ActivityView } from "woodmouse-sdk";
 
 import { describeActivity, plainText } from "./activity";
 

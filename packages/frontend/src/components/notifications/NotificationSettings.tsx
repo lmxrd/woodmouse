@@ -4,7 +4,7 @@ import {
   getNotificationSettingsQueryKey,
   meOptions,
   updateNotificationSettingsMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { Field } from "../common/Field";
 import { Section } from "../settings/AccountPage";

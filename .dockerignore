@@ -1,12 +1,4 @@
-.git
-.github
-backend/target
-backend/*.db*
-backend/backups
-backend/data
-data
-frontend/dist
-frontend/node_modules
-frontend/packages/client/node_modules
-frontend/packages/client/src
-node_modules
+# The image is built from a prebuilt binary handed over as the `bin` build
+# context (see the Dockerfile), so nothing in this repository belongs in the
+# main build context.
+*

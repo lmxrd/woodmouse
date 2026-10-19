@@ -1,4 +1,4 @@
-import type { ImportReport, UserChoice } from "woodmouse-client";
+import type { ImportReport, UserChoice } from "woodmouse-sdk";
 
 import { reportResponse } from "./api";
 

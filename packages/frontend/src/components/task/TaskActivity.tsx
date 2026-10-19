@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listActivityOptions } from "woodmouse-client/react-query";
+import { listActivityOptions } from "woodmouse-sdk/react-query";
 
 import { ActivityItem } from "../activity/ActivityItem";
 

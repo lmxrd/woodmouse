@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import type { ActivityView } from "woodmouse-client";
+import type { ActivityView } from "woodmouse-sdk";
 
 import { actorLabel, describeActivity } from "../../lib/activity";
 import { useFormatters } from "../../lib/useFormatters";

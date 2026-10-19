@@ -24,9 +24,9 @@ updates:
       cargo-major:
         update-types: [major]
 
-  # The frontend (Dependabot reads pnpm-lock.yaml through this ecosystem).
+  # The JavaScript workspace (frontend and SDK): one pnpm-lock.yaml at the root.
   - package-ecosystem: npm
-    directory: /packages/frontend
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -37,22 +37,6 @@ updates:
       npm-minor-and-patch:
         update-types: [minor, patch]
       npm-major:
-        update-types: [major]
-
-  # The generated API client is a package of its own, with its own lockfile
-  # (openapi-ts and the TypeScript it needs).
-  - package-ecosystem: npm
-    directory: /packages/frontend/src/client
-    schedule:
-      interval: weekly
-      day: monday
-    commit-message:
-      prefix: chore
-      include: scope
-    groups:
-      client-minor-and-patch:
-        update-types: [minor, patch]
-      client-major:
         update-types: [major]
 
   # The versions of the actions the workflows use.

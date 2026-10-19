@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { FileView } from "woodmouse-client";
+import type { FileView } from "woodmouse-sdk";
 import {
   attachFileMutation,
   attachPageFileMutation,
@@ -9,7 +9,7 @@ import {
   listAttachmentsOptions,
   listFilesOptions,
   listPageAttachmentsOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { fileContentUrl } from "../../lib/api";
 import { FileThumb } from "../files/FileThumb";

@@ -160,8 +160,8 @@ a working WebSocket, pages still work in manual mode.
 ### API
 
 All routes live under `/api` and are documented in the OpenAPI spec (Swagger UI at
-`http://localhost:8000/swagger-ui`). The frontend client in `frontend/packages/client` is generated from the
-spec by `mise run gen:client`.
+`http://localhost:8000/swagger-ui`). The frontend's SDK, `packages/sdk`, is generated from the
+spec by `mise run gen:sdk`.
 
 ## Commands
 
@@ -170,7 +170,7 @@ spec by `mise run gen:client`.
 | `mise install`           | Install the pinned tools (mise.toml)                |
 | `mise run dev:backend`   | API server (http://localhost:8000), restarts on code changes |
 | `mise run dev:frontend`  | Frontend dev server (http://localhost:5173)         |
-| `mise run build`         | Generate client from spec, build frontend, then backend with the bundle embedded|
+| `mise run build`         | Generate the SDK from the spec, build the frontend, then the backend binary with the bundle embedded|
 | `mise run check`         | Each stack's checks (clippy/fmt, lint/types)       |
 | `mise run fix`           | Each stack's auto-fixes                             |
 | `mise run clean`         | Delete the local dev database and uploaded files (the schema is recreated from the migrations on next start) |
@@ -179,10 +179,10 @@ For development, run both dev servers: vite on :5173 with the API on :8000
 (vite proxies `/api` to the backend, so cookies stay same-origin). `cargo build` in `backend/` requires `frontend/dist`
 to exist — build the frontend first (or use `mise run build`).
 
-Docker (from the repo root; the image generates the spec and client,
-then builds the frontend and embeds it):
+Docker (from the repo root; builds the static binary, then packages it
+into the image):
 
-    docker build -f backend/Dockerfile -t woodmouse .
+    mise run build:docker
     docker run -p 8000:8000 -v woodmouse-data:/data woodmouse
 
 The `/data` volume holds both the database and the uploaded files.

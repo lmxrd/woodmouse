@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 import {
   getTaskRevisionOptions,
   listTaskRevisionsOptions,
   restoreTaskRevisionMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { HistoryPanel } from "../history/HistoryPanel";
 import { Markdown } from "../common/Markdown";

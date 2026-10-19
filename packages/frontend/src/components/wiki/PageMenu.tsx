@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { PageSummary } from "woodmouse-client";
-import { listPagesOptions } from "woodmouse-client/react-query";
+import type { PageSummary } from "woodmouse-sdk";
+import { listPagesOptions } from "woodmouse-sdk/react-query";
 
 import { pageExportUrl } from "../../lib/api";
 import { useWatch } from "../notifications/WatchButton";

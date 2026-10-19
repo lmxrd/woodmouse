@@ -1,0 +1,7 @@
+# The JavaScript packages: the frontend, and the SDK generated from the
+# backend's OpenAPI spec (`mise run gen:sdk`) that the frontend imports.
+# One install and one lockfile at this root, so both resolve a single copy of
+# react-query and zod.
+packages:
+  - packages/frontend
+  - packages/sdk

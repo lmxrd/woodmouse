@@ -16,7 +16,7 @@ runs:
     - uses: actions/cache@v6
       with:
         path: ~/.local/share/pnpm/store
-        key: pnpm-${{ hashFiles('packages/frontend/pnpm-lock.yaml', 'packages/frontend/src/client/pnpm-lock.yaml') }}
+        key: pnpm-${{ hashFiles('pnpm-lock.yaml') }}
     # The frontend is built from the OpenAPI spec the backend writes first;
     # zig is the C toolchain for the bundled SQLite and ring.
     - run: mise run build:backend

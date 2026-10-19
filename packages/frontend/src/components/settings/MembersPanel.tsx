@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Member, Role } from "woodmouse-client";
+import type { Member, Role } from "woodmouse-sdk";
 import {
   addMemberMutation,
   reissueInviteMutation,
   removeMemberMutation,
   updateMemberMutation,
-} from "woodmouse-client/react-query";
-import { listMembersOptions, meOptions } from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
+import { listMembersOptions, meOptions } from "woodmouse-sdk/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { userLabel } from "../../lib/user";

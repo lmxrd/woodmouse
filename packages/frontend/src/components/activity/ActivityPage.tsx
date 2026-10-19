@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import type { ActivityView } from "woodmouse-client";
-import { listActivityOptions, listProjectsOptions } from "woodmouse-client/react-query";
+import type { ActivityView } from "woodmouse-sdk";
+import { listActivityOptions, listProjectsOptions } from "woodmouse-sdk/react-query";
 
 import { dayKey } from "../../lib/format";
 import { useFormatters } from "../../lib/useFormatters";

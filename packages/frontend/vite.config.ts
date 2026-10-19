@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import { heyApiPlugin } from '@hey-api/vite-plugin';
-import { config } from './src/client/openapi-ts.config';
+import { heyApiPlugin } from "@hey-api/vite-plugin";
+import { config } from "../sdk/openapi-ts.config.ts";
 
 // https://vite.dev/config/
 export default defineConfig({

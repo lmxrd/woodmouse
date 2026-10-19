@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { RevisionSummary } from "woodmouse-client";
+import type { RevisionSummary } from "woodmouse-sdk";
 
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";

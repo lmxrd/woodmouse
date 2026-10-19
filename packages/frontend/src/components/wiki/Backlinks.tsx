@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import type { Backlink } from "woodmouse-client";
+import type { Backlink } from "woodmouse-sdk";
 
 /** "Referenced by": the pages whose content links to or mentions this. Renders nothing when empty. */
 export function Backlinks({

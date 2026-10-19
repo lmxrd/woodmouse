@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { getThemeOptions, setWorkspaceThemeMutation } from "woodmouse-client/react-query";
+import { getThemeOptions, setWorkspaceThemeMutation } from "woodmouse-sdk/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { paletteOf, readCachedTheme } from "../../lib/themes";

@@ -1,4 +1,4 @@
-import type { Priority } from "woodmouse-client";
+import type { Priority } from "woodmouse-sdk";
 
 import { PRIORITIES, PRIORITY_BADGE, PRIORITY_NAME, isHotPriority } from "../../lib/priority";
 import { cn } from "../../lib/utils";

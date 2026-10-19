@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 import {
   listProjectsOptions,
   listTasksOptions,
   meOptions,
   updateTaskMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { dueBucket, type DueBucket } from "../../lib/dates";
 import { useFormatters } from "../../lib/useFormatters";

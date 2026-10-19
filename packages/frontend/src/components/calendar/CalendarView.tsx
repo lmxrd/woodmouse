@@ -12,12 +12,8 @@ import {
 } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
-import type { TaskResponse } from "woodmouse-client";
-import {
-  listListsOptions,
-  listTasksOptions,
-  updateTaskMutation,
-} from "woodmouse-client/react-query";
+import type { TaskResponse } from "woodmouse-sdk";
+import { listListsOptions, listTasksOptions, updateTaskMutation } from "woodmouse-sdk/react-query";
 
 import {
   addDays,

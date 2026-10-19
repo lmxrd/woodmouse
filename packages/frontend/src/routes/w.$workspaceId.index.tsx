@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { listProjectsOptions } from "woodmouse-client/react-query";
+import { listProjectsOptions } from "woodmouse-sdk/react-query";
 
 export const Route = createFileRoute("/w/$workspaceId/")({
   beforeLoad: async ({ context, params }) => {

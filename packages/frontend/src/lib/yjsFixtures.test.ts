@@ -2,7 +2,7 @@ import { getSchema } from "@tiptap/core";
 import { Node as PMNode } from "@tiptap/pm/model";
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
 import type { QueryClient } from "@tanstack/react-query";
-import type { BlockData } from "woodmouse-client";
+import type { BlockData } from "woodmouse-sdk";
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
 

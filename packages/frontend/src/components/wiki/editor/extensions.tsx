@@ -2,8 +2,8 @@ import type { Editor, Extensions, Range } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import StarterKit from "@tiptap/starter-kit";
 import type { QueryClient } from "@tanstack/react-query";
-import type { SearchHit } from "woodmouse-client";
-import { searchOptions } from "woodmouse-client/react-query";
+import type { SearchHit } from "woodmouse-sdk";
+import { searchOptions } from "woodmouse-sdk/react-query";
 
 import { cn } from "../../../lib/utils";
 import { PICK_FILE_EVENT } from "../useFileLibraryPicker";

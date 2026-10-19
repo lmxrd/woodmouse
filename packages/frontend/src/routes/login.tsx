@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PublicUser } from "woodmouse-client";
-import { authStatusOptions, bootstrapMutation, loginMutation } from "woodmouse-client/react-query";
+import type { PublicUser } from "woodmouse-sdk";
+import { authStatusOptions, bootstrapMutation, loginMutation } from "woodmouse-sdk/react-query";
 
 import { AuthField as Field, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
 import { Button } from "../components/ui/button";

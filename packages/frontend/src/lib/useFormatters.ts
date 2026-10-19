@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { meOptions } from "woodmouse-client/react-query";
+import { meOptions } from "woodmouse-sdk/react-query";
 
 import type { WeekStart } from "./calendar";
 import { dayEpoch, instant } from "./time";

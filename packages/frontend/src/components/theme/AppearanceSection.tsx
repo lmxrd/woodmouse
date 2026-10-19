@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Workspace } from "woodmouse-client";
+import type { Workspace } from "woodmouse-sdk";
 import {
   getThemeOptions,
   listWorkspacesOptions,
@@ -7,7 +7,7 @@ import {
   meQueryKey,
   setMyThemeMutation,
   updateMeMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { effectiveChoice, paletteOf, type Mode } from "../../lib/themes";
 import { Segmented } from "../common/Segmented";

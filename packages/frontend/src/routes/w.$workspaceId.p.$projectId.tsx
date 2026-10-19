@@ -6,7 +6,7 @@ import {
   getProjectOptions,
   listProjectsQueryKey,
   updateProjectMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { ActionMenu } from "../components/common/ActionMenu";
 import { CalendarLinks } from "../components/calendarlinks/CalendarLinks";

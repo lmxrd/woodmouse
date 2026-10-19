@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LinkEdge, List, TaskResponse } from "woodmouse-client";
+import type { LinkEdge, List, TaskResponse } from "woodmouse-sdk";
 
 import { addDays, daysBetween } from "./calendar";
 import { dayIso } from "./time";

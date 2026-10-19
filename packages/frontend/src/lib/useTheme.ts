@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getThemeOptions, meOptions } from "woodmouse-client/react-query";
+import { getThemeOptions, meOptions } from "woodmouse-sdk/react-query";
 
 import { applyTheme, effectiveChoice, readCachedTheme, type Mode } from "./themes";
 

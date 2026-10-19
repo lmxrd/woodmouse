@@ -1,4 +1,4 @@
-import type { PageSummary } from "woodmouse-client";
+import type { PageSummary } from "woodmouse-sdk";
 import { describe, expect, it } from "vitest";
 
 import { ancestorIds, buildPageTree, dropChange, subtreeIds, zoneAt } from "./pageTree";

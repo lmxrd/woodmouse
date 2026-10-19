@@ -4,7 +4,7 @@ import {
   createPageMutation,
   deletePageMutation,
   updatePageMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 /** Creating, moving and deleting pages; every change refreshes the tree. */
 export function usePageActions(workspaceId: string) {

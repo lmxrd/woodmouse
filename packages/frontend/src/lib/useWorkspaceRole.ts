@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listMembersOptions, meOptions } from "woodmouse-client/react-query";
+import { listMembersOptions, meOptions } from "woodmouse-sdk/react-query";
 
 /** The current user's standing in a workspace. Super admins count as admins everywhere. */
 export function useWorkspaceRole(workspaceId: string) {
