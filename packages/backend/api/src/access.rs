@@ -9,8 +9,10 @@
 use crate::db::Db;
 use crate::db::prelude::*;
 use crate::error::ApiError;
-use crate::models::{List, Project, Role, Task, User, WikiPage};
-use crate::models::{lists, projects, tasks, users, wiki_pages, workspace_members, workspaces};
+use entity::{
+    List, Project, Role, Task, User, WikiPage, lists, projects, tasks, users, wiki_pages,
+    workspace_members, workspaces,
+};
 
 /// The user's role in the workspace: `None` when they have no access (or it is deleted).
 pub async fn role_in(

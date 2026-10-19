@@ -4,11 +4,11 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{projects, tasks, users, workspace_members};
-use crate::models::{task_assignees, user_invites};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::{projects, tasks, users, workspace_members};
+use entity::{task_assignees, user_invites};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -17,10 +17,10 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, User};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::state::AppState;
 use crate::time;
+use entity::{Role, User};
 
 const INVITE_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 

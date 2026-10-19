@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/specs");
     std::fs::create_dir_all(&dir)?;
 
-    let openapi = woodmouse::routes::api_doc();
+    let openapi = api::routes::api_doc();
     std::fs::write(dir.join("openapi.json"), openapi.to_pretty_json()?)?;
     std::fs::write(dir.join("openapi.yaml"), openapi.to_yaml()?)?;
     println!("wrote {}/openapi.json and openapi.yaml", dir.display());

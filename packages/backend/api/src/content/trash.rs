@@ -7,15 +7,15 @@
 //! something deleted separately earlier stays in the trash.
 
 use crate::db::prelude::*;
-use crate::models::{files, labels, sprints, workspaces};
-use crate::models::{lists, projects, tasks, wiki_pages};
+use entity::{files, labels, sprints, workspaces};
+use entity::{lists, projects, tasks, wiki_pages};
 use std::collections::HashSet;
 
 use crate::time::DateTime;
 
 use crate::db::Db;
 use crate::error::ApiError;
-use crate::models::{File, List, Project, Sprint, Task, WikiPage};
+use entity::{File, List, Project, Sprint, Task, WikiPage};
 
 /// All tasks among `tasks` that are `root` or sit below it at any depth. Subtasks share their parent's
 /// project, so the whole tree is found among the project's tasks.

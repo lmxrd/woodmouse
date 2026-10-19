@@ -1,17 +1,58 @@
 [package]
 name = "woodmouse"
-version = "0.2.0"
-rust-version = "1.99.0"
-edition = "2024"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
 publish = false
-default-run = "woodmouse"
 
 [workspace]
+resolver = "2"
 members = [".", "api", "entity", "migration"]
 
-[dependencies]
-woodmouse-api = { path = "api" }
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.99.0"
 
+# Dependencies used by more than one crate: versions and shared features live here, a crate adds only
+# what it needs on top (`tokio = { workspace = true, features = [..] }`).
+[workspace.dependencies]
+api = { path = "api" }
+entity = { path = "entity" }
+migration = { path = "migration" }
+
+async-trait = "0.1"
+axum = "0.8"
+jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
+mime_guess = "2"
+# SQLite (bundled, with FTS5) through sqlx, with SeaORM on top.
+sea-orm = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio", "macros", "with-uuid", "with-json"] }
+sea-orm-migration = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = "1"
+# `release_max_level_info`: debug and trace events are compiled out of release builds (smaller binary).
+tracing = { version = "0.1", features = ["release_max_level_info"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = { version = "6", features = ["uuid", "yaml"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+
+# The server binary: the library crates plus the embedded frontend (a module of this binary, so the library and
+# the spec generator build without `packages/frontend/dist`).
+[dependencies]
+api.workspace = true
+axum.workspace = true
+mime_guess.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time", "sync"] }
+tower-http = { version = "0.7", features = ["trace"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rust-embed = "8"
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
+
+# Small release binaries (size matters more than build time): fat LTO and one
+# codegen unit. opt-level = "s" was tried and saved nothing here. The release
+# workflow and `mise run build:backend` both build with this profile.
 [profile.release]
 strip = true
 lto = true
@@ -19,5 +60,5 @@ codegen-units = 1
 
 # Password hashing is deliberately slow; unoptimized it makes logins (and so the tests) crawl.
 [profile.dev.package]
-argon2={opt-level = 3}
-blake2={opt-level = 3}
+argon2 = { opt-level = 3 }
+blake2 = { opt-level = 3 }

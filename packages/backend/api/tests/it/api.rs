@@ -1,9 +1,9 @@
 //! Integration tests: auth flow against the real router and an in-memory
 //! SQLite database.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
+use entity::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -304,7 +304,7 @@ async fn workspaces_access_is_enforced() {
     let dup = workspace_members::ActiveModel {
         user_id: Set(other.id),
         workspace_id: Set(workspace_id),
-        role: Set(woodmouse::models::Role::Read),
+        role: Set(entity::Role::Read),
         ..Default::default()
     }
     .insert(&db)
@@ -312,7 +312,7 @@ async fn workspaces_access_is_enforced() {
     let dup2 = workspace_members::ActiveModel {
         user_id: Set(other.id),
         workspace_id: Set(workspace_id),
-        role: Set(woodmouse::models::Role::Admin),
+        role: Set(entity::Role::Admin),
         ..Default::default()
     }
     .insert(&db)

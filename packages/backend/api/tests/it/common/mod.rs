@@ -8,11 +8,11 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use woodmouse::state::AppState;
+use api::state::AppState;
 
 /// A date-time far enough ahead that nothing seeded with it expires during a test.
-pub fn far_future() -> woodmouse::time::DateTime {
-    woodmouse::time::DateTime("2100-01-01T00:00:00".parse().expect("valid date-time"))
+pub fn far_future() -> api::time::DateTime {
+    api::time::DateTime("2100-01-01T00:00:00".parse().expect("valid date-time"))
 }
 
 pub async fn app() -> axum::Router {
@@ -22,11 +22,11 @@ pub async fn app() -> axum::Router {
 /// A fresh database in a temporary file, from the migrations (so the tests also prove they build a
 /// working database), search index included.
 async fn database() -> sea_orm::DatabaseConnection {
-    woodmouse::db::temporary().await
+    api::db::temporary().await
 }
 
 fn router(state: AppState) -> axum::Router {
-    woodmouse::routes::api(state.clone())
+    api::routes::api(state.clone())
         .with_state(state)
         .split_for_parts()
         .0
@@ -36,8 +36,8 @@ fn router(state: AppState) -> axum::Router {
 pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, sea_orm::DatabaseConnection) {
     let db = database().await;
     let root = std::env::temp_dir().join(format!("woodmouse-test-{}", uuid::Uuid::new_v4()));
-    let files = woodmouse::storage::FileStores::new(
-        std::sync::Arc::new(woodmouse::storage::LocalDisk::new(root)),
+    let files = api::storage::FileStores::new(
+        std::sync::Arc::new(api::storage::LocalDisk::new(root)),
         max_bytes,
     );
     (router(AppState::with_files(db.clone(), files)), db)

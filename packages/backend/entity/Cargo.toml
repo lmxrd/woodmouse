@@ -1,23 +1,19 @@
 [package]
-edition      = "2024"
-name         = "migration"
-publish      = false
-rust-version = "1.99.0"
-version      = "0.1.0"
+edition.workspace = true
+name = "entity"
+publish = false
+rust-version.workspace = true
+version.workspace = true
 
 [lib]
-name = "migration"
+name = "entity"
 path = "src/lib.rs"
 
 [dependencies]
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+jiff.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+utoipa.workspace = true
 
-[dependencies.sea-orm-migration]
-features = [
-    # Enable at least one `ASYNC_RUNTIME` and `DATABASE_DRIVER` feature if you want to run migration via CLI.
-    # View the list of supported features at https://www.sea-ql.org/SeaORM/docs/install-and-config/database-and-async-runtime.
-    # e.g.
-    # "runtime-tokio-rustls",  # `ASYNC_RUNTIME` feature
-    # "sqlx-postgres",         # `DATABASE_DRIVER` feature
-]
-version = "2.0.0"
+[dev-dependencies]
+serde_json.workspace = true

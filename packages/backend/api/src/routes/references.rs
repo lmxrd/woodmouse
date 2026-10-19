@@ -2,9 +2,9 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{content_links, projects, tasks, wiki_pages};
 use axum::Json;
 use axum::extract::{Path, State};
+use entity::{content_links, projects, tasks, wiki_pages};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -12,8 +12,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, WikiPage};
 use crate::state::AppState;
+use entity::{Role, WikiPage};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

@@ -4,11 +4,11 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{user_invites, users};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum_extra::extract::cookie::CookieJar;
+use entity::{user_invites, users};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -16,10 +16,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::audit::{self, Entry};
 use crate::auth;
 use crate::error::ApiError;
-use crate::models::{User, UserInvite};
 use crate::routes::auth::{PublicUser, validate_password};
 use crate::state::AppState;
 use crate::time;
+use entity::{User, UserInvite};
 
 pub fn public_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

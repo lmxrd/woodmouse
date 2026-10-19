@@ -3,8 +3,8 @@
 //! audit log.
 
 use crate::db::prelude::*;
-use crate::models::{User, users};
-use crate::models::{
+use entity::{User, users};
+use entity::{
     audit_logs, comments, files, labels, lists, projects, saved_views, sprints, tasks, wiki_pages,
 };
 use std::collections::HashMap;
@@ -20,11 +20,11 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{AuditLog, Role};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time::DateTime;
 use crate::{time, trash};
+use entity::{AuditLog, Role};
 
 /// (kind, id, name, context, deleted_at, deleted_by, child_count) before user lookup.
 type RawItem = (

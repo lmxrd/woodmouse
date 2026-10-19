@@ -1,9 +1,9 @@
 //! Workspace members, invite links, and label counts.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::user_invites;
 use serde_json::Value;
-use woodmouse::db::prelude::*;
-use woodmouse::models::user_invites;
 
 use crate::common::*;
 
@@ -160,7 +160,7 @@ async fn expired_and_reissued_invites() {
         id: Set(uuid::Uuid::now_v7()),
         token: Set("expired-token".to_string()),
         user_id: Set(user_id.parse::<uuid::Uuid>().unwrap()),
-        expires_at: Set(woodmouse::time::DateTime(
+        expires_at: Set(api::time::DateTime(
             "2000-01-01T00:00:00"
                 .parse::<jiff::civil::DateTime>()
                 .unwrap(),

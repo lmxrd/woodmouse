@@ -2,15 +2,15 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{
+use entity::{
     comments, labels, lists, projects, sprints, task_assignees, task_labels, tasks, users,
     wiki_pages, workspace_members,
 };
 use std::collections::HashMap;
 
 use crate::error::ApiError;
-use crate::models::{Comment, Label, List, Project, Sprint, Task, User, WikiPage, Workspace};
 use crate::{pages, time};
+use entity::{Comment, Label, List, Project, Sprint, Task, User, WikiPage, Workspace};
 
 use super::*;
 

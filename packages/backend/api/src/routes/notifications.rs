@@ -2,12 +2,12 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::users;
-use crate::models::{notification_settings, notifications, watches};
 use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use entity::users;
+use entity::{notification_settings, notifications, watches};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -15,10 +15,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{NotificationSetting, Role};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
+use entity::{NotificationSetting, Role};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

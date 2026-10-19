@@ -3,7 +3,7 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{users, wiki_pages};
+use entity::{users, wiki_pages};
 use std::collections::HashMap;
 
 use crate::time::DateTime;
@@ -20,11 +20,11 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::{BlockData, validate_blocks};
 use crate::error::ApiError;
-use crate::models::{Role, WikiPage};
 use crate::revisions::{self, PageContent};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::{ordering, pages, time, trash};
+use entity::{Role, WikiPage};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

@@ -1,9 +1,9 @@
 //! The site admin: users, deleted workspaces, the audit log, and the integrity check.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users};
 use serde_json::{Value, json};
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users};
 
 use crate::common::*;
 

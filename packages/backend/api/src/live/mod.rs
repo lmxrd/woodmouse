@@ -15,7 +15,7 @@ pub mod convert;
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{page_docs, users, wiki_pages};
+use entity::{page_docs, users, wiki_pages};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -506,7 +506,7 @@ pub async fn serve(
                 let Ok(user) = users::Entity::find_by_id(user_id).one_or_not_found(db).await else { continue };
                 let workspace = state_workspace(db, room.page_id).await;
                 match crate::access::role_in(db, &user, workspace).await {
-                    Ok(Some(role)) if page_ok && user.active => can_edit = role >= crate::models::Role::Write,
+                    Ok(Some(role)) if page_ok && user.active => can_edit = role >= entity::Role::Write,
                     _ => {
                         close_with = Some(if page_ok { close::FORBIDDEN } else { close::DELETED });
                         break;

@@ -1,65 +1,43 @@
 [package]
-name = "woodmouse-api"
-version = "0.2.0"
-rust-version = "1.99.0"
-edition = "2024"
+name = "api"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
 publish = false
 
 [dependencies]
-entity             = { path = "../entity" }
-migration          = { path = "../migration" }
+entity.workspace = true
+migration.workspace = true
 
-axum = { version = "0.8", features = ["multipart", "ws"] }
+async-trait.workspace = true
+axum = { workspace = true, features = ["multipart", "ws"] }
 axum-extra = { version = "0.12", features = ["cookie"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync"] }
-tower-http = { version = "0.7", features = ["trace"] }
-tower = { version = "0.5", features = ["util"] }
-http-body-util = "0.1"
-# `release_max_level_info`: debug and trace events are compiled out of release builds (smaller binary).
-tracing = { version = "0.1", features = ["release_max_level_info"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-argon2 = "0.6"
-async-trait = "0.1"
-sha2 = "0.11"
+jiff.workspace = true
+mime_guess.workspace = true
+sea-orm.workspace = true
+sea-orm-migration.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "fs", "time", "sync"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+utoipa.workspace = true
+uuid.workspace = true
 
-# SQLite (bundled, with FTS5) through sqlx, with SeaORM on top; the schema is `src/migrations/` (SeaORM migrations running SQL).
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "uuid"] }
-sea-orm-migration = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio"] }
-sea-orm = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio", "macros", "with-uuid", "with-json"] }
-uuid = { version = "1", features = ["v4", "v7", "serde"] }
-
-# OpenAPI
-utoipa = { version = "6", features = ["uuid", "yaml"] }
 utoipa-axum = "0.3"
-utoipa-swagger-ui = { version = "10", features = ["axum"] }
-
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+argon2 = "0.6"
+sha2 = "0.11"
 time = "0.3"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "uuid"] }
 
-# Embedded CSR frontend (frontend/dist baked into the binary)
-rust-embed = "8"
-mime_guess = "2"
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 yrs = { version = "0.28", features = ["sync"] }
 futures-util = "0.3.34"
 base64 = "0.23.1"
-jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
 lettre = { version = "0.11.23", default-features = false, features = ["tokio1-rustls", "webpki-roots", "ring", "smtp-transport", "builder", "hostname"] }
 csv = "1.4.0"
 
 [dev-dependencies]
+http-body-util = "0.1"
 tokio-tungstenite = "0.30.0"
-
-# Small release binaries (size matters more than build time): fat LTO and one
-# codegen unit. opt-level = "s" was tried and saved nothing here. The release
-# workflow and `mise run build:backend` both build with this profile.
-[profile.release]
-strip = true
-lto = true
-codegen-units = 1
-
-# Password hashing is deliberately slow; unoptimized it makes logins (and so the tests) crawl.
-[profile.dev.package]
-argon2={opt-level = 3}
-blake2={opt-level = 3}
+tower = { version = "0.5", features = ["util"] }

@@ -1,9 +1,9 @@
 //! The wiki: page tree, block content and its validation, permissions, and trash.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::{Value, json};
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -288,7 +288,7 @@ async fn permissions_and_workspace_isolation() {
     let fx = fixture().await;
     let page = fx.page("Secret", None).await;
 
-    let mk = |email: &'static str, role: woodmouse::models::Role| {
+    let mk = |email: &'static str, role: entity::Role| {
         let (db, ws) = (fx.db.clone(), fx.ws);
         async move {
             let user = users::ActiveModel {
@@ -325,8 +325,8 @@ async fn permissions_and_workspace_isolation() {
             format!("woodmouse_session={token}")
         }
     };
-    let reader = mk("r@home.io", woodmouse::models::Role::Read).await;
-    let writer = mk("w@home.io", woodmouse::models::Role::Write).await;
+    let reader = mk("r@home.io", entity::Role::Read).await;
+    let writer = mk("w@home.io", entity::Role::Write).await;
 
     // Readers read the tree and pages but cannot change anything.
     assert_eq!(
@@ -707,7 +707,7 @@ impl Fx {
         workspace_members::ActiveModel {
             user_id: Set(user.id),
             workspace_id: Set(self.ws),
-            role: Set(woodmouse::models::Role::Write),
+            role: Set(entity::Role::Write),
             ..Default::default()
         }
         .insert(db)

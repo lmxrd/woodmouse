@@ -79,7 +79,7 @@ impl AppState {
     pub async fn open(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let db = crate::db::orm(crate::db::connect(url).await?);
         // The schema: the migrations in `src/migrations/`, each applied once.
-        <crate::migrations::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None).await?;
+        <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None).await?;
         crate::search::ensure_triggers(&db)
             .await
             .map_err(|_| "could not create the search triggers")?;

@@ -5,7 +5,7 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::email_settings;
+use entity::email_settings;
 use std::sync::Arc;
 
 use async_trait::async_trait;

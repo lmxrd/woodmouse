@@ -44,7 +44,7 @@ pub async fn temporary() -> DatabaseConnection {
     let db = orm(connect(&format!("sqlite:{}", path.display()))
         .await
         .expect("open a temporary database"));
-    crate::migrations::Migrator::up(&db, None)
+    migration::Migrator::up(&db, None)
         .await
         .expect("migrate a temporary database");
     db

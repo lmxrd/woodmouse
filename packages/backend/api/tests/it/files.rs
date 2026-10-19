@@ -1,9 +1,9 @@
 //! The file library: upload, duplicate detection, attachments, safe serving, and admin cleanup.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::Value;
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -429,7 +429,7 @@ async fn admin_cleanup_removes_only_unreferenced_files() {
         workspace_members::ActiveModel {
             user_id: Set(user.id),
             workspace_id: Set(fx.ws),
-            role: Set(woodmouse::models::Role::Write),
+            role: Set(entity::Role::Write),
             ..Default::default()
         }
         .insert(&fx.db)

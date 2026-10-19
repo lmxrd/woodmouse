@@ -1,9 +1,9 @@
 use crate::db::counts;
 use crate::db::prelude::*;
-use crate::models::{labels, task_labels, tasks};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::{labels, task_labels, tasks};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -13,9 +13,9 @@ use crate::api::required;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Label, Role};
 use crate::state::AppState;
 use crate::{time, trash};
+use entity::{Label, Role};
 
 /// All label routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {

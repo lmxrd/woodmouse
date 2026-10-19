@@ -2,9 +2,9 @@
 //! workspace, and the light/dark mode (an account setting, see `UpdateMe`).
 
 use crate::db::prelude::*;
-use crate::models::{workspace_members, workspaces};
 use axum::Json;
 use axum::extract::{Path, State};
+use entity::{workspace_members, workspaces};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -12,8 +12,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::Role;
 use crate::state::AppState;
+use entity::Role;
 
 /// The colour palettes the app ships (each has a light and a dark version).
 pub const PALETTES: [&str; 4] = ["paper_pine", "slate", "mono", "lavender"];

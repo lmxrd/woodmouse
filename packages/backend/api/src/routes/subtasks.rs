@@ -2,19 +2,19 @@
 //! parent (same project and list, or the inbox), so boards and lists (which hide subtasks by default) stay uncluttered.
 
 use crate::db::prelude::*;
-use crate::models::tasks;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::tasks;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Task};
 use crate::routes::tasks::{CreateTaskRequest, TaskResponse, create_task_in, hydrate_tasks};
 use crate::state::AppState;
 use crate::trash;
+use entity::{Role, Task};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(list_subtasks, create_subtask))

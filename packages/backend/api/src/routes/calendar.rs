@@ -3,7 +3,7 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{calendar_links, projects, task_assignees, tasks, users, workspaces};
+use entity::{calendar_links, projects, task_assignees, tasks, users, workspaces};
 use std::collections::HashMap;
 
 use crate::time::DateTime;
@@ -21,9 +21,9 @@ use crate::auth::CurrentUser;
 use crate::config;
 use crate::error::ApiError;
 use crate::ical::{self, FeedTask};
-use crate::models::{CalendarLink, Priority, Project, Role, Task, User};
 use crate::state::AppState;
 use crate::time;
+use entity::{CalendarLink, Priority, Project, Role, Task, User};
 
 /// Links are shown to the owner only; the feed itself is the public part.
 pub fn router() -> OpenApiRouter<AppState> {

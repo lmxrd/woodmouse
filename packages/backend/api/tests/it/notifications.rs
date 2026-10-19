@@ -1,13 +1,13 @@
 //! Notifications, watching, email (instant and digest), deadlines and the email settings.
 
+use api::db::prelude::*;
+use entity::{sessions, users, workspace_members};
 use std::sync::Arc;
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
+use api::mail::Outbox;
+use api::state::AppState;
 use axum::http::StatusCode;
 use serde_json::{Value, json};
-use woodmouse::mail::Outbox;
-use woodmouse::state::AppState;
 
 use crate::common::*;
 
@@ -27,10 +27,10 @@ async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
 }
 
 async fn fixture() -> Fx {
-    let db = woodmouse::db::temporary().await;
+    let db = api::db::temporary().await;
     let outbox = Arc::new(Outbox::default());
     let state = AppState::new(db.clone()).with_mailer(outbox.clone());
-    let app = woodmouse::routes::api(state.clone())
+    let app = api::routes::api(state.clone())
         .with_state(state.clone())
         .split_for_parts()
         .0;
@@ -52,7 +52,7 @@ async fn fixture() -> Fx {
     workspace_members::ActiveModel {
         user_id: Set(sara.id),
         workspace_id: Set(ws),
-        role: Set(woodmouse::models::Role::Write),
+        role: Set(entity::Role::Write),
         ..Default::default()
     }
     .insert(&db)
@@ -366,11 +366,11 @@ async fn mentioning_a_task_tells_the_people_on_it() {
 #[tokio::test]
 async fn instant_email_follows_each_persons_setting() {
     let fx = fixture().await;
-    let now = woodmouse::time::now();
+    let now = api::time::now();
     fx.task(json!({"assignee_ids": [fx.sara_id]})).await;
 
     // Not wanted: nothing is sent, and it is not looked at again.
-    woodmouse::jobs::send_pending_emails(&fx.state, now).await;
+    api::jobs::send_pending_emails(&fx.state, now).await;
     assert_eq!(fx.mails(), 0);
 
     let (status, s) = fx
@@ -385,13 +385,13 @@ async fn instant_email_follows_each_persons_setting() {
     assert_eq!(s["email_instant"], true);
     fx.task(json!({"title": "Second", "assignee_ids": [fx.sara_id]}))
         .await;
-    woodmouse::jobs::send_pending_emails(&fx.state, now).await;
+    api::jobs::send_pending_emails(&fx.state, now).await;
     assert_eq!(fx.mails(), 1);
     let mail = fx.outbox.sent.lock().unwrap()[0].clone();
     assert_eq!(mail.to, "sara@home.io");
     assert!(mail.subject.contains("assigned you"), "{}", mail.subject);
     // Once only.
-    woodmouse::jobs::send_pending_emails(&fx.state, now).await;
+    api::jobs::send_pending_emails(&fx.state, now).await;
     assert_eq!(fx.mails(), 1);
 
     let (status, _) = fx
@@ -408,17 +408,11 @@ async fn instant_email_follows_each_persons_setting() {
 #[tokio::test]
 async fn deadlines_are_notified_once_and_digests_go_out_at_the_hour() {
     let fx = fixture().await;
-    let now = woodmouse::time::now();
-    let tomorrow = woodmouse::time::timestamp(woodmouse::time::add_seconds(
-        woodmouse::time::to_day(now),
-        86_400,
-    ))
-    .to_string();
-    let yesterday = woodmouse::time::timestamp(woodmouse::time::add_seconds(
-        woodmouse::time::to_day(now),
-        -86_400,
-    ))
-    .to_string();
+    let now = api::time::now();
+    let tomorrow =
+        api::time::timestamp(api::time::add_seconds(api::time::to_day(now), 86_400)).to_string();
+    let yesterday =
+        api::time::timestamp(api::time::add_seconds(api::time::to_day(now), -86_400)).to_string();
     fx.task(json!({"title": "Soon", "assignee_ids": [fx.sara_id], "due_date": tomorrow}))
         .await;
     fx.task(json!({"title": "Late", "assignee_ids": [fx.sara_id], "due_date": yesterday}))
@@ -426,8 +420,8 @@ async fn deadlines_are_notified_once_and_digests_go_out_at_the_hour() {
     fx.call("POST", "/api/notifications/read-all", &fx.sara, json!({}))
         .await;
 
-    woodmouse::jobs::deadline_notifications(&fx.state, now).await;
-    woodmouse::jobs::deadline_notifications(&fx.state, now).await;
+    api::jobs::deadline_notifications(&fx.state, now).await;
+    api::jobs::deadline_notifications(&fx.state, now).await;
     let n = fx.inbox(&fx.sara).await;
     let unread: Vec<&Value> = n.iter().filter(|n| n["read"] == false).collect();
     assert_eq!(unread.len(), 2, "once per task: {n:?}");
@@ -443,7 +437,7 @@ async fn deadlines_are_notified_once_and_digests_go_out_at_the_hour() {
         json!({"digest": true, "digest_hour": hour}),
     )
     .await;
-    woodmouse::jobs::send_digests(&fx.state, now).await;
+    api::jobs::send_digests(&fx.state, now).await;
     assert_eq!(fx.mails(), 1);
     let mail = fx.outbox.sent.lock().unwrap()[0].clone();
     assert_eq!(mail.subject, "Your Woodmouse summary");
@@ -452,7 +446,7 @@ async fn deadlines_are_notified_once_and_digests_go_out_at_the_hour() {
         "{}",
         mail.text
     );
-    woodmouse::jobs::send_digests(&fx.state, now).await;
+    api::jobs::send_digests(&fx.state, now).await;
     assert_eq!(fx.mails(), 1);
     // Another hour: nothing.
     let other = (hour + 5) % 24;
@@ -463,7 +457,7 @@ async fn deadlines_are_notified_once_and_digests_go_out_at_the_hour() {
         json!({"digest_hour": other}),
     )
     .await;
-    woodmouse::jobs::send_digests(&fx.state, woodmouse::time::add_seconds(now, 25 * 3600)).await;
+    api::jobs::send_digests(&fx.state, api::time::add_seconds(now, 25 * 3600)).await;
     assert_eq!(fx.mails(), 1);
 }
 

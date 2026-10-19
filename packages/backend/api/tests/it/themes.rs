@@ -1,9 +1,9 @@
 //! Appearance: workspace theme (admins), personal choice per workspace, and light/dark mode.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::{Value, json};
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -43,7 +43,7 @@ async fn workspace_themes_personal_choices_and_mode() {
     workspace_members::ActiveModel {
         user_id: Set(user.id),
         workspace_id: Set(ws),
-        role: Set(woodmouse::models::Role::Write),
+        role: Set(entity::Role::Write),
         ..Default::default()
     }
     .insert(db)
