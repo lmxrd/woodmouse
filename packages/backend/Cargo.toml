@@ -1,0 +1,23 @@
+[package]
+name = "woodmouse"
+version = "0.2.0"
+rust-version = "1.99.0"
+edition = "2024"
+publish = false
+default-run = "woodmouse"
+
+[workspace]
+members = [".", "api", "entity", "migration"]
+
+[dependencies]
+woodmouse-api = { path = "api" }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+# Password hashing is deliberately slow; unoptimized it makes logins (and so the tests) crawl.
+[profile.dev.package]
+argon2={opt-level = 3}
+blake2={opt-level = 3}
