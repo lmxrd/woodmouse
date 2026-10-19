@@ -22,8 +22,7 @@ pub struct Model {
     /// Who caused it (never the recipient).
     pub actor_id: Option<Uuid>,
     /// JSON object with what the UI needs to phrase it (titles at the time, project id, ...).
-    #[sea_orm(column_type = "Text")]
-    pub data: String,
+    pub data: Json,
     pub created_at: DateTime,
     pub read_at: Option<DateTime>,
     /// When the instant-email sweep dealt with it (sent, or skipped because they do not want it).

@@ -16,9 +16,8 @@ pub struct Model {
     pub owner_id: Uuid,
     #[sea_orm(column_type = "Text")]
     pub name: String,
-    /// JSON object text.
-    #[sea_orm(column_type = "Text")]
-    pub params: String,
+    /// A JSON object.
+    pub params: Json,
     pub is_shared: bool,
     pub created_at: DateTime,
     pub deleted_at: Option<DateTime>,

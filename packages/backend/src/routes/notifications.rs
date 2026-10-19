@@ -93,7 +93,7 @@ pub async fn list_notifications(
             .zip(actors)
             .map(|(n, actor)| NotificationView {
                 actor: actor.as_ref().map(PublicUser::from),
-                data: serde_json::from_str(&n.data).unwrap_or_default(),
+                data: n.data,
                 read: n.read_at.is_some(),
                 id: n.id,
                 kind: n.kind,

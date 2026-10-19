@@ -1,7 +1,8 @@
 -- The whole schema. The column type names are the ones SeaORM uses for SQLite (so `sea-orm-cli` reads them back as
 -- the right Rust types): `uuid_text` holds a UUID, stored as its 16 bytes (the name is SeaORM's, the bytes are what
 -- sqlx and SeaORM write); `datetime_text` holds a UTC date-time as `YYYY-MM-DDTHH:MM:SS` text. Enums are their
--- lowercase labels, JSON is TEXT. Relations are foreign keys (enforced: `foreign_keys` is on):
+-- lowercase labels. JSON that the application reads as JSON is `json_text`
+-- (audit and notification data, saved view params); page and revision content stays TEXT, read as a string. Relations are foreign keys (enforced: `foreign_keys` is on):
 -- the join and child rows of a user, workspace, task, file or page go with it (ON DELETE CASCADE), and a row that
 -- still has children cannot be deleted. Polymorphic targets (`file_refs.target_id`, `revisions.target_id`,
 -- `content_links.target_id`, `watches.target_id`, audit log ids) are not foreign keys.
@@ -24,7 +25,7 @@ CREATE TABLE "notifications" (
     "target_type" TEXT,
     "target_id" uuid_text,
     "actor_id" uuid_text,
-    "data" TEXT NOT NULL,
+    "data" json_text NOT NULL,
     "created_at" datetime_text NOT NULL,
     "read_at" datetime_text,
     "emailed_at" datetime_text,
@@ -299,7 +300,7 @@ CREATE TABLE "saved_views" (
     "project_id" uuid_text NOT NULL,
     "owner_id" uuid_text NOT NULL,
     "name" TEXT NOT NULL,
-    "params" TEXT NOT NULL,
+    "params" json_text NOT NULL,
     "is_shared" BOOLEAN NOT NULL,
     "created_at" datetime_text NOT NULL,
     "deleted_at" datetime_text,
@@ -354,7 +355,7 @@ CREATE TABLE "audit_logs" (
     "target_id" uuid_text,
     "workspace_id" uuid_text,
     "visibility" TEXT NOT NULL CHECK ("visibility" IN ('workspace', 'admin')),
-    "data" TEXT NOT NULL,
+    "data" json_text NOT NULL,
     "created_at" datetime_text NOT NULL,
     PRIMARY KEY ("id")
 );

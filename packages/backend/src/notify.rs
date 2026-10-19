@@ -61,7 +61,7 @@ pub async fn notify(
                 id: Unchanged(existing.id),
                 created_at: Set(time::now()),
                 actor_id: Set(notice.actor),
-                data: Set(notice.data.to_string()),
+                data: Set(notice.data.clone()),
                 ..Default::default()
             }
             .update(db)
@@ -76,7 +76,7 @@ pub async fn notify(
             target_type: Set(Some(notice.target_type.to_string())),
             target_id: Set(Some(notice.target_id)),
             actor_id: Set(notice.actor),
-            data: Set(notice.data.to_string()),
+            data: Set(notice.data.clone()),
             created_at: Set(time::now()),
             ..Default::default()
         }

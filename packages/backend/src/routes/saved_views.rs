@@ -95,7 +95,7 @@ async fn respond(
             project_id: view.project_id,
             can_edit: view.owner_id == user.id || (view.is_shared && is_admin),
             owner: owner.as_ref().map(PublicUser::from),
-            params: serde_json::from_str(&view.params).unwrap_or(serde_json::Value::Null),
+            params: view.params,
             name: view.name,
             is_shared: view.is_shared,
         });
@@ -170,7 +170,7 @@ pub async fn create_view(
         project_id: Set(id),
         owner_id: Set(user.id),
         name: Set(name),
-        params: Set(input.params.to_string()),
+        params: Set(input.params.clone()),
         is_shared: Set(input.is_shared),
         created_at: Set(time::now()),
         ..Default::default()
@@ -233,7 +233,7 @@ pub async fn update_view(
     let mut update = saved_views::ActiveModel::from(view);
     update.name = Set(name);
     if let Some(params) = &input.params {
-        update.params = Set(params.to_string());
+        update.params = Set(params.clone());
     }
     if let Some(shared) = input.is_shared {
         update.is_shared = Set(shared);
