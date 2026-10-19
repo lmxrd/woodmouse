@@ -12,6 +12,11 @@
           "jsonpath": "$.version"
         },
         {
+          "type": "json",
+          "path": "frontend/src/client/package.json",
+          "jsonpath": "$.version"
+        },
+        {
           "type": "toml",
           "path": "backend/Cargo.toml",
           "jsonpath": "$.package.version"
