@@ -1,5 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
-import type { Attrs, BlockData, BlockKind, Mark, Span } from "woodmouse-client";
+import type { Attrs, BlockData, BlockKind, Mark, Span } from "woodmouse-sdk";
 
 /**
  * The editor is only a view of the page: the stored form is a flat list of blocks (see the backend's

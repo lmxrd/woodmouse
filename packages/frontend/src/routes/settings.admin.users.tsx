@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { meOptions } from "woodmouse-client/react-query";
+import { meOptions } from "woodmouse-sdk/react-query";
 
 import { UsersTab } from "../components/admin/UsersTab";
 

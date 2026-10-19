@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { CommentView } from "woodmouse-client";
+import type { CommentView } from "woodmouse-sdk";
 import {
   addCommentMutation,
   deleteCommentMutation,
@@ -8,7 +8,7 @@ import {
   listCommentsOptions,
   meOptions,
   updateCommentMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";

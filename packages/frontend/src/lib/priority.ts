@@ -1,4 +1,4 @@
-import type { Priority } from "woodmouse-client";
+import type { Priority } from "woodmouse-sdk";
 
 export const PRIORITIES: Priority[] = ["low", "medium", "high", "urgent"];
 

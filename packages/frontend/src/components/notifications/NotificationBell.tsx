@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { NotificationView } from "woodmouse-client";
+import type { NotificationView } from "woodmouse-sdk";
 import {
   listNotificationsOptions,
   markAllNotificationsReadMutation,
   markNotificationReadMutation,
   unreadNotificationCountOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { describeNotification, notificationQuote } from "../../lib/notifications";
 import { useFormatters } from "../../lib/useFormatters";

@@ -1,7 +1,7 @@
 import { redirect, type useNavigate } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import type { PublicUser } from "woodmouse-client";
-import { meOptions, meQueryKey } from "woodmouse-client/react-query";
+import type { PublicUser } from "woodmouse-sdk";
+import { meOptions, meQueryKey } from "woodmouse-sdk/react-query";
 
 /** Route guard: unauthenticated visitors land on the login page. */
 export async function requireLogin(queryClient: QueryClient) {

@@ -2,7 +2,7 @@ import type { KeyboardEventHandler } from "react";
 import { Link } from "@tanstack/react-router";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 
 import { isDueNow } from "../../lib/dates";
 import { PRIORITY_BADGE, isHotPriority } from "../../lib/priority";
@@ -13,7 +13,7 @@ import { LabelTag } from "../common/LabelTag";
 import { AvatarStack } from "../common/UserAvatar";
 import { Checkbox } from "../ui/checkbox";
 import { useQuery } from "@tanstack/react-query";
-import { listSprintsOptions } from "woodmouse-client/react-query";
+import { listSprintsOptions } from "woodmouse-sdk/react-query";
 
 import { formatDuration } from "../../lib/duration";
 import { isDone } from "../../lib/task";

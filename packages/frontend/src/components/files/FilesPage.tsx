@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import { toast } from "sonner";
-import type { FileView } from "woodmouse-client";
+import type { FileView } from "woodmouse-sdk";
 import {
   cleanupFilesMutation,
   deleteFileMutation,
@@ -10,7 +10,7 @@ import {
   listFileVersionsOptions,
   listFilesOptions,
   unusedFilesOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { FileThumb } from "./FileThumb";
 import { fileContentUrl, fileVersionContentUrl } from "../../lib/api";

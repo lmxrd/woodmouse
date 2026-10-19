@@ -1,4 +1,4 @@
-import type { FileView } from "woodmouse-client";
+import type { FileView } from "woodmouse-sdk";
 
 import { reportResponse } from "./api";
 

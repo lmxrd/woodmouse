@@ -1,4 +1,4 @@
-import type { PageSummary } from "woodmouse-client";
+import type { PageSummary } from "woodmouse-sdk";
 
 import { afterIdAt } from "./position";
 

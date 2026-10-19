@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { taskBacklinksOptions } from "woodmouse-client/react-query";
+import { taskBacklinksOptions } from "woodmouse-sdk/react-query";
 
 import { Backlinks } from "../wiki/Backlinks";
 

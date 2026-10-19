@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet } from "@tanstack/react-router";
-import { meOptions } from "woodmouse-client/react-query";
+import { meOptions } from "woodmouse-sdk/react-query";
 
 import { cn } from "../../lib/utils";
 

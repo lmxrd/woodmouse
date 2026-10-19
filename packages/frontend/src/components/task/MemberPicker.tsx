@@ -1,4 +1,4 @@
-import type { Member, PublicUser } from "woodmouse-client";
+import type { Member, PublicUser } from "woodmouse-sdk";
 
 import { userLabel } from "../../lib/user";
 import { UserAvatar } from "../common/UserAvatar";

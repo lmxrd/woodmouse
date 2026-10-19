@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 
 import { addDays } from "../../lib/calendar";
 import type { Zoom } from "../../lib/projectSearch";

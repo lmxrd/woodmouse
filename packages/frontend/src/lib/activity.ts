@@ -1,4 +1,4 @@
-import type { ActivityView } from "woodmouse-client";
+import type { ActivityView } from "woodmouse-sdk";
 
 import { userLabel } from "./user";
 

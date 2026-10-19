@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { meOptions, meQueryKey, updateMeMutation } from "woodmouse-client/react-query";
+import { meOptions, meQueryKey, updateMeMutation } from "woodmouse-sdk/react-query";
 
 /** The browser's timezone name (`Europe/Oslo`), or undefined when it cannot tell. */
 export function browserTimezone(): string | undefined {

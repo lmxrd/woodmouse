@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { FileView } from "woodmouse-client";
+import type { FileView } from "woodmouse-sdk";
 import {
   attachFileMutation,
   attachPageFileMutation,
   getConfigOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { formatBytes, uploadFile } from "../../lib/upload";
 import { DuplicateFileDialog } from "./DuplicateFileDialog";

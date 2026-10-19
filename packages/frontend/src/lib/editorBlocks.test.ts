@@ -1,4 +1,4 @@
-import type { BlockData } from "woodmouse-client";
+import type { BlockData } from "woodmouse-sdk";
 import { describe, expect, it } from "vitest";
 
 import { fromBlocks, toBlocks } from "./editorBlocks";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { adminAuditLogOptions, adminRedactRevisionMutation } from "woodmouse-client/react-query";
+import { adminAuditLogOptions, adminRedactRevisionMutation } from "woodmouse-sdk/react-query";
 
 import { userLabel } from "../../lib/user";
 import { useFormatters } from "../../lib/useFormatters";

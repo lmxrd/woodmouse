@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createViewMutation, listViewsOptions } from "woodmouse-client/react-query";
+import { createViewMutation, listViewsOptions } from "woodmouse-sdk/react-query";
 
 import type { ProjectSearch, ProjectView } from "../../lib/projectSearch";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";

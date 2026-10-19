@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Label, TaskResponse } from "woodmouse-client";
+import type { Label, TaskResponse } from "woodmouse-sdk";
 import {
   createLabelMutation,
   deleteTaskMutation,
@@ -12,7 +12,7 @@ import {
   listSprintsOptions,
   listMembersOptions,
   updateTaskMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Field } from "../common/Field";

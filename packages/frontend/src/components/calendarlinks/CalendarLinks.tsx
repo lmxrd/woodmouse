@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { CalendarLinkView, LinkScope } from "woodmouse-client";
+import type { CalendarLinkView, LinkScope } from "woodmouse-sdk";
 import {
   listCalendarLinksOptions,
   revokeCalendarLinkMutation,
   revokeCalendarLinksMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { calendarFeedUrl } from "../../lib/api";
 import { useFormatters } from "../../lib/useFormatters";

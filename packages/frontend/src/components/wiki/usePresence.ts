@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { pingPresence } from "woodmouse-client";
-import type { Editor } from "woodmouse-client";
+import { pingPresence } from "woodmouse-sdk";
+import type { Editor } from "woodmouse-sdk";
 
 const PRESENCE_EVERY_MS = 10_000;
 

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { Editor } from "@tiptap/core";
-import { resolve } from "woodmouse-client";
+import { resolve } from "woodmouse-sdk";
 
 import { referencedInEditor, setReferences, type RefInfo } from "./editor/inline";
 

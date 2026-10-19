@@ -1,4 +1,4 @@
-import { client } from "woodmouse-client/client";
+import { client } from "woodmouse-sdk/client";
 
 // TanStack Query base wrapper: configure the generated client once, before
 // any request fires. Same-origin in production (the bundle is embedded in

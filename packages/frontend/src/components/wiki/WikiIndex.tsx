@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { listPagesOptions } from "woodmouse-client/react-query";
+import { listPagesOptions } from "woodmouse-sdk/react-query";
 
 import { wikiExportUrl } from "../../lib/api";
 import { useFormatters } from "../../lib/useFormatters";

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { TrashItem } from "woodmouse-client";
-import { listTrashOptions, restoreItemMutation } from "woodmouse-client/react-query";
+import type { TrashItem } from "woodmouse-sdk";
+import { listTrashOptions, restoreItemMutation } from "woodmouse-sdk/react-query";
 
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";

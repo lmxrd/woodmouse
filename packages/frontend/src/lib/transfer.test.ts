@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ImportReport } from "woodmouse-client";
+import type { ImportReport } from "woodmouse-sdk";
 
 import { canImport, exportCsvUrl, exportJsonUrl, importFormat } from "./transfer";
 

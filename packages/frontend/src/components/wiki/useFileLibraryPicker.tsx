@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
-import { listFilesOptions } from "woodmouse-client/react-query";
+import { listFilesOptions } from "woodmouse-sdk/react-query";
 
 import { formatBytes } from "../../lib/upload";
 import { ResponsiveDialog } from "../common/ResponsiveDialog";

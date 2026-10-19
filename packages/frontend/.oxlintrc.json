@@ -8,6 +8,5 @@
   "env": {
     "builtin": true,
     "browser": true
-  },
-  "ignorePatterns": ["packages/client/src/**"]
+  }
 }

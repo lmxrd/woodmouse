@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { SearchHit } from "woodmouse-client";
-import { searchOptions } from "woodmouse-client/react-query";
+import type { SearchHit } from "woodmouse-sdk";
+import { searchOptions } from "woodmouse-sdk/react-query";
 
 import { cn } from "../../lib/utils";
 import { Checkbox } from "../ui/checkbox";

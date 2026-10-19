@@ -4,7 +4,7 @@ import {
   getTaskWatchOptions,
   setPageWatchMutation,
   setTaskWatchMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { Button } from "../ui/button";
 

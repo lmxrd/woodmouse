@@ -5,7 +5,7 @@ import {
   adminListWorkspacesOptions,
   adminRestoreWorkspaceMutation,
   createWorkspaceMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { useFormatters } from "../../lib/useFormatters";
 import { Field } from "../common/Field";

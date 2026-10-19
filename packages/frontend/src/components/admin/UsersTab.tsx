@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { AdminUser, Role } from "woodmouse-client";
+import type { AdminUser, Role } from "woodmouse-sdk";
 import {
   adminCreateUserMutation,
   adminListUsersOptions,
   adminListWorkspacesOptions,
   adminReissueInviteMutation,
   adminUpdateUserMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { userLabel } from "../../lib/user";
 import { ConfirmDialog } from "../common/ConfirmDialog";

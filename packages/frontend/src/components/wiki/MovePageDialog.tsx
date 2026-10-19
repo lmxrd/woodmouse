@@ -1,4 +1,4 @@
-import type { PageSummary } from "woodmouse-client";
+import type { PageSummary } from "woodmouse-sdk";
 
 import { buildPageTree, subtreeIds, type PageNode } from "../../lib/pageTree";
 import { Button } from "../ui/button";

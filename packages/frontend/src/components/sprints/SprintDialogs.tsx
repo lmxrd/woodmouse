@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import type { SprintView } from "woodmouse-client";
+import type { SprintView } from "woodmouse-sdk";
 import {
   completeSprintMutation,
   createSprintMutation,
   updateSprintMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { fromDateInput, toDateInput } from "../../lib/dates";
 import { Field } from "../common/Field";

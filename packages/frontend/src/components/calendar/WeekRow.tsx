@@ -1,5 +1,5 @@
 import { useDroppable } from "@dnd-kit/core";
-import type { List, TaskResponse } from "woodmouse-client";
+import type { List, TaskResponse } from "woodmouse-sdk";
 
 import { assignLanes, daysBetween, taskSpan } from "../../lib/calendar";
 import { cn } from "../../lib/utils";

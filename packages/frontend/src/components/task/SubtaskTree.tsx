@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 import {
   createSubtaskMutation,
   listSubtasksOptions,
   updateTaskMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";

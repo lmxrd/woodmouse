@@ -1,10 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
-import type { AdminUser, Role } from "woodmouse-client";
+import type { AdminUser, Role } from "woodmouse-sdk";
 import {
   addMemberMutation,
   removeMemberMutation,
   updateMemberMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 

@@ -1,5 +1,5 @@
 {
-  "name": "woodmouse-client",
+  "name": "woodmouse-sdk",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -12,15 +12,14 @@
     "./spec": "./src/source.json"
   },
   "scripts": {
-    "openapi-ts":"openapi-ts"
+    "openapi-ts": "openapi-ts"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.104.3",
     "zod": "^4.6.7"
   },
-  "devDependencies": {
-    "@hey-api/openapi-ts": "0.99.0",
-    "@types/node": "^26.6.5",
-    "typescript":"^6.0.3"
-  }
+  "private": true
 }

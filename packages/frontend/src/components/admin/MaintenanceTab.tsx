@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { adminBackupMutation, adminIntegrityOptions } from "woodmouse-client/react-query";
+import { adminBackupMutation, adminIntegrityOptions } from "woodmouse-sdk/react-query";
 
 import { Button } from "../ui/button";
 

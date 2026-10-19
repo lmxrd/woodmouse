@@ -1,11 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import {
-  getPageOptions,
-  getPageQueryKey,
-  pageBacklinksOptions,
-} from "woodmouse-client/react-query";
+import { getPageOptions, getPageQueryKey, pageBacklinksOptions } from "woodmouse-sdk/react-query";
 
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { Attachments } from "../task/Attachments";

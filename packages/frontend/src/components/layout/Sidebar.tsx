@@ -8,7 +8,7 @@ import {
   listWorkspacesOptions,
   logoutMutation,
   meOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { userLabel } from "../../lib/user";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";

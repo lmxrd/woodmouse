@@ -1,4 +1,4 @@
-import type { FileView } from "woodmouse-client";
+import type { FileView } from "woodmouse-sdk";
 
 import { useFormatters } from "../../lib/useFormatters";
 import { userLabel } from "../../lib/user";

@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
-import type { SavedViewResponse } from "woodmouse-client";
-import { deleteViewMutation, updateViewMutation } from "woodmouse-client/react-query";
+import type { SavedViewResponse } from "woodmouse-sdk";
+import { deleteViewMutation, updateViewMutation } from "woodmouse-sdk/react-query";
 
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";

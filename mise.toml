@@ -26,13 +26,13 @@ zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and
 # ---------------------------------------------------------------------------
 
 [tasks.build]
-description = "Build frontend (generates the client first), then backend with the bundle embedded"
+description = "Build frontend (generates the SDK first), then backend with the bundle embedded"
 depends = ["build:backend"]
 
 [tasks."build:frontend"]
 description = "Build the frontend bundle into frontend/dist"
 dir = "packages/frontend"
-depends = ["gen:client"]
+depends = ["gen:sdk"]
 run = "pnpm build"
 
 [tasks."build:backend"]
@@ -52,6 +52,14 @@ cp "target/$arch-unknown-linux-musl/release/woodmouse" target/dist/woodmouse
 description = "Build the container image from the release binary (for this machine's architecture)"
 depends = ["build:backend"]
 run = "podman build --format docker --build-context bin=packages/backend/target/dist -t woodmouse ."
+
+# rust-embed fails to compile when packages/frontend/dist does not exist, but
+# checks and tests never read the bundle, so an empty directory is enough:
+# they need not wait for the frontend build. Release builds
+# (build:backend) still depend on the real build:frontend.
+[tasks."ensure:dist"]
+description = "Make sure packages/frontend/dist exists (rust-embed needs the folder to compile)"
+run = "mkdir -p packages/frontend/dist"
 
 # ---------------------------------------------------------------------------
 # Development
@@ -97,12 +105,14 @@ run = "cargo specs"
 sources = ["src/**/*.rs", "Cargo.toml"]
 outputs = ["target/specs/openapi.json", "target/specs/openapi.yaml"]
 
-[tasks."gen:client"]
-description = "Regenerate the heyapi client package from the OpenAPI spec"
+[tasks."gen:sdk"]
+description = "Regenerate the SDK (packages/sdk) from the OpenAPI spec"
 depends = ["gen:spec", "install:frontend"]
-dir = "packages/frontend/src/client"
+dir = "packages/sdk"
 run = "pnpm run openapi-ts"
-sources = ["target/specs/openapi.json"]
+# Skip regeneration while the spec is older than the generated SDK.
+sources = ["../backend/target/specs/openapi.json"]
+outputs = ["src/index.ts"]
 
 # ---------------------------------------------------------------------------
 # Checks
@@ -112,18 +122,17 @@ sources = ["target/specs/openapi.json"]
 description = "Run each stack's checks"
 depends = ["check:backend", "check:frontend"]
 
-# rust-embed needs frontend/dist to exist to compile the main binary, hence the build.
 [tasks."check:backend"]
 description = "Run backend checks (rustfmt, clippy)"
 dir = "packages/backend"
-depends = ["build:frontend"]
+depends = ["ensure:dist"]
 run = ["cargo fmt --all --check", "cargo clippy --all-targets --all-features -- -D warnings"]
 
-# The typecheck needs the generated API client.
+# The typecheck needs the generated SDK.
 [tasks."check:frontend"]
 description = "Run frontend checks (typecheck, lint, format)"
 dir = "packages/frontend"
-depends = ["gen:client"]
+depends = ["gen:sdk"]
 run = "pnpm check"
 
 # ---------------------------------------------------------------------------
@@ -137,7 +146,7 @@ depends = ["test:backend", "test:frontend"]
 [tasks."test:backend"]
 description = "Run the backend tests"
 dir = "packages/backend"
-depends = ["build:frontend"]
+depends = ["ensure:dist"]
 run = "cargo test"
 
 [tasks."test:frontend"]
@@ -172,6 +181,5 @@ run = "pnpm fix"
 # ---------------------------------------------------------------------------
 
 [tasks."install:frontend"]
-description = "Install frontend workspace dependencies"
-dir = "packages/frontend"
+description = "Install the JavaScript workspace (frontend and SDK) from the root lockfile"
 run = "pnpm install" # frozen automatically when CI is set

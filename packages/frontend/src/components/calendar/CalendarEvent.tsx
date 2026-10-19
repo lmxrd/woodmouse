@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useDraggable } from "@dnd-kit/core";
-import type { TaskResponse } from "woodmouse-client";
+import type { TaskResponse } from "woodmouse-sdk";
 
 import { cn } from "../../lib/utils";
 import { isDone } from "../../lib/task";

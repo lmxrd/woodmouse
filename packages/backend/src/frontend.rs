@@ -1,7 +1,7 @@
 //! Module of the *main binary only* — deliberately not part of the library,
 //! so the `specs` binary (and everything else that links the lib) builds
 //! without the frontend bundle. Spec generation must never require a
-//! frontend build (see the `gen:spec` / `gen:client` mise tasks).
+//! frontend build (see the `gen:spec` / `gen:sdk` mise tasks).
 
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};

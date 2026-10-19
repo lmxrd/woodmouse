@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { LabelWithCount } from "woodmouse-client";
+import type { LabelWithCount } from "woodmouse-sdk";
 import {
   createLabelMutation,
   deleteLabelMutation,
   listLabelsOptions,
   updateLabelMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { LABEL_COLORS } from "../../lib/labelColors";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";

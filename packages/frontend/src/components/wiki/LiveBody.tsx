@@ -5,8 +5,8 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
-import type { LiveSession } from "woodmouse-client";
-import { meOptions } from "woodmouse-client/react-query";
+import type { LiveSession } from "woodmouse-sdk";
+import { meOptions } from "woodmouse-sdk/react-query";
 
 import { colorFor } from "../../lib/liveColors";
 import { userLabel } from "../../lib/user";

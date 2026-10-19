@@ -1,4 +1,4 @@
-import type { NotificationView } from "woodmouse-client";
+import type { NotificationView } from "woodmouse-sdk";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 

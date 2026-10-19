@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ImportReport, UserChoice } from "woodmouse-client";
-import { listMembersOptions, listProjectsOptions } from "woodmouse-client/react-query";
+import type { ImportReport, UserChoice } from "woodmouse-sdk";
+import { listMembersOptions, listProjectsOptions } from "woodmouse-sdk/react-query";
 
 import {
   canImport,

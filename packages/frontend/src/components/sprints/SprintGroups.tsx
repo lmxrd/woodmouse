@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import type { List, SprintView, TaskResponse } from "woodmouse-client";
-import { deleteSprintMutation } from "woodmouse-client/react-query";
+import type { List, SprintView, TaskResponse } from "woodmouse-sdk";
+import { deleteSprintMutation } from "woodmouse-sdk/react-query";
 
 import { formatDuration } from "../../lib/duration";
 import type { TaskSort } from "../../lib/projectSearch";

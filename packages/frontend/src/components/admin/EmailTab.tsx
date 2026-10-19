@@ -5,7 +5,7 @@ import {
   adminGetEmailSettingsQueryKey,
   adminTestEmailMutation,
   adminUpdateEmailSettingsMutation,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import { Field } from "../common/Field";
 import { Button } from "../ui/button";

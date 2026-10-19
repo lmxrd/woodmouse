@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useBlocker } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { getPage, saveBlocks } from "woodmouse-client";
-import type { PageDetail } from "woodmouse-client";
+import { getPage, saveBlocks } from "woodmouse-sdk";
+import type { PageDetail } from "woodmouse-sdk";
 
 import { fromBlocks, toBlocks } from "../../lib/editorBlocks";
 import { userLabel } from "../../lib/user";

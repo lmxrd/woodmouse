@@ -5,7 +5,7 @@ import {
   listListsOptions,
   listMembersOptions,
   listSprintsOptions,
-} from "woodmouse-client/react-query";
+} from "woodmouse-sdk/react-query";
 
 import {
   BACKLOG,
