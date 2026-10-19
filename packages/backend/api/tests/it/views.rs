@@ -1,9 +1,9 @@
 //! Saved views: private vs shared, who may edit, and trash.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::Value;
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -15,7 +15,7 @@ async fn member(
     db: &sea_orm::DatabaseConnection,
     ws: uuid::Uuid,
     email: &str,
-    role: woodmouse::models::Role,
+    role: entity::Role,
 ) -> String {
     let user = users::ActiveModel {
         id: Set(uuid::Uuid::now_v7()),
@@ -56,8 +56,8 @@ async fn private_and_shared_views() {
     let (app, db) = app_with_db().await;
     let admin = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &admin, "Home").await;
-    let writer = member(&db, ws, "w@home.io", woodmouse::models::Role::Write).await;
-    let reader = member(&db, ws, "r@home.io", woodmouse::models::Role::Read).await;
+    let writer = member(&db, ws, "w@home.io", entity::Role::Write).await;
+    let reader = member(&db, ws, "r@home.io", entity::Role::Read).await;
     let project = json(
         request(
             &app,

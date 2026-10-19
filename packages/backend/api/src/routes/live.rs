@@ -12,8 +12,8 @@ use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::live::{self, close};
-use crate::models::Role;
 use crate::state::AppState;
+use entity::Role;
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

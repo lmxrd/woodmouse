@@ -1,5 +1,5 @@
 use crate::db::prelude::*;
-use crate::models::users;
+use entity::users;
 
 use axum::Json;
 use axum::extract::State;
@@ -12,8 +12,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
-use crate::models::{Role, User};
 use crate::state::AppState;
+use entity::{Role, User};
 
 /// Routes reachable without a session.
 pub fn public_router() -> OpenApiRouter<AppState> {

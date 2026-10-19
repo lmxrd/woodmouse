@@ -3,11 +3,11 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{sprints, tasks};
 use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::{sprints, tasks};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -17,10 +17,10 @@ use crate::api::{limited, required_max};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Project, Role, Sprint, Task};
 use crate::routes::tasks::validate_sprint;
 use crate::state::AppState;
 use crate::{time, trash};
+use entity::{Project, Role, Sprint, Task};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -87,7 +87,7 @@ fn check_dates(start: DateTime, end: DateTime) -> Result<(), ApiError> {
 /// A live sprint the caller may access at `min_role`, with its project.
 async fn load(
     db: &impl Db,
-    user: &crate::models::User,
+    user: &entity::User,
     id: uuid::Uuid,
     min_role: Role,
 ) -> Result<(Sprint, Project), ApiError> {

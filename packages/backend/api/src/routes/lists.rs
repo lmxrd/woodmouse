@@ -1,8 +1,8 @@
 use crate::db::prelude::*;
-use crate::models::lists;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::lists;
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -12,9 +12,9 @@ use crate::api::required;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{List, Role};
 use crate::state::AppState;
 use crate::{ordering, time, trash};
+use entity::{List, Role};
 
 /// All list routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {

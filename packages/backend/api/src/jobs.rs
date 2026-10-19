@@ -2,7 +2,7 @@
 //! notification email, and the deadline and digest checks.
 
 use crate::db::prelude::*;
-use crate::models::{notification_settings, notifications, projects, task_assignees, tasks, users};
+use entity::{notification_settings, notifications, projects, task_assignees, tasks, users};
 use std::time::Duration;
 
 use crate::auth;
@@ -73,7 +73,7 @@ fn public_base() -> String {
 }
 
 /// The person's local date at `now` (their timezone, or UTC while they have none).
-fn local_now(user: &crate::models::User, now: crate::time::DateTime) -> crate::time::DateTime {
+fn local_now(user: &entity::User, now: crate::time::DateTime) -> crate::time::DateTime {
     let zone = user
         .timezone
         .as_deref()
@@ -174,7 +174,7 @@ pub async fn deadline_notifications(state: &AppState, now: crate::time::DateTime
 /// Email notifications to the people who want each one as it happens, and mark every notification dealt
 /// with (including those nobody wants emailed, so they are not looked at again). Needs email configured.
 pub async fn send_pending_emails(state: &AppState, now: crate::time::DateTime) {
-    use crate::models::Notification;
+    use entity::Notification;
     if !state.mailer.configured().await {
         return;
     }

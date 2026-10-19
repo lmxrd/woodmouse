@@ -4,7 +4,7 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{comments, notifications, task_assignees, watches};
+use entity::{comments, notifications, task_assignees, watches};
 use serde_json::{Value, json};
 
 use crate::access;

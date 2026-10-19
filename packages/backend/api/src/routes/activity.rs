@@ -2,11 +2,11 @@
 //! log.
 
 use crate::db::prelude::*;
-use crate::models::audit_logs;
-use crate::models::users;
 use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use entity::audit_logs;
+use entity::users;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -14,10 +14,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{AuditLog, Role};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
+use entity::{AuditLog, Role};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(list_activity))
@@ -85,7 +85,7 @@ pub async fn list_activity(
         // Up to 200 entries older than `before` (an absent `before` means the newest).
         let mut query = audit_logs::Entity::find()
             .filter(audit_logs::Column::WorkspaceId.eq(id))
-            .filter(audit_logs::Column::Visibility.eq(crate::models::Visibility::Workspace))
+            .filter(audit_logs::Column::Visibility.eq(entity::Visibility::Workspace))
             .order_by_desc(audit_logs::Column::CreatedAt)
             .limit(200);
         if let Some(before) = before {

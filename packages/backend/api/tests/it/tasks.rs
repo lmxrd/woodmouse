@@ -1,10 +1,10 @@
 //! Phase 1 integration tests: projects, lists, tasks, labels — CRUD, access
 //! enforcement, assignees, filtering, sorting, and delete cascades.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::Value;
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -568,7 +568,7 @@ async fn access_isolation_and_roles() {
     workspace_members::ActiveModel {
         user_id: Set(other.id),
         workspace_id: Set(workspace_id),
-        role: Set(woodmouse::models::Role::Read),
+        role: Set(entity::Role::Read),
         ..Default::default()
     }
     .insert(&db)
@@ -775,7 +775,7 @@ async fn workspace_members_listing() {
     workspace_members::ActiveModel {
         user_id: Set(other.id),
         workspace_id: Set(workspace_id),
-        role: Set(woodmouse::models::Role::Write),
+        role: Set(entity::Role::Write),
         ..Default::default()
     }
     .insert(&db)

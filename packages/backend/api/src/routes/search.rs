@@ -1,9 +1,9 @@
 //! Search over pages and tasks, for the ⌘K palette and the `@` and `[[` pickers.
 
 use crate::db::prelude::*;
-use crate::models::{workspace_members, workspaces};
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use entity::{workspace_members, workspaces};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -11,9 +11,9 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Workspace};
 use crate::search::{self, Kind};
 use crate::state::AppState;
+use entity::{Role, Workspace};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(search))

@@ -3,13 +3,13 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::users;
-use crate::models::{file_versions, files};
 use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
+use entity::users;
+use entity::{file_versions, files};
 use serde::Serialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -18,12 +18,12 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, Role, User};
 use crate::routes::auth::PublicUser;
 use crate::routes::files::{FileView, file_view, serve_blob};
 use crate::state::AppState;
 use crate::storage::sha256_hex;
 use crate::{time, trash};
+use entity::{File, Role, User};
 
 /// Like `files::router`: the upload route gets the limit (or none, when
 /// building the routes for the OpenAPI document — `routes::api_doc`).

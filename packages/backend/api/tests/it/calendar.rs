@@ -1,10 +1,10 @@
 //! Calendar links: secret feed URLs for tasks with dates, managed by their owners.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::users;
+use entity::{sessions, workspace_members};
 use serde_json::{Value, json};
-use woodmouse::db::prelude::*;
-use woodmouse::models::users;
-use woodmouse::models::{sessions, workspace_members};
 
 use crate::common::*;
 
@@ -66,7 +66,7 @@ impl Fx {
         workspace_members::ActiveModel {
             user_id: Set(user.id),
             workspace_id: Set(self.ws),
-            role: Set(woodmouse::models::Role::Read),
+            role: Set(entity::Role::Read),
             ..Default::default()
         }
         .insert(db)
@@ -302,7 +302,7 @@ async fn links_belong_to_their_owner_and_follow_their_access() {
     workspace_members::ActiveModel {
         user_id: Set(user.id),
         workspace_id: Set(fx.ws),
-        role: Set(woodmouse::models::Role::Read),
+        role: Set(entity::Role::Read),
         ..Default::default()
     }
     .insert(db)

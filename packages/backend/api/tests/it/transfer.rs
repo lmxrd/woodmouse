@@ -1,10 +1,10 @@
 //! Import and export: CSV of tasks, JSON of chosen parts, previews, and what gets skipped.
 
+use api::db::prelude::*;
 use axum::body::Body;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::{Value, json};
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -73,7 +73,7 @@ impl Fx {
         self.import_with(&self.cookie, self.ws, body).await
     }
     /// A second person who is a member with `role` (and their session cookie and id).
-    async fn member(&self, email: &str, role: woodmouse::models::Role) -> (String, uuid::Uuid) {
+    async fn member(&self, email: &str, role: entity::Role) -> (String, uuid::Uuid) {
         let user = users::ActiveModel {
             id: Set(uuid::Uuid::now_v7()),
             email: Set(email.to_string()),
@@ -278,9 +278,7 @@ async fn people_who_are_not_members_need_a_choice() {
     assert!(fx.projects().await.is_empty());
 
     // Map one to a member, skip the other.
-    let (cookie, sara) = fx
-        .member("sara@home.io", woodmouse::models::Role::Write)
-        .await;
+    let (cookie, sara) = fx.member("sara@home.io", entity::Role::Write).await;
     let _ = cookie;
     let (status, report) = fx
         .import_with(
@@ -309,9 +307,7 @@ async fn people_who_are_not_members_need_a_choice() {
 #[tokio::test]
 async fn an_admin_can_create_the_missing_people_and_others_cannot() {
     let fx = fixture().await;
-    let (writer, _) = fx
-        .member("writer@home.io", woodmouse::models::Role::Write)
-        .await;
+    let (writer, _) = fx.member("writer@home.io", entity::Role::Write).await;
 
     // A writer cannot create people.
     let body = json!({"format": "csv", "text": PEOPLE_CSV, "user_map": {

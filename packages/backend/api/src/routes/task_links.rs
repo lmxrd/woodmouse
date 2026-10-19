@@ -2,10 +2,10 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{projects, task_links, tasks};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use entity::{projects, task_links, tasks};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -14,8 +14,8 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{LinkKind, Role, TaskLink};
 use crate::state::AppState;
+use entity::{LinkKind, Role, TaskLink};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

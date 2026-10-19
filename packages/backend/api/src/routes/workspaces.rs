@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
 use crate::db::prelude::*;
-use crate::models::{workspace_members, workspaces};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::{workspace_members, workspaces};
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -14,9 +14,9 @@ use crate::api::{description, required};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Workspace};
 use crate::state::AppState;
 use crate::{time, trash};
+use entity::{Role, Workspace};
 
 /// All workspace routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {

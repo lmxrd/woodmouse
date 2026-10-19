@@ -1,9 +1,9 @@
 //! Soft delete and Trash: deleted things disappear everywhere, cascade as a group, and restore.
 
+use api::db::prelude::*;
 use axum::http::StatusCode;
+use entity::{sessions, users, workspace_members};
 use serde_json::Value;
-use woodmouse::db::prelude::*;
-use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -374,7 +374,7 @@ async fn trash_needs_write_access() {
     workspace_members::ActiveModel {
         user_id: Set(reader.id),
         workspace_id: Set(ws),
-        role: Set(woodmouse::models::Role::Read),
+        role: Set(entity::Role::Read),
         ..Default::default()
     }
     .insert(&db)

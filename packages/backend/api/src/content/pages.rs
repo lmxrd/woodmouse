@@ -7,11 +7,11 @@ use crate::blocks::{self, BlockData};
 use crate::db::Db;
 use crate::db::prelude::*;
 use crate::error::ApiError;
-use crate::models::wiki_pages;
-use crate::models::{File, WikiPage};
-use crate::models::{content_links, file_refs, files};
 use crate::revisions::{self, PageContent};
 use crate::time;
+use entity::wiki_pages;
+use entity::{File, WikiPage};
+use entity::{content_links, file_refs, files};
 
 /// The page's blocks.
 pub fn blocks_of(page: &WikiPage) -> Result<Vec<BlockData>, ApiError> {

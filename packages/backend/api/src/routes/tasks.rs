@@ -1,6 +1,6 @@
 use crate::db::prelude::*;
 use crate::db::{Db, counts};
-use crate::models::{
+use entity::{
     comments, file_refs, labels, lists, projects, sprints, task_assignees, task_labels, tasks,
     users,
 };
@@ -20,11 +20,11 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Label, Priority, Role, Task};
 use crate::revisions::{self, TaskContent};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::{ordering, time, trash};
+use entity::{Label, Priority, Role, Task};
 
 /// All task routes, registered next to their handlers.
 pub fn router() -> OpenApiRouter<AppState> {

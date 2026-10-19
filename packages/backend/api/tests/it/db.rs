@@ -1,13 +1,13 @@
 //! The database layer: typed queries, SeaORM inserts, updates and deletes through the entities, foreign keys, and
 //! a check that every entity matches its table.
 
+use api::db::prelude::*;
+use api::db::temporary;
+use api::time::DateTime;
+use entity::Label;
+use entity::{labels, workspace_members};
+use entity::{users, workspaces};
 use sea_orm::DatabaseConnection;
-use woodmouse::db::prelude::*;
-use woodmouse::db::temporary;
-use woodmouse::models::Label;
-use woodmouse::models::{labels, workspace_members};
-use woodmouse::models::{users, workspaces};
-use woodmouse::time::DateTime;
 
 /// A workspace row, so labels can point at something (the relations are foreign keys).
 async fn workspace(db: &DatabaseConnection) -> uuid::Uuid {
@@ -247,7 +247,7 @@ async fn a_date_time_round_trips_and_sorts_as_text() {
 
 #[tokio::test]
 async fn foreign_keys_refuse_orphans_and_protect_parents_and_cascade_join_rows() {
-    use woodmouse::models::Role;
+    use entity::Role;
     let pool = temporary().await;
     let db = &pool;
 
@@ -324,7 +324,7 @@ async fn entities_match_the_tables() {
 
     async fn check<E: EntityTrait>(db: &DatabaseConnection) {
         let table = E::default().table_name().to_string();
-        let rows = woodmouse::db::query::<(String, i64, i64)>(
+        let rows = api::db::query::<(String, i64, i64)>(
             db,
             format!("SELECT name, \"notnull\", pk FROM pragma_table_info('{table}')"),
             [],
@@ -353,7 +353,7 @@ async fn entities_match_the_tables() {
 
     let db = temporary().await;
     macro_rules! all {
-        ($($m:ident),+) => { $( check::<woodmouse::models::$m::Entity>(&db).await; )+ };
+        ($($m:ident),+) => { $( check::<entity::$m::Entity>(&db).await; )+ };
     }
     all!(
         audit_logs,

@@ -12,13 +12,13 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::revisions;
+use entity::revisions;
 use serde::{Deserialize, Serialize};
 
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::Revision;
 use crate::time;
+use entity::Revision;
 
 /// A pause this long (seconds) ends an editing session.
 const SESSION_GAP_SECS: i64 = 600;

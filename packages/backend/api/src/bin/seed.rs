@@ -3,22 +3,22 @@
 //! through the same content functions the API uses, so their revisions, activity entries and search entries
 //! are there too; the plain rows (people, projects, lists, labels, sprints) are inserted directly.
 
-use tracing_subscriber::EnvFilter;
-use woodmouse::audit::{self, Entry};
-use woodmouse::auth::hash_password;
-use woodmouse::blocks::{Attrs, BlockData, BlockKind, Span};
-use woodmouse::db::Db;
-use woodmouse::db::prelude::*;
-use woodmouse::error::ApiError;
-use woodmouse::models::users;
-use woodmouse::models::{Label, List, Priority, Project, Role, User, WikiPage};
-use woodmouse::models::{
+use api::audit::{self, Entry};
+use api::auth::hash_password;
+use api::blocks::{Attrs, BlockData, BlockKind, Span};
+use api::db::Db;
+use api::db::prelude::*;
+use api::error::ApiError;
+use api::routes::tasks::{CreateTaskRequest, create_task_in};
+use api::state::AppState;
+use api::time::{self, DateTime};
+use api::{pages, revisions};
+use entity::users;
+use entity::{Label, List, Priority, Project, Role, User, WikiPage};
+use entity::{
     comments, labels, lists, projects, sprints, tasks, wiki_pages, workspace_members, workspaces,
 };
-use woodmouse::routes::tasks::{CreateTaskRequest, create_task_in};
-use woodmouse::state::AppState;
-use woodmouse::time::{self, DateTime};
-use woodmouse::{pages, revisions};
+use tracing_subscriber::EnvFilter;
 
 type Id = uuid::Uuid;
 
@@ -139,7 +139,7 @@ async fn page(
         parent_id: Set(parent),
         title: Set(title.to_string()),
         position: Set(position),
-        content: Set(woodmouse::blocks::encode(&[])),
+        content: Set(api::blocks::encode(&[])),
         created_by: Set(author),
         created_at: Set(now),
         updated_by: Set(author),

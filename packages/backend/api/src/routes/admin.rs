@@ -3,9 +3,9 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::audit_logs;
-use crate::models::revisions as revision_rows;
-use crate::models::{email_settings, projects, users, workspace_members, workspaces};
+use entity::audit_logs;
+use entity::revisions as revision_rows;
+use entity::{email_settings, projects, users, workspace_members, workspaces};
 
 use crate::time::DateTime;
 use axum::Json;
@@ -19,11 +19,11 @@ use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
 use crate::integrity::{self, Problem};
-use crate::models::{AuditLog, Role, User};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::routes::members::issue_invite;
 use crate::state::AppState;
 use crate::{access, revisions, time, trash};
+use entity::{AuditLog, Role, User};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -545,8 +545,8 @@ pub async fn admin_audit_log(
                     .and_then(|id| users.iter().find(|u| u.id == id))
                     .map(PublicUser::from),
                 visibility: match e.visibility {
-                    crate::models::Visibility::Workspace => "workspace",
-                    crate::models::Visibility::Admin => "admin",
+                    entity::Visibility::Workspace => "workspace",
+                    entity::Visibility::Admin => "admin",
                 }
                 .to_string(),
                 data: e.data,

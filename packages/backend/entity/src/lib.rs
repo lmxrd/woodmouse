@@ -37,6 +37,7 @@ pub mod task_assignees;
 pub mod task_labels;
 pub mod task_links;
 pub mod tasks;
+pub mod time;
 pub mod user_invites;
 pub mod users;
 pub mod watches;
@@ -45,6 +46,7 @@ pub mod workspace_members;
 pub mod workspaces;
 
 pub use enums::*;
+pub use time::DateTime;
 
 pub use audit_logs::Model as AuditLog;
 pub use calendar_links::Model as CalendarLink;

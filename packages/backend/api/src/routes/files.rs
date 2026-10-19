@@ -5,13 +5,13 @@
 
 use crate::db::prelude::*;
 use crate::db::{Db, counts};
-use crate::models::users;
-use crate::models::{file_refs, file_versions, files, tasks, wiki_pages};
 use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use entity::users;
+use entity::{file_refs, file_versions, files, tasks, wiki_pages};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -20,11 +20,11 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, FileRef, Role, User};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::storage::sha256_hex;
 use crate::time;
+use entity::{File, FileRef, Role, User};
 
 /// Bodies of other routes stay small; uploads get the configured limit plus a little for the
 /// multipart framing. `None` builds the routes for the OpenAPI document alone

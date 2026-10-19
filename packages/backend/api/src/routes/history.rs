@@ -2,11 +2,11 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::revisions as revision_rows;
-use crate::models::{comments, tasks, users};
 use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, State};
+use entity::revisions as revision_rows;
+use entity::{comments, tasks, users};
 use serde::Serialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -16,13 +16,13 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::{Revision, Role, User, WikiPage};
 use crate::revisions::{self, CommentContent, PageContent, TaskContent};
 use crate::routes::auth::PublicUser;
 use crate::routes::pages::{PageDetail, detail};
 use crate::routes::tasks::{TaskResponse, hydrate_tasks};
 use crate::state::AppState;
 use crate::{pages, time};
+use entity::{Revision, Role, User, WikiPage};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

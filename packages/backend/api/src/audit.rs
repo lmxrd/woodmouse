@@ -6,12 +6,12 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::audit_logs;
+use entity::audit_logs;
 use serde_json::{Value, json};
 
 use crate::error::ApiError;
-use crate::models::Visibility;
 use crate::time;
+use entity::Visibility;
 
 /// One entry to record.
 pub struct Entry {

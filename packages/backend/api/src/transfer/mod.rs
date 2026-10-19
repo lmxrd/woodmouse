@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::blocks::BlockData;
-use crate::models::Role;
 use crate::time;
+use entity::Role;
 
 pub const VERSION: u32 = 1;
 

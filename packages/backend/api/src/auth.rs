@@ -7,7 +7,7 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{sessions, users};
+use entity::{sessions, users};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -19,9 +19,9 @@ use axum::http::request::Parts;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 
 use crate::error::ApiError;
-use crate::models::{Session, User};
 use crate::state::AppState;
 use crate::time;
+use entity::{Session, User};
 
 pub const SESSION_COOKIE: &str = "woodmouse_session";
 const SESSION_TTL_SECS: i64 = 30 * 24 * 60 * 60;

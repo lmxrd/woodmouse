@@ -12,10 +12,10 @@ use crate::api::attachment;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::markdown::page_to_markdown;
-use crate::models::{Role, WikiPage};
 use crate::pages::blocks_of;
 use crate::routes::pages::live_pages;
 use crate::state::AppState;
+use entity::{Role, WikiPage};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()

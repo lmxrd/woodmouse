@@ -2,15 +2,15 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{comments, tasks};
-use crate::models::{labels, lists, projects, sprints, users, wiki_pages, workspace_members};
+use entity::{comments, tasks};
+use entity::{labels, lists, projects, sprints, users, wiki_pages, workspace_members};
 use std::collections::HashMap;
 
 use crate::audit::{self, Entry};
 use crate::error::ApiError;
-use crate::models::{Priority, Project, WikiPage};
 use crate::routes::tasks::{CreateTaskRequest, create_task_tx};
 use crate::{blocks, pages, revisions, time};
+use entity::{Priority, Project, WikiPage};
 
 use super::*;
 

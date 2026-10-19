@@ -11,8 +11,6 @@ pub mod integrity;
 pub mod jobs;
 pub mod live;
 pub mod mail;
-pub mod migrations;
-pub mod models;
 pub mod notify;
 pub mod openapi;
 pub mod routes;

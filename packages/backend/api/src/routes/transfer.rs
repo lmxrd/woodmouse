@@ -1,11 +1,11 @@
 //! Export a workspace's data as JSON (chosen parts) or tasks as CSV, and import either one.
 
 use crate::db::prelude::*;
-use crate::models::workspaces;
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use entity::workspaces;
 use std::collections::HashMap;
 
 use serde::Deserialize;
@@ -17,9 +17,9 @@ use crate::api::attachment;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::Role;
 use crate::state::AppState;
 use crate::transfer::{self, Export, ImportOptions, ImportReport, Parts, UserChoice};
+use entity::Role;
 
 /// Imports can be large documents.
 const MAX_IMPORT_BYTES: usize = 20 * 1024 * 1024;

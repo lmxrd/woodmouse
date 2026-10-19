@@ -2,10 +2,10 @@
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use crate::models::{saved_views, users};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use entity::{saved_views, users};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -14,10 +14,10 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, SavedView, User};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
+use entity::{Role, SavedView, User};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
