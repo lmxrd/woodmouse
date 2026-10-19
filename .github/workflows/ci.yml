@@ -8,14 +8,15 @@ on:
 permissions:
   contents: read
 
-# The three jobs are independent, so they run side by side: the checks, the
+# The two jobs are independent, so they run side by side: the checks and
 # tests, and the release build with its image. Nothing is pushed: releases
 # publish, CI only verifies.
 jobs:
   # The quality gates, exactly as locally: the tools come from mise.toml and
-  # the checks are the same task. The default target on the bare runner — no
-  # matrix, no cross compiling.
-  check:
+  # the checks and tests are the same tasks. The default target on the bare
+  # runner — no matrix, no cross compiling. One job, so the dev build of the
+  # backend (and of the OpenAPI spec) is done once and shared.
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -23,18 +24,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/backend
-          key: check
+          key: checks
       - run: mise run check
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/backend
-          key: test
       - run: mise run test
 
   # The release binary for each architecture, natively on its own runner
