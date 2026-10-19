@@ -149,10 +149,11 @@ dir = "packages/backend"
 depends = ["ensure:dist"]
 run = "cargo test"
 
+# The tests import the generated SDK.
 [tasks."test:frontend"]
 description = "Run the frontend tests"
 dir = "packages/frontend"
-depends = ["install:frontend"]
+depends = ["gen:sdk"]
 run = "pnpm test"
 
 # ---------------------------------------------------------------------------
