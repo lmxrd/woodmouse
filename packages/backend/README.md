@@ -10,7 +10,7 @@ API service built with axum, utoipa (OpenAPI), and toasty on SQLite.
 | `cargo test`          | Run tests (smoke test in `tests/api.rs`)           |
 | `mise run check`      | rustfmt --check + clippy                            |
 | `mise run fix`        | rustfmt + clippy --fix                              |
-| `cargo specs`         | Write `target/specs/openapi.{json,yaml}`            |
+| `cargo run --bin specs` | Write `target/specs/openapi.{json,yaml}`          |
 
 ## Configuration
 

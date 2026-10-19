@@ -1,188 +1,127 @@
-# woodmouse
+# Woodmouse 🐭
 
-Monorepo: mise-managed toolchain at the root, stacks in `backend/` and
-`frontend/` (each with its own AGENTS.md).
+A self-hosted project manager for a household or a small team. Projects with
+boards, lists, a calendar and a timeline, plus a wiki you edit together live.
+One program, one SQLite file, nothing else to run.
 
-The `frontend/` is a CSR React SPA (vite) whose build output (`frontend/dist`)
-is embedded into the Rust backend binary at compile time (rust-embed). The
-backend serves it at `/` with an index.html fallback for SPA routes; no static
-file server is needed in production.
+- **Projects** with a board, a list view, a calendar and a timeline, and
+  subtasks, sprints, labels, comments and attachments.
+- **A wiki** per workspace, edited live by everyone who has a page open, with
+  version history.
+- **Files** with versions, and a trash: nothing is permanently deleted.
+- **Notifications**, optionally by email, and **calendar feeds** you can
+  subscribe to from any calendar app.
+- **Import and export** of whole workspaces, search, themes, and a layout that
+  works on phones.
 
-## What it does
+## Quick start
 
-Woodmouse is a self-hosted task manager for a household or small team.
+You need [Docker](https://docs.docker.com/get-docker/). Start Woodmouse with
+one command:
 
-- **Workspaces** hold projects, files and members. Roles are admin, write and read.
-- **Projects** contain lists. A task in no list is in the project's **Inbox** (the first board column; quick adds
-  go there, and you move tasks out of it when you've sorted them). A project has four views: a **board** (one column per list plus a
-  Done column), a **list view** with filters and sorting, a **calendar** (month or week; drag tasks to
-  reschedule, quick-add on a day, an unscheduled panel, an agenda on phones) and a **timeline** (Gantt: bars
-  from start to due date, subtasks nested, parents derived from their subtasks, dependency arrows from
-  "blocks" links with violations marked, drag to move or resize). Everything about what you see lives in the
-  URL, so a copied link shows the same thing: the view, the assignee, label, list and status filters (shared by
-  every view), the sort, the calendar's day and zoom, and the timeline's zoom and position (the date at the
-  centre of the screen). The Files page keeps its search there too. A view can be saved as a named **view**,
-  private to you or shared with the workspace.
-- **Tasks** have a markdown description, priority, start and due dates, assignees, labels and a completed
-  state. Completing a task is a state, not a list: completed tasks appear in the board's Done column wherever
-  they came from, and reopening one returns it to its list. Drag cards between columns and within a column
-  (mouse, touch or keyboard), or use the checkbox.
-- **Sprints**: a project's tasks can be planned in dated sprints. The list view groups by sprint (open sprints, then
-  the backlog) with each sprint's dates, progress and estimate; completing a sprint moves its unfinished tasks to
-  the backlog or another sprint and keeps the finished ones as its record. A sprint filter works in every view
-  and the timeline shades open sprints. Tasks also have **estimates and time spent**.
-- **Subtasks** nest to any depth, with progress rolled up to every parent. Tasks can be **linked** (blocks,
-  relates to, duplicates).
-- **Comments** (markdown), **attachments** and a per-task and per-project **activity feed**. A workspace-wide
-  feed shows everything.
-- **Files**: files have versions (upload a new version, download any), and deleting one moves it to the trash. Every upload goes into the workspace's library, deduplicated by content. Attaching a file to a
-  task does not own it: deleting the task keeps the file, and only an admin's "clean up unused files" removes
-  files nothing references.
-- **Wiki**: a tree of pages per workspace (the sidebar shows three levels, the Wiki overview all of them).
-  Pages are built from blocks (text, headings, bulleted, numbered and to-do lists, quotes, callouts, code,
-  dividers) with markdown shortcuts, a `/` menu, a floating toolbar, `@` to mention a task and `[[` to link
-  a page; external links can use any URL format. Pages are **edited live** with everyone else who has them
-  open: changes and cursors show up as people type, and the server saves the page a couple of seconds after
-  the last edit (history, links, search and export all keep working from the saved page). If the live
-  connection cannot be made, the page falls back to **manual mode**: autosave is off, a Save button appears,
-  a stale save is refused with a keep-mine/load-theirs choice, and everyone else with the page open is
-  warned that someone is editing without live sync (saving replaces the live version). Deleted pages go to the trash with their subpages.
-- **Links between notes and tasks**: a page's `@task` mentions and `[[page]]` links are recorded on every
-  save, so a page shows "Referenced by" the pages that link to it and a task shows "Mentioned in". Links
-  hold ids, and show the target's current title (the stored label is only a fallback); a link to something
-  in the trash is struck through and works again when it is restored. Pages can be dragged in the sidebar
-  and the wiki overview: onto the middle of a page to nest, onto an edge to place beside it.
-- **History and export**: a page keeps earlier versions (a version is saved when someone else edits, after a
-  ten-minute pause, or once an hour in a long session). The page menu's Version history shows them with a
-  preview and restores one; the content being replaced is kept first, so a restore can be undone. A task's
-  title and description have the same history. Pages export as Markdown (one page from its menu, the whole
-  wiki as a zip from the Wiki overview, with folders following the tree and links between pages kept).
-- **Notifications**: a bell in the sidebar lists what happened that you should know: you were assigned a task,
-  someone commented on a task you are on or commented on, a page mentioned a task you are on, something you
-  **watch** (tasks and pages) changed, or your task is due tomorrow or overdue (by your timezone). Bursts of
-  changes to a watched item are one notification while it is unread. Optionally get each one by email, and/or a
-  daily summary at an hour you choose (Settings, Notifications).
-- **Email** is off until SMTP is set: environment variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-  `SMTP_PASSWORD`, `SMTP_FROM` and `SMTP_TLS` (`starttls`, `tls` or `none`), and/or the super admin's
-  Site admin, Email page (a field set there overrides the environment; there is a test button). With
-  `PUBLIC_URL` set, invite links are emailed too.
-- **Import and export** (workspace settings, Import & export): export chosen parts of the workspace (projects
-  with lists, sprints, tasks, subtasks and comments; labels; wiki; the member list for admins) as JSON, or the
-  tasks as CSV with everything needed to set projects up again. Import either one: it is checked first and then
-  imported completely or not at all (anything unreadable must be fixed in the file). Projects, lists, sprints
-  and labels are created or matched by name. People the file names who are not workspace members are listed,
-  and for each you choose a member to use instead, to create the person (workspace admins; they get an invite
-  link), or to leave them out.
-- **Calendar links**: subscribe from any calendar app (Apple, Google, Thunderbird, ...) to a read-only feed of
-  tasks with dates: your own tasks, a project, or a whole workspace. Ranges span their days, done tasks are
-  marked, undated tasks are left out. Links are secret URLs (anyone who has one sees those tasks); you can
-  name them, see when they were last used, and revoke one or all from your account page, a workspace's
-  Calendar settings tab, or a project's menu. A link stops working while its owner cannot see what it shows.
-  Set `PUBLIC_URL` if the server is reached through a different address than the one in the browser (the links
-  inside events use it).
-- **Themes**: four colour palettes (Paper and pine, Slate, Mono, Lavender), each in light and dark, plus any accent
-  colour. Admins set a workspace's palette and accent (workspace settings, Appearance tab); each member can use
-  their own for a workspace from their account page, where light, dark or follow-the-device is also chosen
-  once for the whole account.
-- **Search**: ⌘K (or Ctrl+K) searches page and task titles and text with SQLite full-text search (words match
-  as prefixes, titles count more than text) in this workspace or in all workspaces you belong to. Soft-deleted
-  items are never found. Task comments are searched too (a match shows as its task). The `@` and `[[` pickers use the same search.
-- **My tasks** shows everything assigned to you across a workspace, grouped by due date.
-- **Trash**: nothing is permanently deleted. Deleting a project, list, task, comment, label, view or page moves it
-  (with what it contains) to the trash, where members with write access can restore it. A deleted workspace
-  disappears for everyone and only the site's super admin can bring it back. The only permanent deletions are
-  expired login sessions and the admin's unused-files cleanup.
-- **History and audit**: every save of a task or comment, and page saves grouped by editing session, keep an
-  earlier version you can view and restore. The super admin can read the site-wide **audit log** (sign-ins,
-  role changes, deletions, edits; it records who and when, never an IP address) and remove the content of a
-  version where something sensitive was saved. Disabling an account blocks it but keeps everything it made.
-- **Settings** (per person, from the sidebar's user link): account, appearance, calendar links and password; the
-  super admin also gets **Site admin** there: users (create with an invite link, edit, disable), all workspaces
-  (create, open any workspace's settings, restore deleted ones), the audit log and maintenance.
-- **Workspace settings** manage the name and description, members and labels, and (for admins) deleting the
-  workspace. **Account** (per user) edits your display name,
-  email and password, and how dates and times are shown (date format, 12 or 24 hour clock, and the first day
-  of the week). Items from the
-  last seven days show relative times ("2 h ago"); older ones show the date and time in your format.
-- Works on phones: the sidebar becomes a drawer, dialogs go full-screen, and cards drag by long press.
+```bash
+docker run -d --name woodmouse -p 8000:8000 -v woodmouse-data:/data ghcr.io/lmxrd/woodmouse
+```
 
-### First run and members
+Then open <http://localhost:8000>.
 
-1. Open the app on a fresh database: the first account you create is the system super admin.
-2. Create a workspace, then add people under **Settings → Members** (admins only). A new person gets a
-   **one-time invite link** that the admin copies from the page and shares; it works once and expires after
-   seven days. Opening it lets them choose a password and signs them in. Adding someone who already has an
-   account just makes them a member.
-3. There is no email or self-service sign-up, so an admin can always issue a fresh link for a pending member.
+1. **Create your account.** The first account is the site's super admin.
+2. **Create a workspace** for your projects, files and wiki.
+3. **Invite people** under **Settings → Members**. Copy the invite link and
+   send it to them; it works once and expires after seven days, and they choose
+   their own password.
+
+Your data lives in the `woodmouse-data` volume, so you can stop, update and
+recreate the container and keep it.
+
+### With Docker Compose
+
+Save this as `compose.yaml` and run `docker compose up -d`:
+
+```yaml
+services:
+  woodmouse:
+    image: ghcr.io/lmxrd/woodmouse
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - woodmouse-data:/data
+    environment:
+      # The address people use to reach it, for links in emails and calendars.
+      # PUBLIC_URL: "https://tasks.example.com"
+
+volumes:
+  woodmouse-data:
+```
+
+### Without Docker
+
+Each release has a single Linux program for `amd64` and `arm64`, which runs on
+any Ubuntu or Debian. Download the one for your machine from the
+[releases](https://github.com/lmxrd/woodmouse/releases) (a checksum file sits
+next to it), make it executable and run it:
+
+```bash
+chmod +x woodmouse-linux-amd64
+./woodmouse-linux-amd64
+```
+
+It listens on port 8000 and keeps its database (`woodmouse.db`) and uploaded
+files (`data/`) in the folder you start it from.
+
+## Self-hosting
 
 ### Configuration
 
-The backend reads these environment variables (all optional):
+Everything works without configuration. These environment variables are all
+optional:
 
-| Variable           | Default                | Meaning                                                              |
-| ------------------ | ---------------------- | -------------------------------------------------------------------- |
-| `PORT`             | `8000`                 | HTTP port                                                            |
-| `DATABASE_URL`     | `sqlite:woodmouse.db`  | The SQLite database                                                  |
-| `DATA_DIR`         | `data`                 | Where uploaded files live (`<DATA_DIR>/files`) with the local store  |
-| `STORAGE_BACKEND`  | `local`                | Where new uploads are stored; `local` is the only backend for now    |
-| `PUBLIC_URL`       | from the request       | Address of the app for links inside calendar events (e.g. `https://tasks.example.com`) |
-| `MAX_UPLOAD_MB`    | `25`                   | Largest accepted upload                                              |
-| `BACKUP_DIR`       | `backups` (manual only)| Where backups go; when set the server also writes one a day and keeps the newest 14 |
+| Variable                   | Default                 | Meaning                                                                                  |
+| -------------------------- | ----------------------- | ---------------------------------------------------------------------------------------- |
+| `PORT`                     | `8000`                  | The port to listen on                                                                    |
+| `PUBLIC_URL`               | from the request        | Your address, like `https://tasks.example.com`, for links in calendar events and emails  |
+| `DATABASE_URL`             | `sqlite:woodmouse.db`   | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`)                  |
+| `DATA_DIR`                 | `data`                  | Where uploaded files live (the Docker image uses `/data`)                                |
+| `MAX_UPLOAD_MB`            | `25`                    | The largest accepted upload                                                              |
+| `WOODMOUSE_SECURE_COOKIES` | unset                   | Set to `1` when served over HTTPS, so login cookies are marked `Secure`                  |
+| `WOODMOUSE_SWAGGER_UI`     | unset                   | Set to `1` to browse the API at `/swagger-ui`                                            |
+| `SMTP_*`                   | unset                   | Email, see below                                                                         |
 
-Files are stored behind a small `FileStore` trait (`backend/src/storage.rs`) and each file records which backend
-holds it, so another store (for example a Nextcloud/WebDAV share) can be added later, and several can coexist.
-
-### Running with Docker
-
-`docker compose up -d` starts the released image (`ghcr.io/lmxrd/woodmouse`) on port 8000 with the database,
-uploads and backups in the `data` volume (`compose.yaml`; set `PUBLIC_URL`, SMTP and the like there). The image
-sets `DATABASE_URL`, `DATA_DIR` and `BACKUP_DIR` to `/data`, so a daily backup is written there. Build it from
-a checkout with `mise run build:docker`. Releases are cut by release-please from conventional commit titles
-(`.github/workflows/release.yml`): merging the release PR tags the version, attaches static Linux binaries and
-pushes the multi-arch image.
-
-### Backups and checks
-
-- `woodmouse backup [DIR]` (or the super admin's `POST /api/admin/backup`) writes a consistent copy of the
-  database with SQLite's `VACUUM INTO`, safe while the server runs. Uploaded files are not part of it: back up
-  `DATA_DIR` too (database and files together are the whole state).
-- `woodmouse check` (or `GET /api/admin/integrity`) reports rows that point at something that no longer exists.
-- The schema evolves through migrations in `backend/toasty/`, applied at startup. On SIGTERM the server saves
-  any pages being edited live before it exits.
 
 ### Behind a reverse proxy
 
-Live editing uses a WebSocket (`/api/pages/<id>/live`), so a proxy in front of the app must pass WebSocket
-upgrades through (nginx: `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`;
-Caddy and Traefik do this by default). The app keeps live documents in memory, so run one instance. Without
-a working WebSocket, pages still work in manual mode.
+- **Pass WebSockets through.** Live editing uses one (`/api/pages/<id>/live`).
+  In nginx add `proxy_set_header Upgrade $http_upgrade;` and
+  `proxy_set_header Connection "upgrade";`; Caddy and Traefik do it by default.
+  Without it, pages still work with a Save button instead of live editing.
+- **Run one instance.** Live documents are kept in memory.
+- **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`.
 
-### API
+### Email
 
-All routes live under `/api` and are documented in the OpenAPI spec (Swagger UI at
-`http://localhost:8000/swagger-ui`). The frontend's SDK, `packages/sdk`, is generated from the
-spec by `mise run gen:sdk`.
+Email is off until you set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+`SMTP_PASSWORD`, `SMTP_FROM` and `SMTP_TLS` (`starttls`, `tls` or `none`), or
+fill in the same fields on the super admin's **Site admin → Email** page, where
+a field overrides the environment and there is a test button. With `PUBLIC_URL`
+set, invite links are emailed too. Without email, admins copy the invite link
+and share it by hand.
 
-## Commands
+### Docker notes
 
-| Command                  | What it does                                        |
-| ------------------------ | --------------------------------------------------- |
-| `mise install`           | Install the pinned tools (mise.toml)                |
-| `mise run dev:backend`   | API server (http://localhost:8000), restarts on code changes |
-| `mise run dev:frontend`  | Frontend dev server (http://localhost:5173)         |
-| `mise run build`         | Generate the SDK from the spec, build the frontend, then the backend binary with the bundle embedded|
-| `mise run check`         | Each stack's checks (clippy/fmt, lint/types)       |
-| `mise run fix`           | Each stack's auto-fixes                             |
-| `mise run clean`         | Delete the local dev database and uploaded files (the schema is recreated from the migrations on next start) |
+The image runs as a non-root user (uid 100) and asks its own `/api/health`
+endpoint for its health check. If you mount a folder from the host instead of a
+named volume, make it writable by that user.
 
-For development, run both dev servers: vite on :5173 with the API on :8000
-(vite proxies `/api` to the backend, so cookies stay same-origin). `cargo build` in `backend/` requires `frontend/dist`
-to exist — build the frontend first (or use `mise run build`).
+### The API
 
-Docker (from the repo root; builds the static binary, then packages it
-into the image):
+Every route lives under `/api`. Run with `WOODMOUSE_SWAGGER_UI=1` to browse the
+API, or load the `openapi.json` attached to each release into any OpenAPI tool.
 
-    mise run build:docker
-    docker run -p 8000:8000 -v woodmouse-data:/data woodmouse
+## Contributing
 
-The `/data` volume holds both the database and the uploaded files.
+To run it from source or change it, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[Hippocratic License 3.0](LICENSE).

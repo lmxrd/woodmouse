@@ -1,3 +1,0 @@
-[alias]
-# Generate the OpenAPI specs into target/specs/ (JSON + YAML).
-specs = "run --bin specs"

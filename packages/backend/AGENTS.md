@@ -8,7 +8,7 @@
 - `mise run check` — rustfmt --check + clippy (`-D warnings`); run before
   committing
 - `mise run fix` — rustfmt + clippy --fix
-- `cargo specs` / `mise run specs` — regenerate OpenAPI specs into
+- `mise run gen:spec` (or `cargo run --bin specs`) — regenerate OpenAPI specs into
   `target/specs/` (openapi.json + openapi.yaml)
 
 ## Structure
@@ -33,7 +33,7 @@
   annotation. The annotation is the single source of truth — register new
   handlers in `src/routes/mod.rs` via `utoipa_axum::routes!` (group handlers
   that share a path in one `routes!` call) and they appear in both the axum
-  router and the OpenAPI docs. Then run `cargo specs` to regenerate
+  router and the OpenAPI docs. Then run `mise run gen:spec` to regenerate
   `target/specs/`.
 - `src/openapi.rs` holds only the base document (title/metadata); paths and
   schemas are collected automatically by `routes!`.
@@ -43,9 +43,13 @@
   commit `backend/toasty/` (history, SQL, snapshot); the server applies pending migrations at startup, and the
   test `migrations_are_up_to_date_with_the_models` fails when you forget. A rename generates drop + create:
   edit the SQL by hand. A dev database made before migrations existed needs `mise run clean`.
-  Until the first release there is one baseline migration: empty `toasty/migrations`, `toasty/snapshots` and the
-  `migrations` list in `toasty/history.toml` (keep `version = 1` and `migrations = []`), then generate again; every
-  dev database then needs `mise run clean`. After the first release, add migrations instead.
+  `0000_baseline.sql` is final and never edited again: change the models and generate a new migration. The
+  hand-written `0002_search_index.sql` (Toasty cannot describe the FTS5 virtual table or triggers) has a
+  history entry pointing at a copy of the previous snapshot, so `generate` still sees no difference, and later
+  generated migrations number after it. If a generated migration rebuilds `tasks`, `comments` or
+  `wiki_pages`, SQLite drops that table's search triggers: `ensure_triggers` restores them at startup, but
+  also add the `CREATE TRIGGER` statements to that migration, and keep `TRIGGERS` in `src/content/search.rs`
+  in step.
 - Dates: every stored date-time is a `jiff::civil::DateTime` meaning UTC (`src/time.rs`); the API sends RFC 3339
   with `Z` (`#[serde(with = "time::utc")]` + `#[schema(value_type = String, format = DateTime)]`). Task
   `start_date`/`due_date` are a day at 00:00 UTC (`time::to_day`). `time::now()` is whole seconds.
@@ -79,13 +83,13 @@
   it. Responses carry `completed_at`; filters still take `is_completed`.
 - **Users.** `active` (disabled accounts cannot sign in; sessions are deleted; everything they made stays),
   `global_role` (access to every workspace), `timezone` (the browser's, editable). The super admin's site admin
-  routes are in `routes/admin.rs` (users, deleted workspaces, audit log, redaction, integrity check, backup).
+  routes are in `routes/admin.rs` (users, deleted workspaces, audit log, redaction, integrity check).
 - **Login slow-down** (`auth::LoginLimits`): in memory, per email and per address, 1 s doubling up to a cap,
   no lockout; addresses are never stored.
-- **Jobs and operations**: `jobs.rs` runs daily (expired sessions, and a backup when `BACKUP_DIR` is set, the
-  newest 14 kept). `woodmouse backup [DIR]` and `POST /admin/backup` write a consistent copy with
-  `VACUUM INTO` (files are not included: back up the files directory too); `woodmouse check` runs the
-  integrity check. On SIGTERM/Ctrl+C the server saves the open live-editing rooms before exiting.
+- **Jobs and operations**: `jobs.rs` runs daily (expired sessions) and sends notification email; there is no
+  built-in backup, operators copy the database and the files directory themselves. `woodmouse check` runs the
+  integrity check. On SIGTERM/Ctrl+C the server saves the open live-editing rooms before exiting, and a clean
+  stop checkpoints the write-ahead log so the database file alone is complete.
 - **Files** go through `AppState::files` (`storage::FileStores`), never straight to the disk. A file row records
   its `storage_backend` and `storage_key`; reads use the backend that wrote it. Uploads are deduplicated per
   workspace by SHA-256. `FileRef(file_id, target_type, target_id)` attaches a file to a task or page.
@@ -98,8 +102,9 @@
   one place that replaces content: it keeps references, the search index and the revision in step. Content saves
   carry `base_version` and bump `WikiPage.version`; a stale save is a 409. Presence ("who else is editing") is in
   memory only (`AppState.presence`). Search is SQLite FTS5 (`src/content/search.rs`): `search_docs` + `search_fts`,
-  created by `ensure_index` at startup and in test setup, kept current by triggers on `tasks`, comments and page
-  titles plus `index_page_body` on content saves. Visibility (workspace, soft delete) is decided at query time
+  created by the hand-written migration `0002_search_index.sql` (the triggers are created again at startup by
+  `ensure_triggers`), kept current by triggers on `tasks`, comments and page titles plus `index_page_body` on
+  content saves. Visibility (workspace, soft delete) is decided at query time
   by joins, so deleting or restoring never touches the index.
 - References: `ContentLink` rows (page -> page or task) are rewritten from the blocks inside
   `pages::save_content`, so they can never disagree with the content. `routes/references.rs` serves backlinks

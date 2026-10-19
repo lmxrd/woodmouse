@@ -1,6 +1,6 @@
 //! Generate the OpenAPI specification with utoipa.
 //!
-//! Run with `cargo specs` (alias in `.cargo/config.toml`). Writes
+//! Run with `mise run gen:spec` (or `cargo run --bin specs`). Writes
 //! `openapi.json` and `openapi.yaml` to `target/specs/`.
 //!
 //! The document is built with no state (`routes::api_doc`): no database

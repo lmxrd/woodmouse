@@ -19,7 +19,7 @@ rust = { version = "1.99.0", components = [
 ] } # backend (rust-api); toasty requires >= 1.95; musl for the static release binary
 watchexec = "2.8.0" # backend hot reload (dev:backend)
 zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and static linking
-"github:rust-cross/cargo-zigbuild" = "0.23.4" # builds the static release binaries via zig cc (prebuilt, no cargo install)
+"cargo:cargo-zigbuild" = "0.23.4" # builds the static release binaries via zig cc (prebuilt, no cargo install)
 
 # ---------------------------------------------------------------------------
 # Build
@@ -100,7 +100,7 @@ run = "cargo run -- seed"
 [tasks."gen:spec"]
 description = "Generate the OpenAPI spec from the backend"
 dir = "packages/backend"
-run = "cargo specs"
+run = "cargo run --bin specs"
 # Skip regeneration while the sources are older than the generated specs.
 sources = ["src/**/*.rs", "Cargo.toml"]
 outputs = ["target/specs/openapi.json", "target/specs/openapi.yaml"]
