@@ -24,9 +24,8 @@ pub struct Model {
     /// Set for workspace events (always when `visibility` is `workspace`).
     pub workspace_id: Option<Uuid>,
     pub visibility: Visibility,
-    /// JSON object text.
-    #[sea_orm(column_type = "Text")]
-    pub data: String,
+    /// A JSON object.
+    pub data: Json,
     pub created_at: DateTime,
 }
 

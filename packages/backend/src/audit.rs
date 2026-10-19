@@ -85,7 +85,7 @@ pub async fn record(db: &impl Db, entry: Entry) -> Result<(), ApiError> {
         target_id: Set(entry.target_id),
         workspace_id: Set(entry.workspace_id),
         visibility: Set(entry.visibility),
-        data: Set(entry.data.to_string()),
+        data: Set(entry.data),
         created_at: Set(time::now()),
     }
     .insert(db)

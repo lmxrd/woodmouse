@@ -22,6 +22,10 @@ zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and
 "cargo:cargo-zigbuild" = "0.23.4" # builds the static release binaries via zig cc (prebuilt, no cargo install)
 "cargo:sea-orm-cli" = "2.0.4" 
 
+[env]
+DATABASE_URL = "sqlite:woodmouse.db"
+
+
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
@@ -124,7 +128,7 @@ outputs = ["src/index.ts"]
 [tasks."gen:models"]
 description = "Regenerate the entities in packages/backend/src/models from the migrated schema (review the diff)"
 dir = "packages/backend"
-env = { DATABASE_URL = "sqlite:target/generated-models.db" }
+env = { DATABASE_URL = "sqlite:woodmouse.db" }
 depends = ["migrate"]
 run = "sea-orm-cli generate entity --output-dir src/models --entity-format compact --with-prelude none --experimental-preserve-user-modifications --ignore-tables seaql_migrations,search_docs,search_fts,search_fts_data,search_fts_idx,search_fts_docsize,search_fts_config"
 

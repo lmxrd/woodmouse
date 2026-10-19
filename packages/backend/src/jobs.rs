@@ -130,10 +130,7 @@ pub async fn deadline_notifications(state: &AppState, now: crate::time::DateTime
                     .await?
                     .iter()
                     .any(|n| {
-                        n.kind == kind
-                            && n.target_id == Some(task.id)
-                            && serde_json::from_str::<serde_json::Value>(&n.data)
-                                .is_ok_and(|d| d["due"] == due_text)
+                        n.kind == kind && n.target_id == Some(task.id) && n.data["due"] == due_text
                     });
                 if already {
                     continue;
@@ -219,7 +216,7 @@ pub async fn send_pending_emails(state: &AppState, now: crate::time::DateTime) {
                     .map(|u| if u.name.is_empty() { u.email } else { u.name }),
                 None => None,
             };
-            let data: serde_json::Value = serde_json::from_str(&n.data).unwrap_or_default();
+            let data = n.data.clone();
             let line = crate::notify::describe(&n.kind, actor.as_deref(), &data);
             let link = format!(
                 "{base}{}",
@@ -306,7 +303,7 @@ pub async fn send_digests(state: &AppState, now: crate::time::DateTime) {
                     .map(|u| if u.name.is_empty() { u.email } else { u.name }),
                 None => None,
             };
-            let data: serde_json::Value = serde_json::from_str(&n.data).unwrap_or_default();
+            let data = n.data.clone();
             lines.push(format!(
                 "- {} ({base}{})",
                 crate::notify::describe(&n.kind, actor.as_deref(), &data),

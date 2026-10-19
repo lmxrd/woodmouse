@@ -1,9 +1,13 @@
 [package]
 name = "woodmouse"
 version = "0.2.0"
+rust-version = "1.99.0"
 edition = "2024"
 publish = false
 default-run = "woodmouse"
+
+[workspace]
+members = [".", "api", "entity", "migration"]
 
 [dependencies]
 axum = { version = "0.8", features = ["multipart", "ws"] }

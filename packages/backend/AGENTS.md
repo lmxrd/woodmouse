@@ -27,7 +27,9 @@
   jiff `time::DateTime` (an explicit `use crate::time::DateTime;` shadows the generated chrono type), the five enum
   columns are the `ActiveEnum`s in `models/enums.rs`, four rows carry `Serialize`/`ToSchema`, and the actor relations
   the generator cannot write are in `models/relations.rs`. The column type names in the migration (`uuid_text`,
-  `datetime_text`) are what make the generator write `Uuid` and date-time fields. Regenerating keeps most edits
+  `datetime_text`, `json_text`) are what make the generator write `Uuid`, date-time and `Json` fields; the JSON
+  columns the application reads as JSON (audit and notification `data`, saved view `params`) are `Json`, page and
+  revision content stays text. Regenerating keeps most edits
   (`--experimental-preserve-user-modifications`) and the task restores `mod.rs` and the enum columns; review the
   diff, and add a new table's `pub mod`/`pub use` lines to `mod.rs`. The test `entities_match_the_tables` compares
   every entity's columns, primary key and nullability with the migrated database. Queries are plain SeaORM:

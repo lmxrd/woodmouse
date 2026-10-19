@@ -95,7 +95,7 @@ pub async fn list_activity(
         let exhausted = page.len() < 200;
         before = page.last().map(|e| e.created_at);
         page.retain(|e| {
-            let data: serde_json::Value = serde_json::from_str(&e.data).unwrap_or_default();
+            let data = e.data.clone();
             filters.task_id.is_none_or(|t| {
                 e.target_type.as_deref() == Some("task") && e.target_id == Some(t)
                     || data["task_id"].as_str() == Some(&t.to_string())
@@ -117,7 +117,7 @@ pub async fn list_activity(
             .into_iter()
             .zip(actors)
             .map(|(a, actor)| {
-                let data: serde_json::Value = serde_json::from_str(&a.data).unwrap_or_default();
+                let data = a.data.clone();
                 ActivityView {
                     id: a.id,
                     kind: a.action,

@@ -549,7 +549,7 @@ pub async fn admin_audit_log(
                     crate::models::Visibility::Admin => "admin",
                 }
                 .to_string(),
-                data: serde_json::from_str(&e.data).unwrap_or_default(),
+                data: e.data,
                 id: e.id,
                 action: e.action,
                 target_type: e.target_type,
