@@ -1,3 +1,5 @@
+use crate::db::prelude::*;
+use crate::models::projects;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -55,13 +57,14 @@ pub async fn list_projects(
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<Project>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
-    let projects = Project::filter_by_workspace_id(workspace_id)
-        .exec(db)
+    let projects = projects::Entity::find()
+        .filter(projects::Column::WorkspaceId.eq(workspace_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|p| p.deleted_at.is_none())
         .collect();
     Ok(Json(projects))
 }
@@ -90,16 +93,18 @@ pub async fn create_project(
     let name = required(&input.name, "name")?;
     let description = description(&input.description)?;
 
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, workspace_id, Role::Write).await?;
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, workspace_id, Role::Write).await?;
 
     // A project's inbox is not a list: it is the tasks that have none.
-    let project = toasty::create!(Project {
-        workspace_id,
-        name,
-        description,
-    })
-    .exec(&mut *db)
+    let project = projects::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        workspace_id: Set(workspace_id),
+        name: Set(name),
+        description: Set(description),
+        ..Default::default()
+    }
+    .insert(&*db)
     .await?;
     Ok((StatusCode::CREATED, Json(project)))
 }
@@ -122,7 +127,7 @@ pub async fn get_project(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Project>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let project = access::require_project(db, &user, id, Role::Read).await?;
     Ok(Json(project))
 }
@@ -148,21 +153,18 @@ pub async fn update_project(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateProject>,
 ) -> Result<Json<Project>, ApiError> {
-    let mut db = state.writer().await;
-    let mut project = access::require_project(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let project = access::require_project(&*db, &user, id, Role::Write).await?;
     let description = input.description.as_deref().map(description).transpose()?;
 
-    if input.name.is_some() || description.is_some() {
-        let mut update = project.update();
-        if let Some(name) = input.name {
-            update = update.name(required(&name, "name")?);
-        }
-        if let Some(description) = description {
-            update = update.description(description);
-        }
-        update.exec(&mut *db).await?;
+    let mut update = projects::ActiveModel::from(project);
+    if let Some(name) = input.name {
+        update.name = Set(required(&name, "name")?);
     }
-    Ok(Json(project))
+    if let Some(description) = description {
+        update.description = Set(description);
+    }
+    Ok(Json(update.update(&*db).await?))
 }
 
 /// Delete a project with its lists and tasks (soft delete: it moves to Trash).
@@ -183,14 +185,14 @@ pub async fn delete_project(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let project = access::require_project(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let project = access::require_project(&*db, &user, id, Role::Write).await?;
 
     // Soft delete: the project, its lists and its tasks move to Trash together.
-    let mut tx = db.transaction().await?;
-    trash::delete_project(&mut tx, id, time::now()).await?;
+    let tx = db.begin().await?;
+    trash::delete_project(&tx, id, time::now()).await?;
     audit::deleted(
-        &mut tx,
+        &tx,
         user.id,
         project.workspace_id,
         "project",

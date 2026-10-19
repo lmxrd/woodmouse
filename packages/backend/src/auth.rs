@@ -5,6 +5,9 @@
 //! cookie. Sessions live in the `sessions` table with an expiry; the
 //! [`CurrentUser`] extractor validates them on every request.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{sessions, users};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -45,17 +48,18 @@ pub fn verify_password(password: &str, phc: &str) -> bool {
 
 /// Create a session for `user_id` and the Set-Cookie jar for it.
 pub async fn create_session(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user_id: uuid::Uuid,
     secure_cookies: bool,
 ) -> Result<(Session, CookieJar), ApiError> {
     let token = uuid::Uuid::new_v4().to_string();
-    let session = toasty::create!(Session {
-        token,
-        user_id,
-        expires_at: time::add_seconds(time::now(), SESSION_TTL_SECS),
-    })
-    .exec(db)
+    let session = sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(token),
+        user_id: Set(user_id),
+        expires_at: Set(time::add_seconds(time::now(), SESSION_TTL_SECS)),
+    }
+    .insert(db)
     .await?;
 
     let mut cookie = Cookie::new(SESSION_COOKIE, session.token.clone());
@@ -72,39 +76,50 @@ pub async fn create_session(
 }
 
 /// Delete a session by its token (logout). Unknown tokens are fine.
-pub async fn delete_session(db: &mut dyn toasty::Executor, token: &str) -> Result<(), ApiError> {
-    if let Ok(session) = Session::get_by_token(db, token).await {
-        session.delete().exec(db).await?;
+pub async fn delete_session(db: &impl Db, token: &str) -> Result<(), ApiError> {
+    if let Ok(session) = sessions::Entity::find()
+        .filter(sessions::Column::Token.eq(token))
+        .one_or_not_found(db)
+        .await
+    {
+        sessions::Entity::delete_many()
+            .filter(sessions::Column::Id.eq(session.id))
+            .exec(db)
+            .await?;
     }
     Ok(())
 }
 
 /// End every session of a user (when they are disabled, or change their password elsewhere).
 pub async fn delete_sessions_of(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user_id: uuid::Uuid,
     except_token: Option<&str>,
 ) -> Result<(), ApiError> {
-    for session in Session::filter_by_user_id(user_id).exec(db).await? {
+    for session in sessions::Entity::find()
+        .filter(sessions::Column::UserId.eq(user_id))
+        .all(db)
+        .await?
+    {
         if Some(session.token.as_str()) != except_token {
-            session.delete().exec(db).await?;
+            sessions::Entity::delete_many()
+                .filter(sessions::Column::Id.eq(session.id))
+                .exec(db)
+                .await?;
         }
     }
     Ok(())
 }
 
 /// Remove sessions that have expired (a daily job).
-pub async fn delete_expired_sessions(db: &mut dyn toasty::Executor) -> Result<usize, ApiError> {
+pub async fn delete_expired_sessions(db: &impl Db) -> Result<usize, ApiError> {
     let now = time::now();
-    let expired = Session::all()
-        .filter(Session::fields().expires_at().lt(now))
+    let deleted = sessions::Entity::delete_many()
+        .filter(sessions::Column::ExpiresAt.lt(now))
         .exec(db)
-        .await?;
-    let count = expired.len();
-    for session in expired {
-        session.delete().exec(db).await?;
-    }
-    Ok(count)
+        .await?
+        .rows_affected;
+    Ok(deleted as usize)
 }
 
 /// The authenticated user, extracted from the session cookie. Rejects with
@@ -127,8 +142,10 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Err(ApiError::unauthorized());
         };
 
-        let db = &mut state.db();
-        let session = Session::get_by_token(db, &token)
+        let db = state.db();
+        let session = sessions::Entity::find()
+            .filter(sessions::Column::Token.eq(&token))
+            .one_or_not_found(db)
             .await
             .map_err(|_| ApiError::unauthorized())?;
 
@@ -136,7 +153,8 @@ impl FromRequestParts<AppState> for CurrentUser {
             return Err(ApiError::unauthorized());
         }
 
-        let user = User::get_by_id(db, &session.user_id)
+        let user = users::Entity::find_by_id(session.user_id)
+            .one_or_not_found(db)
             .await
             .map_err(|_| ApiError::unauthorized())?;
         if !user.active {

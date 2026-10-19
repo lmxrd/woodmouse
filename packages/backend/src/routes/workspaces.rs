@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::db::prelude::*;
+use crate::models::{workspace_members, workspaces};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -12,7 +14,7 @@ use crate::api::{description, required};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Workspace, WorkspaceMember};
+use crate::models::{Role, Workspace};
 use crate::state::AppState;
 use crate::{time, trash};
 
@@ -46,18 +48,19 @@ pub async fn list_workspaces(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<Vec<Workspace>>, ApiError> {
-    let db = &mut state.db();
-    let all: Vec<Workspace> = Workspace::all()
-        .exec(db)
+    let db = state.db();
+    let all: Vec<Workspace> = workspaces::Entity::find()
+        .filter(workspaces::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|w| w.deleted_at.is_none())
         .collect();
     if user.super_admin || user.global_role.is_some() {
         return Ok(Json(all));
     }
-    let member_of: HashSet<uuid::Uuid> = WorkspaceMember::filter_by_user_id(user.id)
-        .exec(db)
+    let member_of: HashSet<uuid::Uuid> = workspace_members::Entity::find()
+        .filter(workspace_members::Column::UserId.eq(user.id))
+        .all(db)
         .await?
         .into_iter()
         .map(|m| m.workspace_id)
@@ -90,23 +93,26 @@ pub async fn create_workspace(
     let name = required(&input.name, "name")?;
     let description = description(&input.description)?;
 
-    let mut db = state.writer().await;
-    let mut tx = db.transaction().await?;
-    let workspace = toasty::create!(Workspace {
-        name: name.to_string(),
-        description,
-    })
-    .exec(&mut tx)
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    let workspace = workspaces::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        name: Set(name.to_string()),
+        description: Set(description),
+        ..Default::default()
+    }
+    .insert(&tx)
     .await?;
-    toasty::create!(WorkspaceMember {
-        user_id: user.id,
-        workspace_id: workspace.id,
-        role: Role::Admin,
-    })
-    .exec(&mut tx)
+    workspace_members::ActiveModel {
+        user_id: Set(user.id),
+        workspace_id: Set(workspace.id),
+        role: Set(Role::Admin),
+        ..Default::default()
+    }
+    .insert(&tx)
     .await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "workspace_created")
             .target("workspace", workspace.id)
             .in_workspace(workspace.id)
@@ -135,9 +141,13 @@ pub async fn get_workspace(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Workspace>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Read).await?;
-    Ok(Json(Workspace::get_by_id(db, &id).await?))
+    Ok(Json(
+        workspaces::Entity::find_by_id(id)
+            .one_or_not_found(db)
+            .await?,
+    ))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -172,20 +182,19 @@ pub async fn update_workspace(
         .map(|n| required(n, "name"))
         .transpose()?;
     let description = input.description.as_deref().map(description).transpose()?;
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, id, Role::Admin).await?;
-    let mut workspace = Workspace::get_by_id(&mut *db, &id).await?;
-    if name.is_some() || description.is_some() {
-        let mut update = workspace.update();
-        if let Some(name) = name {
-            update = update.name(name);
-        }
-        if let Some(description) = description {
-            update = update.description(description);
-        }
-        update.exec(&mut *db).await?;
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, id, Role::Admin).await?;
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
+    let mut update = workspaces::ActiveModel::from(workspace);
+    if let Some(name) = name {
+        update.name = Set(name);
     }
-    Ok(Json(workspace))
+    if let Some(description) = description {
+        update.description = Set(description);
+    }
+    Ok(Json(update.update(&*db).await?))
 }
 
 /// Delete a workspace (admins only). It disappears for everyone; only the super admin can restore it,
@@ -206,13 +215,15 @@ pub async fn delete_workspace(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, id, Role::Admin).await?;
-    let workspace = Workspace::get_by_id(&mut *db, &id).await?;
-    let mut tx = db.transaction().await?;
-    trash::delete_workspace(&mut tx, id, time::now()).await?;
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, id, Role::Admin).await?;
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
+    let tx = db.begin().await?;
+    trash::delete_workspace(&tx, id, time::now()).await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "workspace_deleted")
             .target("workspace", id)
             .in_workspace(id)

@@ -4,10 +4,13 @@
 //! updated or deleted, and hold no content and no network addresses or browsers; edits point to the
 //! `Revision` that holds the content.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::audit_logs;
 use serde_json::{Value, json};
 
 use crate::error::ApiError;
-use crate::models::{AuditLog, Visibility};
+use crate::models::Visibility;
 use crate::time;
 
 /// One entry to record.
@@ -69,29 +72,30 @@ impl Entry {
 }
 
 /// Write the entry. Call it with the transaction of the change it records.
-pub async fn record(db: &mut dyn toasty::Executor, entry: Entry) -> Result<(), ApiError> {
+pub async fn record(db: &impl Db, entry: Entry) -> Result<(), ApiError> {
     debug_assert!(
         entry.visibility != Visibility::Workspace || entry.workspace_id.is_some(),
         "feed entries need a workspace"
     );
-    toasty::create!(AuditLog {
-        actor_id: entry.actor_id,
-        action: entry.action.to_string(),
-        target_type: entry.target_type.map(str::to_string),
-        target_id: entry.target_id,
-        workspace_id: entry.workspace_id,
-        visibility: entry.visibility,
-        data: entry.data.to_string(),
-        created_at: time::now(),
-    })
-    .exec(db)
+    audit_logs::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        actor_id: Set(entry.actor_id),
+        action: Set(entry.action.to_string()),
+        target_type: Set(entry.target_type.map(str::to_string)),
+        target_id: Set(entry.target_id),
+        workspace_id: Set(entry.workspace_id),
+        visibility: Set(entry.visibility),
+        data: Set(entry.data.to_string()),
+        created_at: Set(time::now()),
+    }
+    .insert(db)
     .await?;
     Ok(())
 }
 
 /// Record a soft delete (audit log only; the Trash shows who deleted what from these).
 pub async fn deleted(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     actor_id: uuid::Uuid,
     workspace_id: uuid::Uuid,
     target_type: &'static str,
@@ -110,7 +114,7 @@ pub async fn deleted(
 
 /// Record a restore from the Trash.
 pub async fn restored(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     actor_id: uuid::Uuid,
     workspace_id: uuid::Uuid,
     target_type: &'static str,
@@ -131,7 +135,7 @@ pub async fn restored(
 /// the project's feed can be filtered.
 #[allow(clippy::too_many_arguments)]
 pub async fn task_event(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     workspace_id: uuid::Uuid,
     project_id: uuid::Uuid,
     actor_id: uuid::Uuid,

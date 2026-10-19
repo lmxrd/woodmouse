@@ -60,7 +60,7 @@ pub async fn export_page(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let page = access::require_page_access(db, &user, id, Role::Read).await?;
     let blocks = blocks_of(&page)?;
     // Other pages are not part of this file, so links to them keep only their label.
@@ -138,7 +138,7 @@ pub async fn export_wiki(
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
     let pages = live_pages(db, workspace_id).await?;
     let paths = archive_paths(&pages);

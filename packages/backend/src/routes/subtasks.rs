@@ -1,6 +1,8 @@
 //! Subtasks: ordinary tasks with a `parent_id`, nested to any depth. A subtask lives with its
 //! parent (same project and list, or the inbox), so boards and lists (which hide subtasks by default) stay uncluttered.
 
+use crate::db::prelude::*;
+use crate::models::tasks;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -37,21 +39,21 @@ pub async fn list_subtasks(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<TaskResponse>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let (task, _) = access::require_task(db, &user, id, Role::Read).await?;
 
-    let live: Vec<Task> = Task::filter_by_project_id(task.project_id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|t| t.deleted_at.is_none())
-        .collect();
+    let live: Vec<Task> = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(task.project_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .order_by_asc(tasks::Column::Position)
+        .order_by_asc(tasks::Column::Id)
+        .all(db)
+        .await?;
     let below: Vec<uuid::Uuid> = trash::subtree(&live, id)
         .into_iter()
         .filter(|t| *t != id)
         .collect();
-    let mut subtasks: Vec<Task> = live.into_iter().filter(|t| below.contains(&t.id)).collect();
-    subtasks.sort_by_key(|t| (t.position, t.id));
+    let subtasks: Vec<Task> = live.into_iter().filter(|t| below.contains(&t.id)).collect();
     Ok(Json(hydrate_tasks(db, subtasks).await?))
 }
 
@@ -76,10 +78,10 @@ pub async fn create_subtask(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
-    let mut db = state.writer().await;
-    let (parent, workspace_id) = access::require_task(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (parent, workspace_id) = access::require_task(&*db, &user, id, Role::Write).await?;
     let response = create_task_in(
-        &mut db,
+        &*db,
         workspace_id,
         parent.project_id,
         parent.list_id,

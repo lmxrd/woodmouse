@@ -2,13 +2,17 @@
 //! can restore it. There is deliberately no way to purge from Trash. Who deleted an item comes from the
 //! audit log.
 
+use crate::db::prelude::*;
+use crate::models::{User, users};
+use crate::models::{
+    audit_logs, comments, files, labels, lists, projects, saved_views, sprints, tasks, wiki_pages,
+};
 use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -16,13 +20,11 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{
-    AuditLog, Comment, File, Label, List, Project, Role, SavedView, Sprint, Task, WikiPage,
-};
-use crate::routes::auth::{People, PublicUser};
+use crate::models::{AuditLog, Role};
+use crate::routes::auth::PublicUser;
 use crate::state::AppState;
+use crate::time::DateTime;
 use crate::{time, trash};
-use jiff::civil::DateTime;
 
 /// (kind, id, name, context, deleted_at, deleted_by, child_count) before user lookup.
 type RawItem = (
@@ -90,15 +92,15 @@ pub async fn list_trash(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<TrashItem>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Write).await?;
 
     // Who deleted what: the newest deletion record of each item.
     let mut deleted_by_item: HashMap<(String, uuid::Uuid), uuid::Uuid> = HashMap::new();
-    let mut deletions: Vec<AuditLog> = AuditLog::all()
-        .filter(AuditLog::fields().workspace_id().eq(id))
-        .filter(AuditLog::fields().action().eq("entity_deleted"))
-        .exec(db)
+    let mut deletions: Vec<AuditLog> = audit_logs::Entity::find()
+        .filter(audit_logs::Column::WorkspaceId.eq(id))
+        .filter(audit_logs::Column::Action.eq("entity_deleted"))
+        .all(db)
         .await?;
     deletions.sort_by_key(|e| (e.created_at, e.id));
     for entry in deletions {
@@ -110,25 +112,31 @@ pub async fn list_trash(
     }
     let by = |kind: &str, item: uuid::Uuid| deleted_by_item.get(&(kind.to_string(), item)).copied();
 
-    let projects = Project::filter_by_workspace_id(id).exec(db).await?;
+    let projects = projects::Entity::find()
+        .filter(projects::Column::WorkspaceId.eq(id))
+        .all(db)
+        .await?;
     let project_ids: Vec<uuid::Uuid> = projects.iter().map(|p| p.id).collect();
     let lists = if project_ids.is_empty() {
         vec![]
     } else {
-        List::all()
-            .filter(in_list(List::fields().project_id(), project_ids.clone()))
-            .exec(db)
+        lists::Entity::find()
+            .filter(lists::Column::ProjectId.is_in(project_ids.iter().copied()))
+            .all(db)
             .await?
     };
     let tasks = if project_ids.is_empty() {
         vec![]
     } else {
-        Task::all()
-            .filter(in_list(Task::fields().project_id(), project_ids))
-            .exec(db)
+        tasks::Entity::find()
+            .filter(tasks::Column::ProjectId.is_in(project_ids.iter().copied()))
+            .all(db)
             .await?
     };
-    let labels = Label::filter_by_workspace_id(id).exec(db).await?;
+    let labels = labels::Entity::find()
+        .filter(labels::Column::WorkspaceId.eq(id))
+        .all(db)
+        .await?;
 
     let project_of: HashMap<_, _> = projects.iter().map(|p| (p.id, p)).collect();
     let list_of: HashMap<_, _> = lists.iter().map(|l| (l.id, l)).collect();
@@ -218,7 +226,10 @@ pub async fn list_trash(
     }
 
     // Deleted pages: only those not deleted together with their parent page.
-    let pages = WikiPage::filter_by_workspace_id(id).exec(db).await?;
+    let pages = wiki_pages::Entity::find()
+        .filter(wiki_pages::Column::WorkspaceId.eq(id))
+        .all(db)
+        .await?;
     for p in pages.iter().filter(|p| p.deleted_at.is_some()) {
         let at = p.deleted_at.unwrap_or_default();
         let with_parent = p
@@ -249,8 +260,9 @@ pub async fn list_trash(
     }
 
     // Deleted files.
-    for f in File::filter_by_workspace_id(id)
-        .exec(db)
+    for f in files::Entity::find()
+        .filter(files::Column::WorkspaceId.eq(id))
+        .all(db)
         .await?
         .iter()
         .filter(|f| f.deleted_at.is_some())
@@ -270,12 +282,9 @@ pub async fn list_trash(
     let sprints = if projects.is_empty() {
         vec![]
     } else {
-        Sprint::all()
-            .filter(in_list(
-                Sprint::fields().project_id(),
-                projects.iter().map(|p| p.id).collect::<Vec<_>>(),
-            ))
-            .exec(db)
+        sprints::Entity::find()
+            .filter(sprints::Column::ProjectId.is_in(projects.iter().map(|p| p.id)))
+            .all(db)
             .await?
     };
     for s in sprints.iter().filter(|s| s.deleted_at.is_some()) {
@@ -291,7 +300,11 @@ pub async fn list_trash(
     }
 
     // Deleted saved views: shared ones, and the caller's own private ones.
-    for v in SavedView::filter_by_workspace_id(id).exec(db).await? {
+    for v in saved_views::Entity::find()
+        .filter(saved_views::Column::WorkspaceId.eq(id))
+        .all(db)
+        .await?
+    {
         if v.deleted_at.is_none() || !crate::routes::saved_views::visible_to(&v, &user) {
             continue;
         }
@@ -313,9 +326,9 @@ pub async fn list_trash(
         .map(|t| t.id)
         .collect();
     if !task_ids.is_empty() {
-        let comments = Comment::all()
-            .filter(in_list(Comment::fields().task_id(), task_ids))
-            .exec(db)
+        let comments = comments::Entity::find()
+            .filter(comments::Column::TaskId.is_in(task_ids.iter().copied()))
+            .all(db)
             .await?;
         for c in comments.iter().filter(|c| c.deleted_at.is_some()) {
             let task = task_of.get(&c.task_id);
@@ -332,7 +345,13 @@ pub async fn list_trash(
         }
     }
 
-    let people = People::load(db, raw.iter().filter_map(|r| r.5)).await?;
+    let users: HashMap<uuid::Uuid, User> = users::Entity::find()
+        .filter(users::Column::Id.is_in(raw.iter().filter_map(|r| r.5)))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|u| (u.id, u))
+        .collect();
 
     let mut items: Vec<TrashItem> = raw
         .into_iter()
@@ -343,7 +362,7 @@ pub async fn list_trash(
                 name,
                 context,
                 deleted_at,
-                deleted_by: people.public(by),
+                deleted_by: by.and_then(|id| users.get(&id)).map(PublicUser::from),
                 child_count,
             },
         )
@@ -375,56 +394,84 @@ pub async fn restore_item(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, kind, item_id)): Path<(uuid::Uuid, TrashKind, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, id, Role::Write).await?;
 
     let workspace_of = match kind {
-        TrashKind::Project => access::project_workspace(&mut *db, item_id).await?,
-        TrashKind::List => access::list_workspace(&mut *db, item_id).await?,
-        TrashKind::Task => access::task_workspace(&mut *db, item_id).await?,
-        TrashKind::Label => Label::get_by_id(&mut *db, &item_id).await?.workspace_id,
-        TrashKind::Page => WikiPage::get_by_id(&mut *db, &item_id).await?.workspace_id,
-        TrashKind::File => File::get_by_id(&mut *db, &item_id).await?.workspace_id,
-        TrashKind::Sprint => {
-            let sprint = Sprint::get_by_id(&mut *db, &item_id).await?;
-            access::project_workspace(&mut *db, sprint.project_id).await?
+        TrashKind::Project => access::project_workspace(&*db, item_id).await?,
+        TrashKind::List => access::list_workspace(&*db, item_id).await?,
+        TrashKind::Task => access::task_workspace(&*db, item_id).await?,
+        TrashKind::Label => {
+            labels::Entity::find_by_id(item_id)
+                .one_or_not_found(&*db)
+                .await?
+                .workspace_id
         }
-        TrashKind::View => SavedView::get_by_id(&mut *db, &item_id).await?.workspace_id,
+        TrashKind::Page => {
+            wiki_pages::Entity::find_by_id(item_id)
+                .one_or_not_found(&*db)
+                .await?
+                .workspace_id
+        }
+        TrashKind::File => {
+            files::Entity::find_by_id(item_id)
+                .one_or_not_found(&*db)
+                .await?
+                .workspace_id
+        }
+        TrashKind::Sprint => {
+            let sprint = sprints::Entity::find_by_id(item_id)
+                .one_or_not_found(&*db)
+                .await?;
+            access::project_workspace(&*db, sprint.project_id).await?
+        }
+        TrashKind::View => {
+            saved_views::Entity::find_by_id(item_id)
+                .one_or_not_found(&*db)
+                .await?
+                .workspace_id
+        }
         TrashKind::Comment => {
-            let task = crate::routes::comments::comment_task(&mut *db, item_id).await?;
-            access::task_workspace(&mut *db, task.id).await?
+            let task = crate::routes::comments::comment_task(&*db, item_id).await?;
+            access::task_workspace(&*db, task.id).await?
         }
     };
     if workspace_of != id {
         return Err(ApiError::not_found());
     }
 
-    let mut tx = db.transaction().await?;
+    let tx = db.begin().await?;
     let (target_type, title): (&'static str, String) = match kind {
         TrashKind::Project => {
-            let project = Project::get_by_id(&mut tx, &item_id).await?;
+            let project = projects::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if project.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_project(&mut tx, &project).await?;
+            trash::restore_project(&tx, &project).await?;
             ("project", project.name)
         }
         TrashKind::List => {
-            let list = List::get_by_id(&mut tx, &item_id).await?;
+            let list = lists::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if list.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_list(&mut tx, &list).await?;
+            trash::restore_list(&tx, &list).await?;
             ("list", list.name)
         }
         TrashKind::Task => {
-            let task = Task::get_by_id(&mut tx, &item_id).await?;
+            let task = tasks::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if task.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_task(&mut tx, &task).await?;
+            trash::restore_task(&tx, &task).await?;
             audit::task_event(
-                &mut tx,
+                &tx,
                 id,
                 task.project_id,
                 user.id,
@@ -436,77 +483,95 @@ pub async fn restore_item(
             ("task", task.title)
         }
         TrashKind::Label => {
-            let label = Label::get_by_id(&mut tx, &item_id).await?;
+            let label = labels::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if label.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_label(&mut tx, item_id).await?;
+            trash::restore_label(&tx, item_id).await?;
             ("label", label.name)
         }
         TrashKind::Page => {
-            let page = WikiPage::get_by_id(&mut tx, &item_id).await?;
+            let page = wiki_pages::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if page.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_page(&mut tx, &page).await?;
+            trash::restore_page(&tx, &page).await?;
             ("page", page.title)
         }
         TrashKind::File => {
-            let file = File::get_by_id(&mut tx, &item_id).await?;
+            let file = files::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if file.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_file(&mut tx, item_id).await?;
+            trash::restore_file(&tx, item_id).await?;
             ("file", file.name)
         }
         TrashKind::Sprint => {
-            let sprint = Sprint::get_by_id(&mut tx, &item_id).await?;
+            let sprint = sprints::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if sprint.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            trash::restore_sprint(&mut tx, &sprint).await?;
+            trash::restore_sprint(&tx, &sprint).await?;
             ("sprint", sprint.name)
         }
         TrashKind::View => {
-            let view = SavedView::get_by_id(&mut tx, &item_id).await?;
+            let view = saved_views::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if view.deleted_at.is_none() || !crate::routes::saved_views::visible_to(&view, &user) {
                 return Err(ApiError::not_found());
             }
-            if Project::get_by_id(&mut tx, &view.project_id)
+            if projects::Entity::find_by_id(view.project_id)
+                .one_or_not_found(&tx)
                 .await?
                 .deleted_at
                 .is_some()
             {
                 return Err(ApiError::conflict("restore its project first"));
             }
-            SavedView::filter_by_id(item_id)
-                .update()
-                .deleted_at(None::<DateTime>)
-                .exec(&mut tx)
-                .await?;
+            saved_views::ActiveModel {
+                id: Unchanged(item_id),
+                deleted_at: Set(None::<DateTime>),
+                ..Default::default()
+            }
+            .update(&tx)
+            .await?;
             ("view", view.name)
         }
         TrashKind::Comment => {
-            let comment = Comment::get_by_id(&mut tx, &item_id).await?;
+            let comment = comments::Entity::find_by_id(item_id)
+                .one_or_not_found(&tx)
+                .await?;
             if comment.deleted_at.is_none() {
                 return Err(ApiError::not_found());
             }
-            if Task::get_by_id(&mut tx, &comment.task_id)
+            if tasks::Entity::find_by_id(comment.task_id)
+                .one_or_not_found(&tx)
                 .await?
                 .deleted_at
                 .is_some()
             {
                 return Err(ApiError::conflict("restore its task first"));
             }
-            Comment::filter_by_id(item_id)
-                .update()
-                .deleted_at(None::<DateTime>)
-                .exec(&mut tx)
-                .await?;
+            comments::ActiveModel {
+                id: Unchanged(item_id),
+                deleted_at: Set(None::<DateTime>),
+                ..Default::default()
+            }
+            .update(&tx)
+            .await?;
             ("comment", String::new())
         }
     };
-    audit::restored(&mut tx, user.id, id, target_type, item_id, &title).await?;
+    audit::restored(&tx, user.id, id, target_type, item_id, &title).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

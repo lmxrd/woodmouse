@@ -1,28 +1,29 @@
 //! The site admin: only the super admin gets in (everyone else sees 404). Users (enable, disable, global
-//! role), deleted workspaces, the audit log, revision redaction, the integrity check and backups.
+//! role), deleted workspaces, the audit log, revision redaction, and the integrity check.
 
-use std::path::PathBuf;
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::audit_logs;
+use crate::models::revisions as revision_rows;
+use crate::models::{email_settings, projects, users, workspace_members, workspaces};
 
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
-use crate::config;
 use crate::error::ApiError;
 use crate::integrity::{self, Problem};
-use crate::models::{
-    AuditLog, EmailSettings, Project, Revision, Role, User, Workspace, WorkspaceMember,
-};
+use crate::models::{AuditLog, Role, User};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::routes::members::issue_invite;
 use crate::state::AppState;
-use crate::{access, jobs, revisions, time, trash};
+use crate::{access, revisions, time, trash};
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -35,7 +36,6 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(admin_audit_log))
         .routes(routes!(admin_redact_revision))
         .routes(routes!(admin_integrity))
-        .routes(routes!(admin_backup))
         .routes(routes!(
             admin_get_email_settings,
             admin_update_email_settings
@@ -74,12 +74,18 @@ impl AdminUser {
 
 /// The live-workspace memberships of `user_id`, by workspace name.
 async fn memberships_of(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user_id: uuid::Uuid,
 ) -> Result<Vec<AdminMembership>, ApiError> {
     let mut out = vec![];
-    for m in WorkspaceMember::filter_by_user_id(user_id).exec(db).await? {
-        let workspace = Workspace::get_by_id(db, &m.workspace_id).await?;
+    for m in workspace_members::Entity::find()
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .all(db)
+        .await?
+    {
+        let workspace = workspaces::Entity::find_by_id(m.workspace_id)
+            .one_or_not_found(db)
+            .await?;
         if workspace.deleted_at.is_none() {
             out.push(AdminMembership {
                 workspace_id: workspace.id,
@@ -108,8 +114,8 @@ pub async fn admin_list_users(
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<Vec<AdminUser>>, ApiError> {
     access::require_super_admin(&user)?;
-    let db = &mut state.db();
-    let mut users = User::all().exec(db).await?;
+    let db = state.db();
+    let mut users = users::Entity::find().all(db).await?;
     users.sort_by_key(|u| u.id);
     let mut out = vec![];
     for u in &users {
@@ -165,47 +171,57 @@ pub async fn admin_create_user(
     access::require_super_admin(&admin)?;
     validate_identity(&input.email)?;
     let email = input.email.trim().to_lowercase();
-    let mut db = state.writer().await;
-    if User::get_by_email(&mut *db, &email).await.is_ok() {
+    let db = state.writer().await?;
+    if users::Entity::find()
+        .filter(users::Column::Email.eq(&email))
+        .one_or_not_found(&*db)
+        .await
+        .is_ok()
+    {
         return Err(ApiError::conflict("an account with that email exists"));
     }
-    let mut tx = db.transaction().await?;
-    let created = toasty::create!(User {
-        email,
-        name: input.name.trim().to_string(),
-        password_hash: String::new(),
-        super_admin: false,
-        active: true,
-        global_role: input.global_role,
-    })
-    .exec(&mut tx)
+    let tx = db.begin().await?;
+    let created = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set(email),
+        name: Set(input.name.trim().to_string()),
+        password_hash: Set(String::new()),
+        super_admin: Set(false),
+        active: Set(true),
+        global_role: Set(input.global_role),
+        ..Default::default()
+    }
+    .insert(&tx)
     .await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(admin.id), "user_created").target("user", created.id),
     )
     .await?;
     for m in &input.memberships {
-        let workspace = Workspace::get_by_id(&mut tx, &m.workspace_id).await?;
+        let workspace = workspaces::Entity::find_by_id(m.workspace_id)
+            .one_or_not_found(&tx)
+            .await?;
         if workspace.deleted_at.is_some() {
             return Err(ApiError::not_found());
         }
-        toasty::create!(WorkspaceMember {
-            user_id: created.id,
-            workspace_id: m.workspace_id,
-            role: m.role,
-        })
-        .exec(&mut tx)
+        workspace_members::ActiveModel {
+            user_id: Set(created.id),
+            workspace_id: Set(m.workspace_id),
+            role: Set(m.role),
+            ..Default::default()
+        }
+        .insert(&tx)
         .await?;
         audit::record(
-            &mut tx,
+            &tx,
             Entry::feed(m.workspace_id, admin.id, "member_added")
                 .target("user", created.id)
                 .data(serde_json::json!({ "role": m.role })),
         )
         .await?;
     }
-    let invite_token = issue_invite(&mut tx, created.id).await?;
+    let invite_token = issue_invite(&tx, created.id).await?;
     tx.commit().await?;
     crate::mail::send_invite(
         state.mailer.clone(),
@@ -213,7 +229,7 @@ pub async fn admin_create_user(
         created.name.clone(),
         invite_token.clone(),
     );
-    let memberships = memberships_of(&mut *db, created.id).await?;
+    let memberships = memberships_of(&*db, created.id).await?;
     Ok((
         StatusCode::CREATED,
         Json(CreatedUser {
@@ -247,13 +263,13 @@ pub async fn admin_reissue_invite(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Invite>, ApiError> {
     access::require_super_admin(&admin)?;
-    let mut db = state.writer().await;
-    let target = User::get_by_id(&mut *db, &id).await?;
+    let db = state.writer().await?;
+    let target = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
     if !target.password_hash.is_empty() {
         return Err(ApiError::conflict("this person already has a password"));
     }
-    let mut tx = db.transaction().await?;
-    let invite_token = issue_invite(&mut tx, id).await?;
+    let tx = db.begin().await?;
+    let invite_token = issue_invite(&tx, id).await?;
     tx.commit().await?;
     crate::mail::send_invite(
         state.mailer.clone(),
@@ -298,20 +314,23 @@ pub async fn admin_update_user(
     Json(input): Json<UpdateUser>,
 ) -> Result<Json<AdminUser>, ApiError> {
     access::require_super_admin(&admin)?;
-    let mut db = state.writer().await;
-    let mut user = User::get_by_id(&mut *db, &id).await?;
+    let db = state.writer().await?;
+    let user = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
     if user.super_admin {
         return Err(ApiError::bad_request("the super admin cannot be changed"));
     }
     let (was_active, was_role) = (user.active, user.global_role);
-    let mut tx = db.transaction().await?;
-    let mut update = user.update();
+    let tx = db.begin().await?;
+    let mut update = users::ActiveModel {
+        id: Unchanged(user.id),
+        ..Default::default()
+    };
     let mut changed = false;
     if let Some(active) = input.active.filter(|a| *a != was_active) {
-        update = update.active(active);
+        update.active = Set(active);
         changed = true;
         audit::record(
-            &mut tx,
+            &tx,
             Entry::admin(
                 Some(admin.id),
                 if active {
@@ -324,14 +343,14 @@ pub async fn admin_update_user(
         )
         .await?;
         if !active {
-            auth::delete_sessions_of(&mut tx, id, None).await?;
+            auth::delete_sessions_of(&tx, id, None).await?;
         }
     }
     if let Some(role) = input.global_role.filter(|r| *r != was_role) {
-        update = update.global_role(role);
+        update.global_role = Set(role);
         changed = true;
         audit::record(
-            &mut tx,
+            &tx,
             Entry::admin(Some(admin.id), "role_changed")
                 .target("user", id)
                 .data(serde_json::json!({ "global_role": { "from": was_role, "to": role } })),
@@ -339,26 +358,29 @@ pub async fn admin_update_user(
         .await?;
     }
     if let Some(name) = &input.name {
-        update = update.name(name.trim().to_string());
+        update.name = Set(name.trim().to_string());
         changed = true;
     }
     if let Some(email) = &input.email {
         validate_identity(email)?;
         let email = email.trim().to_lowercase();
-        if let Ok(other) = User::get_by_email(&mut tx, &email).await
+        if let Ok(other) = users::Entity::find()
+            .filter(users::Column::Email.eq(&email))
+            .one_or_not_found(&tx)
+            .await
             && other.id != id
         {
             return Err(ApiError::conflict("an account with that email exists"));
         }
-        update = update.email(email);
+        update.email = Set(email);
         changed = true;
     }
     if changed {
-        update.exec(&mut tx).await?;
+        update.update(&tx).await?;
     }
     tx.commit().await?;
-    let user = User::get_by_id(&mut *db, &id).await?;
-    let memberships = memberships_of(&mut *db, id).await?;
+    let user = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
+    let memberships = memberships_of(&*db, id).await?;
     Ok(Json(AdminUser::new(&user, memberships)))
 }
 
@@ -392,11 +414,11 @@ pub async fn admin_list_workspaces(
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<Vec<AdminWorkspace>>, ApiError> {
     access::require_super_admin(&user)?;
-    let db = &mut state.db();
-    let members = WorkspaceMember::all().exec(db).await?;
-    let projects = Project::all().exec(db).await?;
-    let mut out: Vec<AdminWorkspace> = Workspace::all()
-        .exec(db)
+    let db = state.db();
+    let members = workspace_members::Entity::find().all(db).await?;
+    let projects = projects::Entity::find().all(db).await?;
+    let mut out: Vec<AdminWorkspace> = workspaces::Entity::find()
+        .all(db)
         .await?
         .into_iter()
         .map(|w| AdminWorkspace {
@@ -433,14 +455,16 @@ pub async fn admin_restore_workspace(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
     access::require_super_admin(&user)?;
-    let mut db = state.writer().await;
-    let workspace = Workspace::get_by_id(&mut *db, &id).await?;
+    let db = state.writer().await?;
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
     if workspace.deleted_at.is_none() {
         return Err(ApiError::not_found());
     }
-    let mut tx = db.transaction().await?;
-    trash::restore_workspace(&mut tx, id).await?;
-    audit::restored(&mut tx, user.id, id, "workspace", id, &workspace.name).await?;
+    let tx = db.begin().await?;
+    trash::restore_workspace(&tx, id).await?;
+    audit::restored(&tx, user.id, id, "workspace", id, &workspace.name).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -496,23 +520,22 @@ pub async fn admin_audit_log(
     Query(filters): Query<AuditFilters>,
 ) -> Result<Json<Vec<AuditEntry>>, ApiError> {
     access::require_super_admin(&user)?;
-    let db = &mut state.db();
-    let mut query = AuditLog::all();
-    if let Some(action) = filters.action {
-        query = query.filter(AuditLog::fields().action().eq(action));
+    let db = state.db();
+    // Every filter is optional: a missing one matches everything.
+    let mut query = audit_logs::Entity::find()
+        .order_by_desc(audit_logs::Column::CreatedAt)
+        .limit(filters.limit.unwrap_or(100).clamp(1, 500) as u64);
+    if let Some(action) = &filters.action {
+        query = query.filter(audit_logs::Column::Action.eq(action.as_str()));
     }
-    if let Some(actor) = filters.actor_id {
-        query = query.filter(AuditLog::fields().actor_id().eq(actor));
+    if let Some(actor_id) = filters.actor_id {
+        query = query.filter(audit_logs::Column::ActorId.eq(actor_id));
     }
     if let Some(before) = filters.before {
-        query = query.filter(AuditLog::fields().created_at().lt(before));
+        query = query.filter(audit_logs::Column::CreatedAt.lt(before));
     }
-    let entries: Vec<AuditLog> = query
-        .order_by(AuditLog::fields().created_at().desc())
-        .limit(filters.limit.unwrap_or(100).clamp(1, 500))
-        .exec(db)
-        .await?;
-    let users = User::all().exec(db).await?;
+    let entries: Vec<AuditLog> = query.all(db).await?;
+    let users = users::Entity::find().all(db).await?;
     Ok(Json(
         entries
             .into_iter()
@@ -556,13 +579,15 @@ pub async fn admin_redact_revision(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
     access::require_super_admin(&user)?;
-    let mut db = state.writer().await;
-    let revision = Revision::get_by_id(&mut *db, &id).await?;
+    let db = state.writer().await?;
+    let revision = revision_rows::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
     let (target_type, target_id) = (revision.target_type.clone(), revision.target_id);
-    let mut tx = db.transaction().await?;
-    revisions::redact(&mut tx, revision).await?;
+    let tx = db.begin().await?;
+    revisions::redact(&tx, revision).await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "revision_redacted")
             .target("revision", id)
             .data(serde_json::json!({ "target_type": target_type, "target_id": target_id })),
@@ -588,41 +613,7 @@ pub async fn admin_integrity(
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<Vec<Problem>>, ApiError> {
     access::require_super_admin(&user)?;
-    Ok(Json(integrity::check(&mut state.db()).await?))
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct BackupResult {
-    /// Where on the server the copy was written.
-    pub path: String,
-}
-
-/// Write a consistent copy of the database to the server's backup directory (`BACKUP_DIR`, default
-/// `backups`). Uploaded files are not included: back up their directory too.
-#[utoipa::path(
-    post,
-    path = "/admin/backup",
-    tag = "admin",
-    security(("session_cookie" = [])),
-    responses(
-        (status = 200, description = "Backup written", body = BackupResult),
-        (status = 404, description = "Not the super admin")
-    )
-)]
-pub async fn admin_backup(
-    State(state): State<AppState>,
-    CurrentUser { user, .. }: CurrentUser,
-) -> Result<Json<BackupResult>, ApiError> {
-    access::require_super_admin(&user)?;
-    let dir = config::backup_dir().unwrap_or_else(|| PathBuf::from("backups"));
-    let path = jobs::backup(&state, &dir).await?;
-    {
-        let mut db = state.writer().await;
-        audit::record(&mut *db, Entry::admin(Some(user.id), "backup_created")).await?;
-    }
-    Ok(Json(BackupResult {
-        path: path.display().to_string(),
-    }))
+    Ok(Json(integrity::check(state.db()).await?))
 }
 
 /// The SMTP settings the super admin edits, next to what the environment provides.
@@ -652,10 +643,10 @@ pub struct EnvEmail {
     pub has_password: bool,
 }
 
-async fn email_view(db: &mut dyn toasty::Executor) -> Result<EmailSettingsView, ApiError> {
-    let row = EmailSettings::filter_by_id(1)
-        .first()
-        .exec(&mut *db)
+async fn email_view(db: &impl Db) -> Result<EmailSettingsView, ApiError> {
+    let row = email_settings::Entity::find()
+        .filter(email_settings::Column::Id.eq(1))
+        .one(db)
         .await?;
     let env = crate::mail::env_config();
     let effective = crate::mail::effective_config(db).await;
@@ -694,7 +685,7 @@ pub async fn admin_get_email_settings(
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<EmailSettingsView>, ApiError> {
     access::require_super_admin(&user)?;
-    Ok(Json(email_view(&mut state.db()).await?))
+    Ok(Json(email_view(state.db()).await?))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -744,47 +735,44 @@ pub async fn admin_update_email_settings(
     if input.port.is_some_and(|p| !(1..=65535).contains(&p)) {
         return Err(ApiError::bad_request("the port must be 1 to 65535"));
     }
-    let mut db = state.writer().await;
-    let existing = EmailSettings::filter_by_id(1)
-        .first()
-        .exec(&mut *db)
+    let db = state.writer().await?;
+    let existing = email_settings::Entity::find()
+        .filter(email_settings::Column::Id.eq(1))
+        .one(&*db)
         .await?;
     let password = match input.password {
         None => existing.as_ref().and_then(|r| r.password.clone()),
         Some(p) => clean(Some(p)),
     };
     if existing.is_some() {
-        EmailSettings::filter_by_id(1)
-            .update()
-            .host(host)
-            .port(input.port)
-            .username(username)
-            .password(password)
-            .sender(from)
-            .tls(tls)
-            .exec(&mut *db)
-            .await?;
+        email_settings::ActiveModel {
+            id: Unchanged(1),
+            host: Set(host),
+            port: Set(input.port),
+            username: Set(username),
+            password: Set(password),
+            sender: Set(from),
+            tls: Set(tls),
+        }
+        .update(&*db)
+        .await?;
     } else {
-        toasty::create!(EmailSettings {
-            id: 1,
-            host,
-            port: input.port,
-            username,
-            password,
-            sender: from,
-            tls,
-        })
-        .exec(&mut *db)
+        email_settings::ActiveModel {
+            id: Set(1),
+            host: Set(host),
+            port: Set(input.port),
+            username: Set(username),
+            password: Set(password),
+            sender: Set(from),
+            tls: Set(tls),
+        }
+        .insert(&*db)
         .await?;
     }
-    let mut tx = db.transaction().await?;
-    audit::record(
-        &mut tx,
-        Entry::admin(Some(user.id), "email_settings_changed"),
-    )
-    .await?;
+    let tx = db.begin().await?;
+    audit::record(&tx, Entry::admin(Some(user.id), "email_settings_changed")).await?;
     tx.commit().await?;
-    Ok(Json(email_view(&mut *db).await?))
+    Ok(Json(email_view(&*db).await?))
 }
 
 #[derive(Deserialize, ToSchema)]

@@ -1,11 +1,15 @@
 //! File versions: uploading a new version of a library file keeps the old content, under the same file id
 //! (so attachments and page blocks keep working). Deleting a file is soft (Trash).
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::users;
+use crate::models::{file_versions, files};
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
-use jiff::civil::DateTime;
 use serde::Serialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -14,8 +18,8 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, FileVersion, Role, User};
-use crate::routes::auth::{People, PublicUser};
+use crate::models::{File, Role, User};
+use crate::routes::auth::PublicUser;
 use crate::routes::files::{FileView, file_view, serve_blob};
 use crate::state::AppState;
 use crate::storage::sha256_hex;
@@ -37,23 +41,21 @@ pub fn router(max_upload_bytes: Option<u64>) -> OpenApiRouter<AppState> {
 }
 
 /// Record the first version of a freshly uploaded file.
-pub(crate) async fn record_first(
-    db: &mut dyn toasty::Executor,
-    file: &File,
-) -> Result<(), ApiError> {
-    toasty::create!(FileVersion {
-        file_id: file.id,
-        number: 1,
-        name: file.name.clone(),
-        mime: file.mime.clone(),
-        size: file.size,
-        sha256: file.sha256.clone(),
-        storage_backend: file.storage_backend.clone(),
-        storage_key: file.storage_key.clone(),
-        uploaded_by: file.uploaded_by,
-        created_at: file.created_at,
-    })
-    .exec(db)
+pub(crate) async fn record_first(db: &impl Db, file: &File) -> Result<(), ApiError> {
+    file_versions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        file_id: Set(file.id),
+        number: Set(1),
+        name: Set(file.name.clone()),
+        mime: Set(file.mime.clone()),
+        size: Set(file.size),
+        sha256: Set(file.sha256.clone()),
+        storage_backend: Set(file.storage_backend.clone()),
+        storage_key: Set(file.storage_key.clone()),
+        uploaded_by: Set(file.uploaded_by),
+        created_at: Set(file.created_at),
+    }
+    .insert(db)
     .await?;
     Ok(())
 }
@@ -76,13 +78,8 @@ pub struct FileVersionView {
 }
 
 /// A live file the caller may access at `min_role`.
-async fn load(
-    db: &mut dyn toasty::Executor,
-    user: &User,
-    id: uuid::Uuid,
-    min_role: Role,
-) -> Result<File, ApiError> {
-    let file = File::get_by_id(db, &id).await?;
+async fn load(db: &impl Db, user: &User, id: uuid::Uuid, min_role: Role) -> Result<File, ApiError> {
+    let file = files::Entity::find_by_id(id).one_or_not_found(db).await?;
     if file.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
@@ -108,18 +105,22 @@ pub async fn list_file_versions(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<FileVersionView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     load(db, &user, id, Role::Read).await?;
-    let mut versions = FileVersion::filter_by_file_id(id).exec(db).await?;
-    versions.sort_by_key(|v| std::cmp::Reverse(v.number));
-    let people = People::load(db, versions.iter().map(|v| v.uploaded_by)).await?;
+    let versions = file_versions::Entity::find()
+        .filter(file_versions::Column::FileId.eq(id))
+        .order_by_desc(file_versions::Column::Number)
+        .all(db)
+        .await?;
+    let uploaders = versions.load_one(users::Entity, db).await?;
     let newest = versions.first().map(|v| v.number);
     Ok(Json(
         versions
             .into_iter()
-            .map(|v| FileVersionView {
+            .zip(uploaders)
+            .map(|(v, uploader)| FileVersionView {
                 current: Some(v.number) == newest,
-                uploaded_by: people.public(v.uploaded_by),
+                uploaded_by: uploader.as_ref().map(PublicUser::from),
                 id: v.id,
                 number: v.number,
                 name: v.name,
@@ -153,9 +154,11 @@ pub async fn file_version_content(
     Path((id, version_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<Response, ApiError> {
     let version = {
-        let db = &mut state.db();
+        let db = state.db();
         load(db, &user, id, Role::Read).await?;
-        let version = FileVersion::get_by_id(db, &version_id).await?;
+        let version = file_versions::Entity::find_by_id(version_id)
+            .one_or_not_found(db)
+            .await?;
         if version.file_id != id {
             return Err(ApiError::not_found());
         }
@@ -194,7 +197,7 @@ pub async fn upload_file_version(
     Path(id): Path<uuid::Uuid>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<FileView>), ApiError> {
-    load(&mut state.db(), &user, id, Role::Write).await?;
+    load(state.db(), &user, id, Role::Write).await?;
 
     let mut upload: Option<(Option<String>, Vec<u8>)> = None;
     while let Some(field) = multipart
@@ -224,9 +227,9 @@ pub async fn upload_file_version(
     }
     let sha256 = sha256_hex(&bytes);
 
-    let mut db = state.writer().await;
-    let db = &mut *db;
-    let mut file = File::get_by_id(db, &id).await?;
+    let db = state.writer().await?;
+    let db = &*db;
+    let file = files::Entity::find_by_id(id).one_or_not_found(db).await?;
     if file.sha256 == sha256 {
         return Err(ApiError::conflict(
             "this is the same content as the current version",
@@ -246,8 +249,9 @@ pub async fn upload_file_version(
 
     let workspace_id = file.workspace_id;
     let name = file.name.clone();
-    let next = FileVersion::filter_by_file_id(id)
-        .exec(db)
+    let next = file_versions::Entity::find()
+        .filter(file_versions::Column::FileId.eq(id))
+        .all(db)
         .await?
         .iter()
         .map(|v| v.number)
@@ -255,31 +259,35 @@ pub async fn upload_file_version(
         .unwrap_or(0)
         + 1;
     let result: Result<(), ApiError> = async {
-        let mut tx = db.transaction().await?;
-        toasty::create!(FileVersion {
-            file_id: id,
-            number: next,
-            name: name.clone(),
-            mime: mime.clone(),
-            size: bytes.len() as i64,
-            sha256: sha256.clone(),
-            storage_backend: store.name().to_string(),
-            storage_key: key.clone(),
-            uploaded_by: user.id,
-            created_at: time::now(),
-        })
-        .exec(&mut tx)
+        let tx = db.begin().await?;
+        file_versions::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            file_id: Set(id),
+            number: Set(next),
+            name: Set(name.clone()),
+            mime: Set(mime.clone()),
+            size: Set(bytes.len() as i64),
+            sha256: Set(sha256.clone()),
+            storage_backend: Set(store.name().to_string()),
+            storage_key: Set(key.clone()),
+            uploaded_by: Set(user.id),
+            created_at: Set(time::now()),
+        }
+        .insert(&tx)
         .await?;
-        file.update()
-            .mime(mime.clone())
-            .size(bytes.len() as i64)
-            .sha256(sha256.clone())
-            .storage_backend(store.name().to_string())
-            .storage_key(key.clone())
-            .exec(&mut tx)
-            .await?;
+        files::ActiveModel {
+            id: Unchanged(file.id),
+            mime: Set(mime.clone()),
+            size: Set(bytes.len() as i64),
+            sha256: Set(sha256.clone()),
+            storage_backend: Set(store.name().to_string()),
+            storage_key: Set(key.clone()),
+            ..Default::default()
+        }
+        .update(&tx)
+        .await?;
         audit::record(
-            &mut tx,
+            &tx,
             Entry::feed(workspace_id, user.id, "file_version_added")
                 .target("file", id)
                 .data(serde_json::json!({ "file": name, "version": next })),
@@ -293,7 +301,7 @@ pub async fn upload_file_version(
         let _ = store.delete(&key).await; // do not leave an orphan behind
         return Err(e);
     }
-    let file = File::get_by_id(db, &id).await?;
+    let file = files::Entity::find_by_id(id).one_or_not_found(db).await?;
     Ok((StatusCode::CREATED, Json(file_view(db, file).await?)))
 }
 
@@ -315,11 +323,11 @@ pub async fn delete_file(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let file = load(&mut *db, &user, id, Role::Write).await?;
-    let mut tx = db.transaction().await?;
-    trash::delete_file(&mut tx, &file, time::now()).await?;
-    audit::deleted(&mut tx, user.id, file.workspace_id, "file", id, &file.name).await?;
+    let db = state.writer().await?;
+    let file = load(&*db, &user, id, Role::Write).await?;
+    let tx = db.begin().await?;
+    trash::delete_file(&tx, &file, time::now()).await?;
+    audit::deleted(&tx, user.id, file.workspace_id, "file", id, &file.name).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

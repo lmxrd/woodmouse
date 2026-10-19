@@ -44,13 +44,26 @@ impl ApiError {
     }
 }
 
-impl From<toasty::Error> for ApiError {
-    fn from(err: toasty::Error) -> Self {
-        if err.is_record_not_found() {
-            Self::not_found()
-        } else {
-            tracing::error!(error = %err, "database error");
-            Self::internal("internal error")
+impl From<sqlx::Error> for ApiError {
+    fn from(err: sqlx::Error) -> Self {
+        match err {
+            sqlx::Error::RowNotFound => Self::not_found(),
+            err => {
+                tracing::error!(error = %err, "database error");
+                Self::internal("internal error")
+            }
+        }
+    }
+}
+
+impl From<sea_orm::DbErr> for ApiError {
+    fn from(err: sea_orm::DbErr) -> Self {
+        match err {
+            sea_orm::DbErr::RecordNotFound(_) => Self::not_found(),
+            err => {
+                tracing::error!(error = %err, "database error");
+                Self::internal("internal error")
+            }
         }
     }
 }

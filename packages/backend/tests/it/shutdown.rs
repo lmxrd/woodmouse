@@ -1,5 +1,8 @@
 //! Stopping the server leaves the database file complete: the write-ahead log is emptied.
 
+use sea_orm_migration::MigratorTrait;
+use woodmouse::db::prelude::*;
+use woodmouse::models::workspaces;
 use woodmouse::state::AppState;
 
 #[tokio::test]
@@ -7,21 +10,21 @@ async fn checkpoint_empties_the_write_ahead_log() {
     let dir = std::env::temp_dir().join(format!("woodmouse-wal-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("test.db");
-    let mut db = toasty::Db::builder()
-        .models(toasty::models!(woodmouse::*))
-        .connect(&format!("sqlite:{}", path.display()))
+    let db = woodmouse::db::orm(
+        woodmouse::db::connect(&format!("sqlite:{}", path.display()))
+            .await
+            .unwrap(),
+    );
+    woodmouse::migrations::Migrator::up(&db, None)
         .await
         .unwrap();
-    woodmouse::migrations::MIGRATIONS.apply(&db).await.unwrap();
-    toasty::sql::query("PRAGMA journal_mode=WAL")
-        .exec(&mut db)
-        .await
-        .unwrap();
-    toasty::create!(woodmouse::models::Workspace {
-        name: "Home".to_string(),
-        description: "".to_string(),
-    })
-    .exec(&mut db)
+    workspaces::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        name: Set("Home".to_string()),
+        description: Set("".to_string()),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .unwrap();
 

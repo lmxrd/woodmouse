@@ -6,8 +6,9 @@
 - `mise run dev:backend` — API server (http://localhost:8000); hot reload
   via watchexec (restarts when `backend/src` or Cargo files change)
 - `mise run dev:frontend` — frontend dev server
+- `mise run db:migrate` — apply the pending migrations to the dev database (the backend also does it at start)
 - `mise run seed` — fill an empty dev database with mock data (people, projects, tasks, wiki);
-  sign in as `admin@woodmouse.test`, `sara@woodmouse.test` or `ola@woodmouse.test` (see `backend/src/seed.rs`)
+  sign in as `admin@woodmouse.test`, `sara@woodmouse.test` or `ola@woodmouse.test` (the `seed` binary, `backend/src/bin/seed.rs`; it is not part of the release build)
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
 - `mise run test` — each stack's tests (cargo test, vitest)
@@ -20,8 +21,8 @@
 - `mise run clean` — delete the local dev database and uploaded files; the
   schema is recreated from the migrations on next backend start (only needed
   for a database made before migrations existed, or to start over)
-- After changing `backend/src/models.rs`: `cargo run --bin toasty -- generate <name>`
-  in `backend/`, and commit `backend/toasty/`
+- After changing the schema: add the next migration to `packages/backend/src/migrations/` (an entity in
+  `src/models/` is a row of its table: run `mise run gen:models` and review the diff), and never edit one that has shipped
 
 ## Structure
 

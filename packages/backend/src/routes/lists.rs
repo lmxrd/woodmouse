@@ -1,3 +1,5 @@
+use crate::db::prelude::*;
+use crate::models::lists;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -52,15 +54,15 @@ pub async fn list_lists(
     CurrentUser { user, .. }: CurrentUser,
     Path(project_id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<List>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_project_access(db, &user, project_id, Role::Read).await?;
-    let mut lists: Vec<List> = List::filter_by_project_id(project_id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|l| l.deleted_at.is_none())
-        .collect();
-    lists.sort_by_key(|l| (l.position, l.id));
+    let lists: Vec<List> = lists::Entity::find()
+        .filter(lists::Column::ProjectId.eq(project_id))
+        .filter(lists::Column::DeletedAt.is_null())
+        .order_by_asc(lists::Column::Position)
+        .order_by_asc(lists::Column::Id)
+        .all(db)
+        .await?;
     Ok(Json(lists))
 }
 
@@ -87,22 +89,25 @@ pub async fn create_list(
 ) -> Result<(StatusCode, Json<List>), ApiError> {
     let name = required(&input.name, "name")?;
 
-    let mut db = state.writer().await;
-    access::require_project_access(&mut *db, &user, project_id, Role::Write).await?;
+    let db = state.writer().await?;
+    access::require_project_access(&*db, &user, project_id, Role::Write).await?;
 
     let position = ordering::append(
-        List::filter_by_project_id(project_id)
-            .exec(&mut *db)
+        lists::Entity::find()
+            .filter(lists::Column::ProjectId.eq(project_id))
+            .all(&*db)
             .await?
             .iter()
             .map(|l| l.position),
     );
-    let list = toasty::create!(List {
-        project_id,
-        name,
-        position,
-    })
-    .exec(&mut *db)
+    let list = lists::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        project_id: Set(project_id),
+        name: Set(name),
+        position: Set(position),
+        ..Default::default()
+    }
+    .insert(&*db)
     .await?;
     Ok((StatusCode::CREATED, Json(list)))
 }
@@ -125,7 +130,7 @@ pub async fn get_list(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<List>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let (list, _) = access::require_list(db, &user, id, Role::Read).await?;
     Ok(Json(list))
 }
@@ -151,15 +156,14 @@ pub async fn update_list(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateList>,
 ) -> Result<Json<List>, ApiError> {
-    let mut db = state.writer().await;
-    let (mut list, _) = access::require_list(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (list, _) = access::require_list(&*db, &user, id, Role::Write).await?;
 
-    let mut update = list.update();
+    let mut update = lists::ActiveModel::from(list);
     if let Some(name) = input.name {
-        update = update.name(required(&name, "name")?);
+        update.name = Set(required(&name, "name")?);
     }
-    update.exec(&mut *db).await?;
-    Ok(Json(list))
+    Ok(Json(update.update(&*db).await?))
 }
 
 /// Delete a list and its tasks.
@@ -180,13 +184,13 @@ pub async fn delete_list(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let (list, workspace_id) = access::require_list(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (list, workspace_id) = access::require_list(&*db, &user, id, Role::Write).await?;
 
     // Soft delete: the list and its tasks move to Trash together.
-    let mut tx = db.transaction().await?;
-    trash::delete_list(&mut tx, &list, time::now()).await?;
-    audit::deleted(&mut tx, user.id, workspace_id, "list", id, &list.name).await?;
+    let tx = db.begin().await?;
+    trash::delete_list(&tx, &list, time::now()).await?;
+    audit::deleted(&tx, user.id, workspace_id, "list", id, &list.name).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -4,8 +4,12 @@
 
 use crate::audit::{self, Entry};
 use crate::blocks::{self, BlockData};
+use crate::db::Db;
+use crate::db::prelude::*;
 use crate::error::ApiError;
-use crate::models::{ContentLink, File, FileRef, WikiPage};
+use crate::models::wiki_pages;
+use crate::models::{File, WikiPage};
+use crate::models::{content_links, file_refs, files};
 use crate::revisions::{self, PageContent};
 use crate::time;
 
@@ -18,7 +22,7 @@ pub fn blocks_of(page: &WikiPage) -> Result<Vec<BlockData>, ApiError> {
 /// `new_session` (a restore, a save outside live editing) always starts a new revision; otherwise saves
 /// in one editing session share one.
 pub async fn save_content(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     page: &mut WikiPage,
     editor: uuid::Uuid,
     new: &[BlockData],
@@ -33,33 +37,45 @@ pub async fn save_content(
     let workspace_id = page.workspace_id;
     let title = page.title.clone();
     let next_version = page.version + 1;
-    page.update()
-        .content(blocks::encode(&new))
-        .updated_by(editor)
-        .updated_at(time::now())
-        .version(next_version)
-        .exec(db)
-        .await?;
+    let content = blocks::encode(&new);
+    let now = time::now();
+    wiki_pages::ActiveModel {
+        id: Unchanged(page.id),
+        content: Set(content.clone()),
+        updated_by: Set(editor),
+        updated_at: Set(now),
+        version: Set(next_version),
+        ..Default::default()
+    }
+    .update(db)
+    .await?;
+    // The caller's copy of the page stays in step with the row.
+    page.content = content;
+    page.updated_by = editor;
+    page.updated_at = now;
+    page.version = next_version;
 
     // The references the content makes, and its text for search.
-    let old_mentions: Vec<uuid::Uuid> = ContentLink::filter_by_source_page_id(id)
-        .exec(db)
+    let old_mentions: Vec<uuid::Uuid> = content_links::Entity::find()
+        .filter(content_links::Column::SourcePageId.eq(id))
+        .all(db)
         .await?
         .into_iter()
         .filter(|l| l.target_kind == "task")
         .map(|l| l.target_id)
         .collect();
-    ContentLink::filter_by_source_page_id(id)
-        .delete()
+    content_links::Entity::delete_many()
+        .filter(content_links::Column::SourcePageId.eq(id))
         .exec(db)
         .await?;
     for (kind, target) in blocks::references(&new) {
-        toasty::create!(ContentLink {
-            source_page_id: id,
-            target_id: target,
-            target_kind: kind.to_string(),
-        })
-        .exec(db)
+        content_links::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            source_page_id: Set(id),
+            target_id: Set(target),
+            target_kind: Set(kind.to_string()),
+        }
+        .insert(db)
         .await?;
     }
     crate::search::index_page_body(db, id, &new).await?;
@@ -103,14 +119,21 @@ pub async fn save_content(
     // file, while a file attached by hand stays until it is detached.
     let shown = blocks::files(&new);
     for file_id in &shown {
-        let Ok(file) = File::get_by_id(db, file_id).await else {
+        let Ok(file) = files::Entity::find_by_id(*file_id)
+            .one_or_not_found(db)
+            .await
+        else {
             continue;
         };
         if file.workspace_id == workspace_id {
             attach_file(db, id, workspace_id, &title, &file, editor, true).await?;
         }
     }
-    for reference in FileRef::filter_by_target_id(id).exec(db).await? {
+    for reference in file_refs::Entity::find()
+        .filter(file_refs::Column::TargetId.eq(id))
+        .all(db)
+        .await?
+    {
         if reference.target_type == PAGE
             && reference.embedded
             && !shown.contains(&reference.file_id)
@@ -148,7 +171,7 @@ pub const PAGE: &str = "page";
 /// newly attached (attaching twice is harmless and records nothing). Call with the transaction of the
 /// change.
 pub async fn attach_file(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     page_id: uuid::Uuid,
     workspace_id: uuid::Uuid,
     page_title: &str,
@@ -156,21 +179,22 @@ pub async fn attach_file(
     actor: uuid::Uuid,
     embedded: bool,
 ) -> Result<bool, ApiError> {
-    let already = FileRef::filter_by_file_id(file.id)
-        .exec(db)
+    let already = file_refs::Entity::find()
+        .filter(file_refs::Column::FileId.eq(file.id))
+        .all(db)
         .await?
         .iter()
         .any(|r| r.target_type == PAGE && r.target_id == page_id);
     if already {
         return Ok(false);
     }
-    toasty::create!(FileRef {
-        file_id: file.id,
-        target_type: PAGE.to_string(),
-        target_id: page_id,
-        embedded,
-    })
-    .exec(db)
+    file_refs::ActiveModel {
+        file_id: Set(file.id),
+        target_type: Set(PAGE.to_string()),
+        target_id: Set(page_id),
+        embedded: Set(embedded),
+    }
+    .insert(db)
     .await?;
     audit::record(
         db,
@@ -186,21 +210,28 @@ pub async fn attach_file(
 
 /// Detach a file from a page and record it. Returns whether it was attached.
 pub async fn detach_file(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     page: &WikiPage,
     file_id: uuid::Uuid,
     actor: uuid::Uuid,
 ) -> Result<bool, ApiError> {
-    let Some(reference) = FileRef::filter_by_file_id(file_id)
-        .exec(db)
+    let Some(reference) = file_refs::Entity::find()
+        .filter(file_refs::Column::FileId.eq(file_id))
+        .all(db)
         .await?
         .into_iter()
         .find(|r| r.target_type == PAGE && r.target_id == page.id)
     else {
         return Ok(false);
     };
-    reference.delete().exec(db).await?;
-    let name = File::get_by_id(db, &file_id)
+    file_refs::Entity::delete_many()
+        .filter(file_refs::Column::FileId.eq(reference.file_id))
+        .filter(file_refs::Column::TargetType.eq(reference.target_type))
+        .filter(file_refs::Column::TargetId.eq(reference.target_id))
+        .exec(db)
+        .await?;
+    let name = files::Entity::find_by_id(file_id)
+        .one_or_not_found(db)
         .await
         .map(|f| f.name)
         .unwrap_or_default();

@@ -3,6 +3,9 @@
 //! admin's settings page); a field set in the database overrides the environment. Without a host and a
 //! from address email is simply off.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::email_settings;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -11,7 +14,6 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 use crate::config;
-use crate::models::EmailSettings;
 
 /// A plain-text email.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,9 +63,13 @@ pub fn env_config() -> SmtpConfig {
 }
 
 /// The settings in force: each field set in the database wins over the environment.
-pub async fn effective_config(db: &mut dyn toasty::Executor) -> SmtpConfig {
+pub async fn effective_config(db: &impl Db) -> SmtpConfig {
     let mut config = env_config();
-    if let Ok(Some(row)) = EmailSettings::filter_by_id(1).first().exec(db).await {
+    if let Ok(Some(row)) = email_settings::Entity::find()
+        .filter(email_settings::Column::Id.eq(1))
+        .one(db)
+        .await
+    {
         if let Some(host) = config::non_empty(row.host) {
             config.host = Some(host);
         }
@@ -113,11 +119,11 @@ fn transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, 
 /// Sends through SMTP, reading the settings from the database and environment each time (so a change on
 /// the settings page applies at once).
 pub struct SmtpMailer {
-    db: toasty::Db,
+    db: sea_orm::DatabaseConnection,
 }
 
 impl SmtpMailer {
-    pub fn shared(db: toasty::Db) -> Arc<dyn Mailer> {
+    pub fn shared(db: sea_orm::DatabaseConnection) -> Arc<dyn Mailer> {
         Arc::new(Self { db })
     }
 }
@@ -125,11 +131,11 @@ impl SmtpMailer {
 #[async_trait]
 impl Mailer for SmtpMailer {
     async fn configured(&self) -> bool {
-        effective_config(&mut self.db.clone()).await.complete()
+        effective_config(&self.db).await.complete()
     }
 
     async fn send(&self, mail: Mail) -> Result<(), String> {
-        let config = effective_config(&mut self.db.clone()).await;
+        let config = effective_config(&self.db).await;
         if !config.complete() {
             return Err("email is not configured".to_string());
         }

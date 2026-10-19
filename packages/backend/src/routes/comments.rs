@@ -1,10 +1,13 @@
 //! Comments on tasks (markdown text). Authors edit their own; authors and admins delete (softly).
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::revisions as revision_rows;
+use crate::models::{comments, tasks, users};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -14,10 +17,10 @@ use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::models::{Comment, Revision, Role, Task, User};
 use crate::revisions;
-use crate::routes::auth::{People, PublicUser};
+use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
-use jiff::civil::DateTime;
+use crate::time::DateTime;
 
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -55,23 +58,21 @@ fn validate_body(body: &str) -> Result<String, ApiError> {
     Ok(body.to_string())
 }
 
-async fn views(
-    db: &mut dyn toasty::Executor,
-    comments: Vec<Comment>,
-) -> Result<Vec<CommentView>, ApiError> {
-    let people = People::load(db, comments.iter().map(|c| c.author_id)).await?;
+async fn views(db: &impl Db, comments: Vec<Comment>) -> Result<Vec<CommentView>, ApiError> {
+    let authors = comments.load_one(users::Entity, db).await?;
     let comment_ids: Vec<uuid::Uuid> = comments.iter().map(|c| c.id).collect();
     let revision_rows: Vec<Revision> = if comment_ids.is_empty() {
         vec![]
     } else {
-        Revision::all()
-            .filter(in_list(Revision::fields().target_id(), comment_ids))
-            .exec(db)
+        revision_rows::Entity::find()
+            .filter(revision_rows::Column::TargetId.is_in(comment_ids.iter().copied()))
+            .all(db)
             .await?
     };
     Ok(comments
         .into_iter()
-        .map(|c| {
+        .zip(authors)
+        .map(|(c, author)| {
             let mine: Vec<&Revision> = revision_rows
                 .iter()
                 .filter(|r| r.target_type == revisions::COMMENT && r.target_id == c.id)
@@ -79,12 +80,12 @@ async fn views(
             let edited_at = (mine.len() > 1)
                 .then(|| mine.iter().map(|r| r.created_at).max())
                 .flatten();
-            (c, edited_at)
+            (c, author, edited_at)
         })
-        .map(|(c, edited_at)| CommentView {
+        .map(|(c, author, edited_at)| CommentView {
             id: c.id,
             task_id: c.task_id,
-            author: people.public(c.author_id),
+            author: author.as_ref().map(PublicUser::from),
             body: c.body,
             created_at: c.created_at,
             edited_at,
@@ -94,12 +95,14 @@ async fn views(
 
 /// A comment the caller may see (its task is live and readable); returns the workspace id.
 async fn load(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user: &User,
     id: uuid::Uuid,
     min_role: Role,
 ) -> Result<(Comment, uuid::Uuid), ApiError> {
-    let comment = Comment::get_by_id(db, &id).await?;
+    let comment = comments::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     if comment.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
@@ -125,15 +128,14 @@ pub async fn list_comments(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<CommentView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
-    let mut comments: Vec<Comment> = Comment::filter_by_task_id(id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|c| c.deleted_at.is_none())
-        .collect();
-    comments.sort_by_key(|c| c.created_at);
+    let comments: Vec<Comment> = comments::Entity::find()
+        .filter(comments::Column::TaskId.eq(id))
+        .filter(comments::Column::DeletedAt.is_null())
+        .order_by_asc(comments::Column::CreatedAt)
+        .all(db)
+        .await?;
     Ok(Json(views(db, comments).await?))
 }
 
@@ -159,20 +161,22 @@ pub async fn add_comment(
     Json(input): Json<CommentBody>,
 ) -> Result<(StatusCode, Json<CommentView>), ApiError> {
     let body = validate_body(&input.body)?;
-    let mut db = state.writer().await;
-    let (task, workspace_id) = access::require_task(&mut *db, &user, id, Role::Write).await?;
-    let mut tx = db.transaction().await?;
-    let comment = toasty::create!(Comment {
-        task_id: id,
-        author_id: user.id,
-        body,
-        created_at: time::now(),
-    })
-    .exec(&mut tx)
+    let db = state.writer().await?;
+    let (task, workspace_id) = access::require_task(&*db, &user, id, Role::Write).await?;
+    let tx = db.begin().await?;
+    let comment = comments::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        task_id: Set(id),
+        author_id: Set(user.id),
+        body: Set(body),
+        created_at: Set(time::now()),
+        ..Default::default()
+    }
+    .insert(&tx)
     .await?;
-    revisions::record_comment(&mut tx, comment.id, user.id, &comment.body).await?;
+    revisions::record_comment(&tx, comment.id, user.id, &comment.body).await?;
     audit::task_event(
-        &mut tx,
+        &tx,
         workspace_id,
         task.project_id,
         user.id,
@@ -182,10 +186,10 @@ pub async fn add_comment(
     )
     .await?;
     // The people on the task, and those who commented on it before, hear about the new comment.
-    let mut audience = crate::notify::task_audience(&mut tx, id).await?;
-    audience.extend(crate::notify::commenters(&mut tx, id).await?);
+    let mut audience = crate::notify::task_audience(&tx, id).await?;
+    audience.extend(crate::notify::commenters(&tx, id).await?);
     crate::notify::notify(
-        &mut tx,
+        &tx,
         audience,
         crate::notify::Notice {
             workspace_id,
@@ -202,7 +206,7 @@ pub async fn add_comment(
     )
     .await?;
     tx.commit().await?;
-    let mut out = views(&mut *db, vec![comment]).await?;
+    let mut out = views(&*db, vec![comment]).await?;
     Ok((StatusCode::CREATED, Json(out.swap_remove(0))))
 }
 
@@ -228,17 +232,23 @@ pub async fn update_comment(
     Json(input): Json<CommentBody>,
 ) -> Result<Json<CommentView>, ApiError> {
     let body = validate_body(&input.body)?;
-    let mut db = state.writer().await;
-    let (mut comment, workspace_id) = load(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (comment, workspace_id) = load(&*db, &user, id, Role::Write).await?;
     if comment.author_id != user.id {
         return Err(ApiError::not_found());
     }
     if comment.body != body {
-        let mut tx = db.transaction().await?;
-        comment.update().body(body.clone()).exec(&mut tx).await?;
-        let revision = revisions::record_comment(&mut tx, id, user.id, &body).await?;
+        let tx = db.begin().await?;
+        comments::ActiveModel {
+            id: Unchanged(comment.id),
+            body: Set(body.clone()),
+            ..Default::default()
+        }
+        .update(&tx)
+        .await?;
+        let revision = revisions::record_comment(&tx, id, user.id, &body).await?;
         audit::record(
-            &mut tx,
+            &tx,
             Entry::admin(Some(user.id), "comment_edited")
                 .target("comment", id)
                 .in_workspace(workspace_id)
@@ -247,7 +257,10 @@ pub async fn update_comment(
         .await?;
         tx.commit().await?;
     }
-    let mut out = views(&mut *db, vec![comment]).await?;
+    let comment = comments::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
+    let mut out = views(&*db, vec![comment]).await?;
     Ok(Json(out.swap_remove(0)))
 }
 
@@ -269,31 +282,34 @@ pub async fn delete_comment(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let (comment, workspace_id) = load(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (comment, workspace_id) = load(&*db, &user, id, Role::Write).await?;
     if comment.author_id != user.id
-        && access::require_access(&mut *db, &user, workspace_id, Role::Admin)
+        && access::require_access(&*db, &user, workspace_id, Role::Admin)
             .await
             .is_err()
     {
         return Err(ApiError::not_found());
     }
-    let mut tx = db.transaction().await?;
-    Comment::filter_by_id(id)
-        .update()
-        .deleted_at(Some(time::now()))
-        .exec(&mut tx)
-        .await?;
-    audit::deleted(&mut tx, user.id, workspace_id, "comment", id, "").await?;
+    let tx = db.begin().await?;
+    comments::ActiveModel {
+        id: Unchanged(id),
+        deleted_at: Set(Some(time::now())),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
+    audit::deleted(&tx, user.id, workspace_id, "comment", id, "").await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// Used by Trash: the task a comment belongs to (live or not), for restore checks.
-pub(crate) async fn comment_task(
-    db: &mut dyn toasty::Executor,
-    id: uuid::Uuid,
-) -> Result<Task, ApiError> {
-    let comment = Comment::get_by_id(db, &id).await?;
-    Ok(Task::get_by_id(db, &comment.task_id).await?)
+pub(crate) async fn comment_task(db: &impl Db, id: uuid::Uuid) -> Result<Task, ApiError> {
+    let comment = comments::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
+    tasks::Entity::find_by_id(comment.task_id)
+        .one_or_not_found(db)
+        .await
 }

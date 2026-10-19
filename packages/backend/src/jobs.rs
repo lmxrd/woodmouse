@@ -1,43 +1,23 @@
-//! Background jobs, started once by the server: deleting expired sessions every day, and (when
-//! `BACKUP_DIR` is set) a daily backup of the database.
+//! Background jobs, started once by the server: deleting expired sessions every day, sending
+//! notification email, and the deadline and digest checks.
 
-use std::path::{Path, PathBuf};
+use crate::db::prelude::*;
+use crate::models::{notification_settings, notifications, projects, task_assignees, tasks, users};
 use std::time::Duration;
 
 use crate::auth;
 use crate::config;
-use crate::error::ApiError;
 use crate::state::AppState;
 use crate::time;
-
-/// How many daily backups are kept.
-const KEEP_BACKUPS: usize = 14;
-
-/// Write a consistent copy of the database to `dir` (created if needed) with `VACUUM INTO`, and return
-/// its path. Safe to run while the server is serving.
-pub async fn backup(state: &AppState, dir: &Path) -> Result<PathBuf, ApiError> {
-    let fail = |what: &str, e: &dyn std::fmt::Display| {
-        tracing::error!(%e, "{what}");
-        ApiError::internal("backup failed")
-    };
-    std::fs::create_dir_all(dir).map_err(|e| fail("creating the backup directory", &e))?;
-    let stamp = time::now().strftime("%Y%m%d-%H%M%S").to_string();
-    let path = dir.join(format!("woodmouse-{stamp}.db"));
-    let mut db = state.db();
-    toasty::sql::statement("VACUUM INTO ?1")
-        .bind(path.to_string_lossy().to_string())
-        .exec(&mut db)
-        .await
-        .map_err(|e| fail("writing the backup", &e))?;
-    Ok(path)
-}
 
 /// Move everything in the write-ahead log into the database file and empty the log. Run when the server
 /// stops, so the database file alone is complete and the `-wal` file holds nothing.
 pub async fn checkpoint(state: &AppState) {
-    let mut db = state.writer().await;
-    match toasty::sql::query("PRAGMA wal_checkpoint(TRUNCATE)")
-        .exec(&mut *db)
+    let Ok(db) = state.writer().await else {
+        return;
+    };
+    match db
+        .execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
         .await
     {
         Ok(_) => tracing::info!("database checkpointed"),
@@ -45,44 +25,16 @@ pub async fn checkpoint(state: &AppState) {
     }
 }
 
-/// Keep only the newest [`KEEP_BACKUPS`] backups in `dir`.
-fn prune_backups(dir: &Path) {
-    let Ok(read) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut names: Vec<PathBuf> = read
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("woodmouse-") && n.ends_with(".db"))
-        })
-        .collect();
-    names.sort();
-    let excess = names.len().saturating_sub(KEEP_BACKUPS);
-    for old in names.into_iter().take(excess) {
-        let _ = std::fs::remove_file(old);
-    }
-}
-
 /// Run one round of the daily jobs.
 pub async fn run_daily(state: &AppState) {
+    let Ok(db) = state.writer().await else {
+        return;
+    };
     {
-        let mut db = state.writer().await;
-        match auth::delete_expired_sessions(&mut *db).await {
+        match auth::delete_expired_sessions(&*db).await {
             Ok(0) => {}
             Ok(n) => tracing::info!(deleted = n, "removed expired sessions"),
             Err(_) => tracing::warn!("removing expired sessions failed"),
-        }
-    }
-    if let Some(dir) = config::backup_dir() {
-        match backup(state, &dir).await {
-            Ok(path) => {
-                tracing::info!(path = %path.display(), "backup written");
-                prune_backups(&dir);
-            }
-            Err(_) => tracing::warn!("the daily backup failed"),
         }
     }
 }
@@ -121,32 +73,42 @@ fn public_base() -> String {
 }
 
 /// The person's local date at `now` (their timezone, or UTC while they have none).
-fn local_now(user: &crate::models::User, now: jiff::civil::DateTime) -> jiff::civil::DateTime {
+fn local_now(user: &crate::models::User, now: crate::time::DateTime) -> crate::time::DateTime {
     let zone = user
         .timezone
         .as_deref()
         .and_then(|name| jiff::tz::TimeZone::get(name).ok())
         .unwrap_or(jiff::tz::TimeZone::UTC);
-    time::timestamp(now).to_zoned(zone).datetime()
+    time::timestamp(now).to_zoned(zone).datetime().into()
 }
 
 /// Notify people about tasks assigned to them that are due tomorrow or overdue, once per task and due
 /// date. "Tomorrow" and "overdue" follow each person's own timezone.
-pub async fn deadline_notifications(state: &AppState, now: jiff::civil::DateTime) {
-    use crate::models::{Notification, Project, Task, TaskAssignee, User};
-    let mut db = state.writer().await;
-    let db = &mut *db;
+pub async fn deadline_notifications(state: &AppState, now: crate::time::DateTime) {
+    let Ok(db) = state.writer().await else {
+        return;
+    };
+    let db = &*db;
     let result: Result<(), crate::error::ApiError> = async {
-        for user in User::all().exec(db).await?.into_iter().filter(|u| u.active) {
+        for user in users::Entity::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .filter(|u| u.active)
+        {
             let local_today = local_now(&user, now).date();
-            let assigned: Vec<uuid::Uuid> = TaskAssignee::filter_by_user_id(user.id)
-                .exec(db)
+            let assigned: Vec<uuid::Uuid> = task_assignees::Entity::find()
+                .filter(task_assignees::Column::UserId.eq(user.id))
+                .all(db)
                 .await?
                 .into_iter()
                 .map(|a| a.task_id)
                 .collect();
             for task_id in assigned {
-                let Ok(task) = Task::get_by_id(db, &task_id).await else {
+                let Ok(task) = tasks::Entity::find_by_id(task_id)
+                    .one_or_not_found(db)
+                    .await
+                else {
                     continue;
                 };
                 let Some(due) = task.due_date else { continue };
@@ -162,8 +124,9 @@ pub async fn deadline_notifications(state: &AppState, now: jiff::civil::DateTime
                     continue;
                 };
                 let due_text = due_day.to_string();
-                let already = Notification::filter_by_user_id(user.id)
-                    .exec(db)
+                let already = notifications::Entity::find()
+                    .filter(notifications::Column::UserId.eq(user.id))
+                    .all(db)
                     .await?
                     .iter()
                     .any(|n| {
@@ -175,7 +138,10 @@ pub async fn deadline_notifications(state: &AppState, now: jiff::civil::DateTime
                 if already {
                     continue;
                 }
-                let Ok(project) = Project::get_by_id(db, &task.project_id).await else {
+                let Ok(project) = projects::Entity::find_by_id(task.project_id)
+                    .one_or_not_found(db)
+                    .await
+                else {
                     continue;
                 };
                 if project.deleted_at.is_some() {
@@ -210,16 +176,16 @@ pub async fn deadline_notifications(state: &AppState, now: jiff::civil::DateTime
 
 /// Email notifications to the people who want each one as it happens, and mark every notification dealt
 /// with (including those nobody wants emailed, so they are not looked at again). Needs email configured.
-pub async fn send_pending_emails(state: &AppState, now: jiff::civil::DateTime) {
-    use crate::models::{Notification, NotificationSetting, User};
+pub async fn send_pending_emails(state: &AppState, now: crate::time::DateTime) {
+    use crate::models::Notification;
     if !state.mailer.configured().await {
         return;
     }
     let mut pending: Vec<Notification> = vec![];
-    let mut db = state.db();
-    let Ok(all) = Notification::all()
-        .filter(Notification::fields().emailed_at().is_none())
-        .exec(&mut db)
+    let db = state.db();
+    let Ok(all) = notifications::Entity::find()
+        .filter(notifications::Column::EmailedAt.is_null())
+        .all(db)
         .await
     else {
         return;
@@ -228,12 +194,15 @@ pub async fn send_pending_emails(state: &AppState, now: jiff::civil::DateTime) {
     pending.extend(all.into_iter().filter(|n| n.created_at >= cutoff));
     let base = public_base();
     for n in pending {
-        let user = User::get_by_id(&mut db, &n.user_id).await.ok();
+        let user = users::Entity::find_by_id(n.user_id)
+            .one_or_not_found(db)
+            .await
+            .ok();
         let wants = match &user {
             Some(u) if u.active && !u.password_hash.is_empty() => {
-                NotificationSetting::filter_by_user_id(u.id)
-                    .first()
-                    .exec(&mut db)
+                notification_settings::Entity::find()
+                    .filter(notification_settings::Column::UserId.eq(u.id))
+                    .one(db)
                     .await
                     .ok()
                     .flatten()
@@ -243,7 +212,8 @@ pub async fn send_pending_emails(state: &AppState, now: jiff::civil::DateTime) {
         };
         if wants && let Some(user) = &user {
             let actor = match n.actor_id {
-                Some(id) => User::get_by_id(&mut db, &id)
+                Some(id) => users::Entity::find_by_id(id)
+                    .one_or_not_found(db)
                     .await
                     .ok()
                     .map(|u| if u.name.is_empty() { u.email } else { u.name }),
@@ -268,29 +238,38 @@ pub async fn send_pending_emails(state: &AppState, now: jiff::civil::DateTime) {
                 continue; // try again next sweep
             }
         }
-        let mut writer = state.writer().await;
-        let _ = Notification::filter_by_id(n.id)
-            .update()
-            .emailed_at(Some(now))
-            .exec(&mut *writer)
-            .await;
+        let Ok(writer) = state.writer().await else {
+            continue;
+        };
+        let _ = notifications::ActiveModel {
+            id: Unchanged(n.id),
+            emailed_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .update(&*writer)
+        .await;
     }
 }
 
 /// Send each person who wants one their daily summary when their local hour comes round: unread
 /// notifications since the last one, and their tasks due today or overdue.
-pub async fn send_digests(state: &AppState, now: jiff::civil::DateTime) {
-    use crate::models::{Notification, NotificationSetting, Task, TaskAssignee, User};
+pub async fn send_digests(state: &AppState, now: crate::time::DateTime) {
     if !state.mailer.configured().await {
         return;
     }
-    let mut db = state.db();
-    let Ok(settings) = NotificationSetting::all().exec(&mut db).await else {
+    let db = state.db();
+    if false {
+        return;
+    };
+    let Ok(settings) = notification_settings::Entity::find().all(db).await else {
         return;
     };
     let base = public_base();
     for setting in settings.into_iter().filter(|s| s.digest) {
-        let Ok(user) = User::get_by_id(&mut db, &setting.user_id).await else {
+        let Ok(user) = users::Entity::find_by_id(setting.user_id)
+            .one_or_not_found(db)
+            .await
+        else {
             continue;
         };
         if !user.active || user.password_hash.is_empty() {
@@ -308,7 +287,11 @@ pub async fn send_digests(state: &AppState, now: jiff::civil::DateTime) {
             .last_digest_at
             .unwrap_or_else(|| time::add_seconds(now, -86_400));
         let mut lines: Vec<String> = vec![];
-        let Ok(rows) = Notification::filter_by_user_id(user.id).exec(&mut db).await else {
+        let Ok(rows) = notifications::Entity::find()
+            .filter(notifications::Column::UserId.eq(user.id))
+            .all(db)
+            .await
+        else {
             continue;
         };
         for n in rows
@@ -316,7 +299,8 @@ pub async fn send_digests(state: &AppState, now: jiff::civil::DateTime) {
             .filter(|n| n.read_at.is_none() && n.created_at > since)
         {
             let actor = match n.actor_id {
-                Some(id) => User::get_by_id(&mut db, &id)
+                Some(id) => users::Entity::find_by_id(id)
+                    .one_or_not_found(db)
                     .await
                     .ok()
                     .map(|u| if u.name.is_empty() { u.email } else { u.name }),
@@ -330,9 +314,16 @@ pub async fn send_digests(state: &AppState, now: jiff::civil::DateTime) {
             ));
         }
         let mut due: Vec<String> = vec![];
-        if let Ok(assigned) = TaskAssignee::filter_by_user_id(user.id).exec(&mut db).await {
+        if let Ok(assigned) = task_assignees::Entity::find()
+            .filter(task_assignees::Column::UserId.eq(user.id))
+            .all(db)
+            .await
+        {
             for a in assigned {
-                let Ok(task) = Task::get_by_id(&mut db, &a.task_id).await else {
+                let Ok(task) = tasks::Entity::find_by_id(a.task_id)
+                    .one_or_not_found(db)
+                    .await
+                else {
                     continue;
                 };
                 if task.deleted_at.is_some() || task.completed_at.is_some() {
@@ -369,11 +360,15 @@ pub async fn send_digests(state: &AppState, now: jiff::civil::DateTime) {
             tracing::warn!(error = %e, "sending a digest failed");
             continue;
         }
-        let mut writer = state.writer().await;
-        let _ = NotificationSetting::filter_by_user_id(user.id)
-            .update()
-            .last_digest_at(Some(now))
-            .exec(&mut *writer)
-            .await;
+        let Ok(writer) = state.writer().await else {
+            continue;
+        };
+        let _ = notification_settings::ActiveModel {
+            user_id: Unchanged(user.id),
+            last_digest_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .update(&*writer)
+        .await;
     }
 }

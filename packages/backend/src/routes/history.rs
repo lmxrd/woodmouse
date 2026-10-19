@@ -1,8 +1,12 @@
 //! Version history of pages and tasks: list, preview and restore.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::revisions as revision_rows;
+use crate::models::{comments, tasks, users};
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, State};
-use jiff::civil::DateTime;
 use serde::Serialize;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -12,7 +16,7 @@ use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::BlockData;
 use crate::error::ApiError;
-use crate::models::{Comment, Revision, Role, Task, User, WikiPage};
+use crate::models::{Revision, Role, User, WikiPage};
 use crate::revisions::{self, CommentContent, PageContent, TaskContent};
 use crate::routes::auth::PublicUser;
 use crate::routes::pages::{PageDetail, detail};
@@ -60,14 +64,15 @@ pub struct TaskRevisionDetail {
     pub description: String,
 }
 
-async fn author(db: &mut dyn toasty::Executor, id: uuid::Uuid) -> Option<PublicUser> {
-    User::get_by_id(db, &id)
+async fn author(db: &impl Db, id: uuid::Uuid) -> Option<PublicUser> {
+    users::Entity::find_by_id(id)
+        .one_or_not_found(db)
         .await
         .ok()
         .map(|u| PublicUser::from(&u))
 }
 
-async fn summary(db: &mut dyn toasty::Executor, r: &Revision, title: String) -> RevisionSummary {
+async fn summary(db: &impl Db, r: &Revision, title: String) -> RevisionSummary {
     RevisionSummary {
         id: r.id,
         saved_at: r.updated_at,
@@ -77,26 +82,24 @@ async fn summary(db: &mut dyn toasty::Executor, r: &Revision, title: String) -> 
     }
 }
 
-async fn page_summary(db: &mut dyn toasty::Executor, r: &Revision) -> RevisionSummary {
+async fn page_summary(db: &impl Db, r: &Revision) -> RevisionSummary {
     let title = revisions::content::<PageContent>(r)
         .map(|c| c.title)
         .unwrap_or_default();
     summary(db, r, title).await
 }
 
-async fn task_summary(db: &mut dyn toasty::Executor, r: &Revision) -> RevisionSummary {
+async fn task_summary(db: &impl Db, r: &Revision) -> RevisionSummary {
     let title = revisions::content::<TaskContent>(r)
         .map(|c| c.title)
         .unwrap_or_default();
     summary(db, r, title).await
 }
 
-async fn load_revision(
-    db: &mut dyn toasty::Executor,
-    id: uuid::Uuid,
-    kind: &str,
-) -> Result<Revision, ApiError> {
-    let revision = Revision::get_by_id(db, &id).await?;
+async fn load_revision(db: &impl Db, id: uuid::Uuid, kind: &str) -> Result<Revision, ApiError> {
+    let revision = revision_rows::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     if revision.target_type != kind {
         return Err(ApiError::not_found());
     }
@@ -120,7 +123,7 @@ pub async fn list_page_revisions(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<RevisionSummary>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_page_access(db, &user, id, Role::Read).await?;
     let mut out = vec![];
     for r in &revisions::of(db, id).await? {
@@ -130,7 +133,7 @@ pub async fn list_page_revisions(
 }
 
 async fn load_page_revision(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user: &User,
     id: uuid::Uuid,
     min: Role,
@@ -157,7 +160,7 @@ pub async fn get_page_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<PageRevisionDetail>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let (revision, _) = load_page_revision(db, &user, id, Role::Read).await?;
     Ok(Json(PageRevisionDetail {
         summary: page_summary(db, &revision).await,
@@ -185,15 +188,15 @@ pub async fn restore_page_revision(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<PageDetail>, ApiError> {
     let (restored, page_id) = {
-        let mut db = state.writer().await;
-        let (revision, mut page) = load_page_revision(&mut *db, &user, id, Role::Write).await?;
+        let db = state.writer().await?;
+        let (revision, mut page) = load_page_revision(&*db, &user, id, Role::Write).await?;
         let content = revisions::content::<PageContent>(&revision)
             .ok_or_else(|| ApiError::conflict("this version was removed by an admin"))?;
-        let mut tx = db.transaction().await?;
-        pages::save_content(&mut tx, &mut page, user.id, &content.blocks, true).await?;
+        let tx = db.begin().await?;
+        pages::save_content(&tx, &mut page, user.id, &content.blocks, true).await?;
         tx.commit().await?;
         let page_id = page.id;
-        (detail(&mut *db, page).await?, page_id)
+        (detail(&*db, page).await?, page_id)
     };
     // Everyone editing live gets the restored content.
     state.rooms.reset(&state, page_id).await;
@@ -217,7 +220,7 @@ pub async fn list_task_revisions(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<RevisionSummary>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
     let mut out = vec![];
     for r in &revisions::of(db, id).await? {
@@ -227,7 +230,7 @@ pub async fn list_task_revisions(
 }
 
 async fn load_task_revision(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user: &User,
     id: uuid::Uuid,
     min: Role,
@@ -254,7 +257,7 @@ pub async fn get_task_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<TaskRevisionDetail>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let (revision, _) = load_task_revision(db, &user, id, Role::Read).await?;
     Ok(Json(TaskRevisionDetail {
         summary: task_summary(db, &revision).await,
@@ -281,21 +284,26 @@ pub async fn restore_task_revision(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    let mut db = state.writer().await;
-    let (revision, workspace_id) = load_task_revision(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (revision, workspace_id) = load_task_revision(&*db, &user, id, Role::Write).await?;
     let content = revisions::content::<TaskContent>(&revision)
         .ok_or_else(|| ApiError::conflict("this version was removed by an admin"))?;
-    let mut task = Task::get_by_id(&mut *db, &revision.target_id).await?;
+    let task = tasks::Entity::find_by_id(revision.target_id)
+        .one_or_not_found(&*db)
+        .await?;
     if task.title != content.title || task.description != content.description {
-        let mut tx = db.transaction().await?;
-        task.update()
-            .title(content.title.clone())
-            .description(content.description.clone())
-            .exec(&mut tx)
-            .await?;
-        let new = revisions::record_task(&mut tx, task.id, user.id, &content).await?;
+        let tx = db.begin().await?;
+        tasks::ActiveModel {
+            id: Unchanged(task.id),
+            title: Set(content.title.clone()),
+            description: Set(content.description.clone()),
+            ..Default::default()
+        }
+        .update(&tx)
+        .await?;
+        let new = revisions::record_task(&tx, task.id, user.id, &content).await?;
         audit::record(
-            &mut tx,
+            &tx,
             audit::Entry::admin(Some(user.id), "task_edited")
                 .target("task", task.id)
                 .in_workspace(workspace_id)
@@ -304,8 +312,10 @@ pub async fn restore_task_revision(
         .await?;
         tx.commit().await?;
     }
-    let task = Task::get_by_id(&mut *db, &revision.target_id).await?;
-    let mut responses = hydrate_tasks(&mut *db, vec![task]).await?;
+    let task = tasks::Entity::find_by_id(revision.target_id)
+        .one_or_not_found(&*db)
+        .await?;
+    let mut responses = hydrate_tasks(&*db, vec![task]).await?;
     Ok(Json(responses.swap_remove(0)))
 }
 
@@ -335,8 +345,10 @@ pub async fn list_comment_revisions(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<CommentRevision>>, ApiError> {
-    let db = &mut state.db();
-    let comment = Comment::get_by_id(db, &id).await?;
+    let db = state.db();
+    let comment = comments::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     if comment.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }

@@ -2,11 +2,13 @@
 //! comments on their tasks, mentions, tasks and pages they watch, deadlines). A notification is written in
 //! the transaction of the change it is about; emailing is a separate sweep (`jobs`).
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{comments, notifications, task_assignees, watches};
 use serde_json::{Value, json};
 
 use crate::access;
 use crate::error::ApiError;
-use crate::models::{Comment, Notification, TaskAssignee, Watch};
 use crate::time;
 
 pub const TASK: &str = "task";
@@ -30,7 +32,7 @@ fn coalesces(kind: &str) -> bool {
 /// Notify `recipients` (the actor is never told about their own doing; people who cannot see the workspace
 /// are skipped; duplicates are collapsed).
 pub async fn notify(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     recipients: impl IntoIterator<Item = uuid::Uuid>,
     notice: Notice,
 ) -> Result<(), ApiError> {
@@ -44,8 +46,9 @@ pub async fn notify(
             continue;
         }
         if coalesces(notice.kind)
-            && let Some(existing) = Notification::filter_by_user_id(user_id)
-                .exec(db)
+            && let Some(existing) = notifications::Entity::find()
+                .filter(notifications::Column::UserId.eq(user_id))
+                .all(db)
                 .await?
                 .into_iter()
                 .find(|n| {
@@ -54,26 +57,30 @@ pub async fn notify(
                         && n.target_id == Some(notice.target_id)
                 })
         {
-            Notification::filter_by_id(existing.id)
-                .update()
-                .created_at(time::now())
-                .actor_id(notice.actor)
-                .data(notice.data.to_string())
-                .exec(db)
-                .await?;
+            notifications::ActiveModel {
+                id: Unchanged(existing.id),
+                created_at: Set(time::now()),
+                actor_id: Set(notice.actor),
+                data: Set(notice.data.to_string()),
+                ..Default::default()
+            }
+            .update(db)
+            .await?;
             continue;
         }
-        toasty::create!(Notification {
-            user_id,
-            kind: notice.kind.to_string(),
-            workspace_id: notice.workspace_id,
-            target_type: Some(notice.target_type.to_string()),
-            target_id: Some(notice.target_id),
-            actor_id: notice.actor,
-            data: notice.data.to_string(),
-            created_at: time::now(),
-        })
-        .exec(db)
+        notifications::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            user_id: Set(user_id),
+            kind: Set(notice.kind.to_string()),
+            workspace_id: Set(notice.workspace_id),
+            target_type: Set(Some(notice.target_type.to_string())),
+            target_id: Set(Some(notice.target_id)),
+            actor_id: Set(notice.actor),
+            data: Set(notice.data.to_string()),
+            created_at: Set(time::now()),
+            ..Default::default()
+        }
+        .insert(db)
         .await?;
     }
     Ok(())
@@ -81,12 +88,13 @@ pub async fn notify(
 
 /// The people watching a task or page.
 pub async fn watchers(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     target_type: &str,
     target_id: uuid::Uuid,
 ) -> Result<Vec<uuid::Uuid>, ApiError> {
-    Ok(Watch::filter_by_target_id(target_id)
-        .exec(db)
+    Ok(watches::Entity::find()
+        .filter(watches::Column::TargetId.eq(target_id))
+        .all(db)
         .await?
         .into_iter()
         .filter(|w| w.target_type == target_type)
@@ -95,12 +103,10 @@ pub async fn watchers(
 }
 
 /// Who cares about a task: its assignees and its watchers.
-pub async fn task_audience(
-    db: &mut dyn toasty::Executor,
-    task_id: uuid::Uuid,
-) -> Result<Vec<uuid::Uuid>, ApiError> {
-    let mut out: Vec<uuid::Uuid> = TaskAssignee::filter_by_task_id(task_id)
-        .exec(db)
+pub async fn task_audience(db: &impl Db, task_id: uuid::Uuid) -> Result<Vec<uuid::Uuid>, ApiError> {
+    let mut out: Vec<uuid::Uuid> = task_assignees::Entity::find()
+        .filter(task_assignees::Column::TaskId.eq(task_id))
+        .all(db)
         .await?
         .into_iter()
         .map(|a| a.user_id)
@@ -110,22 +116,20 @@ pub async fn task_audience(
 }
 
 /// People who commented on a task before (they are told about later comments).
-pub async fn commenters(
-    db: &mut dyn toasty::Executor,
-    task_id: uuid::Uuid,
-) -> Result<Vec<uuid::Uuid>, ApiError> {
-    Ok(Comment::filter_by_task_id(task_id)
-        .exec(db)
+pub async fn commenters(db: &impl Db, task_id: uuid::Uuid) -> Result<Vec<uuid::Uuid>, ApiError> {
+    Ok(comments::Entity::find()
+        .filter(comments::Column::TaskId.eq(task_id))
+        .filter(comments::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|c| c.deleted_at.is_none())
         .map(|c| c.author_id)
         .collect())
 }
 
 /// Tell the audience of a task that something changed.
 pub async fn task_changed(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     workspace_id: uuid::Uuid,
     project_id: uuid::Uuid,
     task_id: uuid::Uuid,

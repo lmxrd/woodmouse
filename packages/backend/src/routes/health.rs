@@ -32,9 +32,8 @@ pub struct Health {
     )
 )]
 pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
-    let db = &mut state.db();
-    let db_status = match toasty::sql::query("SELECT 1").exec(db).await {
-        Ok(_) => "ok",
+    let db_status = match state.db().ping().await {
+        Ok(()) => "ok",
         Err(err) => {
             tracing::error!(error = %err, "health check: database unreachable");
             "unreachable"
