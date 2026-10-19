@@ -1,10 +1,13 @@
 //! Sprints: dated buckets of a project's tasks. A task is in at most one sprint; completing a sprint
 //! moves its unfinished tasks to the backlog or another open sprint.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{sprints, tasks};
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -83,12 +86,12 @@ fn check_dates(start: DateTime, end: DateTime) -> Result<(), ApiError> {
 
 /// A live sprint the caller may access at `min_role`, with its project.
 async fn load(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user: &crate::models::User,
     id: uuid::Uuid,
     min_role: Role,
 ) -> Result<(Sprint, Project), ApiError> {
-    let sprint = Sprint::get_by_id(db, &id).await?;
+    let sprint = sprints::Entity::find_by_id(id).one_or_not_found(db).await?;
     if sprint.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
@@ -114,16 +117,19 @@ pub async fn list_sprints(
     CurrentUser { user, .. }: CurrentUser,
     Path(project_id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<SprintView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_project(db, &user, project_id, Role::Read).await?;
-    let tasks = Task::filter_by_project_id(project_id).exec(db).await?;
-    let mut sprints: Vec<Sprint> = Sprint::filter_by_project_id(project_id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|s| s.deleted_at.is_none())
-        .collect();
-    sprints.sort_by_key(|s| (s.start_date, s.id));
+    let tasks = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .all(db)
+        .await?;
+    let sprints: Vec<Sprint> = sprints::Entity::find()
+        .filter(sprints::Column::ProjectId.eq(project_id))
+        .filter(sprints::Column::DeletedAt.is_null())
+        .order_by_asc(sprints::Column::StartDate)
+        .order_by_asc(sprints::Column::Id)
+        .all(db)
+        .await?;
     Ok(Json(sprints.iter().map(|s| view(s, &tasks)).collect()))
 }
 
@@ -166,20 +172,22 @@ pub async fn create_sprint(
     let (start, end) = (time::to_day(input.start_date), time::to_day(input.end_date));
     check_dates(start, end)?;
 
-    let mut db = state.writer().await;
-    let project = access::require_project(&mut *db, &user, project_id, Role::Write).await?;
-    let mut tx = db.transaction().await?;
-    let sprint = toasty::create!(Sprint {
-        project_id,
-        name: name.clone(),
-        goal,
-        start_date: start,
-        end_date: end,
-    })
-    .exec(&mut tx)
+    let db = state.writer().await?;
+    let project = access::require_project(&*db, &user, project_id, Role::Write).await?;
+    let tx = db.begin().await?;
+    let sprint = sprints::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        project_id: Set(project_id),
+        name: Set(name.clone()),
+        goal: Set(goal),
+        start_date: Set(start),
+        end_date: Set(end),
+        ..Default::default()
+    }
+    .insert(&tx)
     .await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::feed(project.workspace_id, user.id, "sprint_created")
             .target("sprint", sprint.id)
             .data(serde_json::json!({ "project_id": project_id, "name": name })),
@@ -222,8 +230,8 @@ pub async fn update_sprint(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateSprint>,
 ) -> Result<Json<SprintView>, ApiError> {
-    let mut db = state.writer().await;
-    let (mut sprint, _) = load(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (sprint, _) = load(&*db, &user, id, Role::Write).await?;
     let name = input
         .name
         .as_deref()
@@ -241,18 +249,19 @@ pub async fn update_sprint(
     let end = input.end_date.map(time::to_day).unwrap_or(sprint.end_date);
     check_dates(start, end)?;
 
-    if name.is_some() || goal.is_some() || input.start_date.is_some() || input.end_date.is_some() {
-        let mut update = sprint.update().start_date(start).end_date(end);
-        if let Some(name) = name {
-            update = update.name(name);
-        }
-        if let Some(goal) = goal {
-            update = update.goal(goal);
-        }
-        update.exec(&mut *db).await?;
+    let mut update = sprints::ActiveModel::from(sprint);
+    update.start_date = Set(start);
+    update.end_date = Set(end);
+    if let Some(name) = name {
+        update.name = Set(name);
     }
-    let tasks = Task::filter_by_project_id(sprint.project_id)
-        .exec(&mut *db)
+    if let Some(goal) = goal {
+        update.goal = Set(goal);
+    }
+    let sprint = update.update(&*db).await?;
+    let tasks = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(sprint.project_id))
+        .all(&*db)
         .await?;
     Ok(Json(view(&sprint, &tasks)))
 }
@@ -275,12 +284,12 @@ pub async fn delete_sprint(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let (sprint, project) = load(&mut *db, &user, id, Role::Write).await?;
-    let mut tx = db.transaction().await?;
-    trash::delete_sprint(&mut tx, &sprint, time::now()).await?;
+    let db = state.writer().await?;
+    let (sprint, project) = load(&*db, &user, id, Role::Write).await?;
+    let tx = db.begin().await?;
+    trash::delete_sprint(&tx, &sprint, time::now()).await?;
     audit::deleted(
-        &mut tx,
+        &tx,
         user.id,
         project.workspace_id,
         "sprint",
@@ -321,8 +330,8 @@ pub async fn complete_sprint(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<CompleteSprint>,
 ) -> Result<Json<SprintView>, ApiError> {
-    let mut db = state.writer().await;
-    let (mut sprint, project) = load(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (sprint, project) = load(&*db, &user, id, Role::Write).await?;
     if sprint.completed_at.is_some() {
         return Err(ApiError::conflict("this sprint is already completed"));
     }
@@ -330,11 +339,12 @@ pub async fn complete_sprint(
         if target == id {
             return Err(ApiError::bad_request("choose another sprint"));
         }
-        validate_sprint(&mut *db, sprint.project_id, target).await?;
+        validate_sprint(&*db, sprint.project_id, target).await?;
     }
-    let mut tx = db.transaction().await?;
-    let tasks = Task::filter_by_project_id(sprint.project_id)
-        .exec(&mut tx)
+    let tx = db.begin().await?;
+    let tasks = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(sprint.project_id))
+        .all(&tx)
         .await?;
     let unfinished: Vec<uuid::Uuid> = tasks
         .iter()
@@ -342,19 +352,23 @@ pub async fn complete_sprint(
         .map(|t| t.id)
         .collect();
     for task_id in &unfinished {
-        Task::filter_by_id(*task_id)
-            .update()
-            .sprint_id(input.move_to)
-            .exec(&mut tx)
-            .await?;
-    }
-    sprint
-        .update()
-        .completed_at(Some(time::now()))
-        .exec(&mut tx)
+        tasks::ActiveModel {
+            id: Unchanged(*task_id),
+            sprint_id: Set(input.move_to),
+            ..Default::default()
+        }
+        .update(&tx)
         .await?;
+    }
+    sprints::ActiveModel {
+        id: Unchanged(sprint.id),
+        completed_at: Set(Some(time::now())),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::feed(project.workspace_id, user.id, "sprint_completed")
             .target("sprint", id)
             .data(serde_json::json!({
@@ -365,8 +379,12 @@ pub async fn complete_sprint(
     )
     .await?;
     tx.commit().await?;
-    let tasks = Task::filter_by_project_id(sprint.project_id)
-        .exec(&mut *db)
+    let sprint = sprints::Entity::find_by_id(sprint.id)
+        .one_or_not_found(&*db)
+        .await?;
+    let tasks = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(sprint.project_id))
+        .all(&*db)
         .await?;
     Ok(Json(view(&sprint, &tasks)))
 }

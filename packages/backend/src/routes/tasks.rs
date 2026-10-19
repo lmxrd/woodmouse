@@ -1,11 +1,18 @@
+use crate::db::prelude::*;
+use crate::db::{Db, counts};
+use crate::models::{
+    comments, file_refs, labels, lists, projects, sprints, task_assignees, task_labels, tasks,
+    users,
+};
+use sea_orm::QueryTrait;
+use sea_orm::sea_query::ExprTrait as _;
 use std::collections::{HashMap, HashSet};
 
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -13,11 +20,9 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{
-    Comment, FileRef, Label, List, Priority, Project, Role, Task, TaskAssignee, TaskLabel,
-};
+use crate::models::{Label, Priority, Role, Task};
 use crate::revisions::{self, TaskContent};
-use crate::routes::auth::{People, PublicUser};
+use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::{ordering, time, trash};
 
@@ -143,11 +148,12 @@ pub struct UpdateTaskRequest {
 
 /// A task can only be planned in an open (live, not completed) sprint of its own project.
 pub(crate) async fn validate_sprint(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     project_id: uuid::Uuid,
     sprint_id: uuid::Uuid,
 ) -> Result<(), ApiError> {
-    let sprint = crate::models::Sprint::get_by_id(db, &sprint_id)
+    let sprint = sprints::Entity::find_by_id(sprint_id)
+        .one_or_not_found(db)
         .await
         .map_err(|_| ApiError::bad_request("no such sprint"))?;
     if sprint.project_id != project_id || sprint.deleted_at.is_some() {
@@ -229,15 +235,19 @@ pub async fn list_tasks(
     Path(workspace_id): Path<uuid::Uuid>,
     Query(filters): Query<TaskFilters>,
 ) -> Result<Json<Vec<TaskResponse>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
 
     // The projects in scope. A project or list filter must belong to this workspace, otherwise it looks
     // nonexistent.
     let mut list_filter: Option<uuid::Uuid> = None;
     let project_ids: Vec<uuid::Uuid> = if let Some(list_id) = filters.list_id {
-        let list = List::get_by_id(db, &list_id).await?;
-        let project = Project::get_by_id(db, &list.project_id).await?;
+        let list = lists::Entity::find_by_id(list_id)
+            .one_or_not_found(db)
+            .await?;
+        let project = projects::Entity::find_by_id(list.project_id)
+            .one_or_not_found(db)
+            .await?;
         if project.workspace_id != workspace_id
             || list.deleted_at.is_some()
             || project.deleted_at.is_some()
@@ -248,17 +258,20 @@ pub async fn list_tasks(
         list_filter = Some(list_id);
         vec![project.id]
     } else if let Some(project_id) = filters.project_id {
-        let project = Project::get_by_id(db, &project_id).await?;
+        let project = projects::Entity::find_by_id(project_id)
+            .one_or_not_found(db)
+            .await?;
         if project.workspace_id != workspace_id || project.deleted_at.is_some() {
             return Err(ApiError::not_found());
         }
         vec![project_id]
     } else {
-        Project::filter_by_workspace_id(workspace_id)
-            .exec(db)
+        projects::Entity::find()
+            .filter(projects::Column::WorkspaceId.eq(workspace_id))
+            .filter(projects::Column::DeletedAt.is_null())
+            .all(db)
             .await?
             .into_iter()
-            .filter(|p| p.deleted_at.is_none())
             .map(|p| p.id)
             .collect()
     };
@@ -266,79 +279,92 @@ pub async fn list_tasks(
         return Ok(Json(vec![]));
     }
 
-    let mut query = Task::all()
-        .filter(in_list(Task::fields().project_id(), project_ids))
-        .filter(Task::fields().deleted_at().is_none());
-    if let Some(list_id) = list_filter {
-        query = query.filter(Task::fields().list_id().eq(list_id));
-    } else if filters.inbox == Some(true) {
-        query = query.filter(Task::fields().list_id().is_none());
-    }
-    if let Some(sprint_id) = filters.sprint_id {
-        query = query.filter(Task::fields().sprint_id().eq(sprint_id));
-    } else if filters.no_sprint == Some(true) {
-        query = query.filter(Task::fields().sprint_id().is_none());
-    }
-    if let Some(parent_id) = filters.parent_id {
-        query = query.filter(Task::fields().parent_id().eq(parent_id));
-    } else if filters.include_subtasks != Some(true) {
-        query = query.filter(Task::fields().parent_id().is_none());
-    }
-    match filters.is_completed {
-        Some(true) => query = query.filter(Task::fields().completed_at().is_some()),
-        Some(false) => query = query.filter(Task::fields().completed_at().is_none()),
-        None => {}
-    }
+    // Every filter is optional; the order is applied below.
+    let mut query = tasks::Entity::find()
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(tasks::Column::ProjectId.is_in(project_ids.iter().copied()));
+    query = match (list_filter, filters.inbox == Some(true)) {
+        (Some(list_id), _) => query.filter(tasks::Column::ListId.eq(list_id)),
+        (None, true) => query.filter(tasks::Column::ListId.is_null()),
+        (None, false) => query,
+    };
+    query = match (filters.sprint_id, filters.no_sprint == Some(true)) {
+        (Some(sprint_id), _) => query.filter(tasks::Column::SprintId.eq(sprint_id)),
+        (None, true) => query.filter(tasks::Column::SprintId.is_null()),
+        (None, false) => query,
+    };
+    // Subtasks are left out unless asked for (or one task's subtasks are).
+    query = match (filters.parent_id, filters.include_subtasks == Some(true)) {
+        (Some(parent_id), _) => query.filter(tasks::Column::ParentId.eq(parent_id)),
+        (None, false) => query.filter(tasks::Column::ParentId.is_null()),
+        (None, true) => query,
+    };
+    query = match filters.is_completed {
+        Some(true) => query.filter(tasks::Column::CompletedAt.is_not_null()),
+        Some(false) => query.filter(tasks::Column::CompletedAt.is_null()),
+        None => query,
+    };
+    // The tasks that are assigned to the filtered person, or carry the filtered label.
     if let Some(assignee_id) = filters.assignee_id {
-        let task_ids: Vec<uuid::Uuid> = TaskAssignee::filter_by_user_id(assignee_id)
-            .exec(db)
-            .await?
-            .into_iter()
-            .map(|a| a.task_id)
-            .collect();
-        if task_ids.is_empty() {
-            return Ok(Json(vec![]));
-        }
-        query = query.filter(in_list(Task::fields().id(), task_ids));
+        query = query.filter(
+            tasks::Column::Id.in_subquery(
+                task_assignees::Entity::find()
+                    .select_only()
+                    .column(task_assignees::Column::TaskId)
+                    .filter(task_assignees::Column::UserId.eq(assignee_id))
+                    .into_query(),
+            ),
+        );
     }
     if let Some(label_id) = filters.label_id {
-        let task_ids: Vec<uuid::Uuid> = TaskLabel::filter_by_label_id(label_id)
-            .exec(db)
-            .await?
-            .into_iter()
-            .map(|l| l.task_id)
-            .collect();
-        if task_ids.is_empty() {
-            return Ok(Json(vec![]));
-        }
-        query = query.filter(in_list(Task::fields().id(), task_ids));
+        query = query.filter(
+            tasks::Column::Id.in_subquery(
+                task_labels::Entity::find()
+                    .select_only()
+                    .column(task_labels::Column::TaskId)
+                    .filter(task_labels::Column::LabelId.eq(label_id))
+                    .into_query(),
+            ),
+        );
     }
-
-    let desc = matches!(filters.order.as_deref(), Some("desc"));
-    // Priority (an embedded enum) cannot order across backends; it is not
-    // a sort option. Unknown sort fields fall back to the default.
-    let order_by = match (filters.sort.as_deref(), desc) {
-        (Some("title"), false) => Task::fields().title().asc(),
-        (Some("title"), true) => Task::fields().title().desc(),
-        (Some("due_date"), false) => Task::fields().due_date().asc(),
-        (Some("due_date"), true) => Task::fields().due_date().desc(),
-        (_, true) => Task::fields().position().desc(),
-        (_, false) => Task::fields().position().asc(),
-    };
-    let mut tasks = query.order_by(order_by).exec(db).await?;
+    // Scheduled from the start date (or the due date, if there is no start) to the due date (or the start
+    // date); a task with neither is unscheduled.
+    let first = Func::coalesce([
+        Expr::col(tasks::Column::StartDate),
+        Expr::col(tasks::Column::DueDate),
+    ]);
+    let last = Func::coalesce([
+        Expr::col(tasks::Column::DueDate),
+        Expr::col(tasks::Column::StartDate),
+    ]);
     if filters.unscheduled == Some(true) {
-        tasks.retain(|t| t.start_date.is_none() && t.due_date.is_none());
+        query = query
+            .filter(tasks::Column::StartDate.is_null())
+            .filter(tasks::Column::DueDate.is_null());
     } else if filters.from.is_some() || filters.to.is_some() {
-        let (from, to) = (filters.from.map(time::to_day), filters.to.map(time::to_day));
-        tasks.retain(|t| {
-            let (Some(first), Some(last)) =
-                (t.start_date.or(t.due_date), t.due_date.or(t.start_date))
-            else {
-                return false;
-            };
-            from.is_none_or(|from| last >= from) && to.is_none_or(|to| first <= to)
-        });
+        query = query.filter(first.clone().is_not_null());
+        if let Some(from) = filters.from {
+            query = query.filter(last.gte(time::to_day(from)));
+        }
+        if let Some(to) = filters.to {
+            query = query.filter(first.lte(time::to_day(to)));
+        }
     }
+    // Unknown sort fields fall back to the default (the position).
+    let order = match filters.order.as_deref() {
+        Some("desc") => Order::Desc,
+        _ => Order::Asc,
+    };
+    let sort = match filters.sort.as_deref() {
+        Some("title") => tasks::Column::Title,
+        Some("due_date") => tasks::Column::DueDate,
+        _ => tasks::Column::Position,
+    };
+    let tasks: Vec<Task> = query
+        .order_by(sort, order)
+        .order_by_asc(tasks::Column::Id)
+        .all(db)
+        .await?;
 
     Ok(Json(hydrate_tasks(db, tasks).await?))
 }
@@ -364,10 +390,10 @@ pub async fn create_task(
     Path(list_id): Path<uuid::Uuid>,
     Json(input): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
-    let mut db = state.writer().await;
-    let (list, workspace_id) = access::require_list(&mut *db, &user, list_id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (list, workspace_id) = access::require_list(&*db, &user, list_id, Role::Write).await?;
     let response = create_task_in(
-        &mut db,
+        &*db,
         workspace_id,
         list.project_id,
         Some(list_id),
@@ -400,52 +426,51 @@ pub async fn create_inbox_task(
     Path(project_id): Path<uuid::Uuid>,
     Json(input): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
-    let mut db = state.writer().await;
-    let workspace_id =
-        access::require_project_access(&mut *db, &user, project_id, Role::Write).await?;
-    let response = create_task_in(
-        &mut db,
-        workspace_id,
-        project_id,
-        None,
-        None,
-        user.id,
-        input,
-    )
-    .await?;
+    let db = state.writer().await?;
+    let workspace_id = access::require_project_access(&*db, &user, project_id, Role::Write).await?;
+    let response =
+        create_task_in(&*db, workspace_id, project_id, None, None, user.id, input).await?;
     Ok((StatusCode::CREATED, Json(response)))
 }
 
 /// The tasks that are siblings of a new or moved task: same project, list (or inbox) and parent, live,
 /// in order, as (id, position).
 async fn siblings(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     project_id: uuid::Uuid,
     list_id: Option<uuid::Uuid>,
     parent_id: Option<uuid::Uuid>,
     except: Option<uuid::Uuid>,
 ) -> Result<Vec<(uuid::Uuid, i64)>, ApiError> {
-    let mut found: Vec<(uuid::Uuid, i64)> = Task::filter_by_project_id(project_id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|t| {
-            t.deleted_at.is_none()
-                && t.list_id == list_id
-                && t.parent_id == parent_id
-                && Some(t.id) != except
-        })
-        .map(|t| (t.id, t.position))
-        .collect();
-    found.sort_by_key(|(id, position)| (*position, *id));
-    Ok(found)
+    let mut query = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .filter(tasks::Column::DeletedAt.is_null());
+    query = match list_id {
+        Some(list_id) => query.filter(tasks::Column::ListId.eq(list_id)),
+        None => query.filter(tasks::Column::ListId.is_null()),
+    };
+    query = match parent_id {
+        Some(parent_id) => query.filter(tasks::Column::ParentId.eq(parent_id)),
+        None => query.filter(tasks::Column::ParentId.is_null()),
+    };
+    if let Some(except) = except {
+        query = query.filter(tasks::Column::Id.ne(except));
+    }
+    Ok(query
+        .select_only()
+        .columns([tasks::Column::Id, tasks::Column::Position])
+        .order_by_asc(tasks::Column::Position)
+        .order_by_asc(tasks::Column::Id)
+        .into_tuple()
+        .all(db)
+        .await?)
 }
 
 /// Create a task (or, with `parent_id`, a subtask) at the end of its siblings, with its first revision
 /// and feed entry, in one transaction. Access to the list or project must already be checked. A subtask
 /// lives with its parent: `list_id` is then the parent's.
 pub(crate) async fn create_task_tx(
-    tx: &mut dyn toasty::Executor,
+    tx: &impl Db,
     workspace_id: uuid::Uuid,
     project_id: uuid::Uuid,
     list_id: Option<uuid::Uuid>,
@@ -475,29 +500,31 @@ pub(crate) async fn create_task_tx(
             .iter()
             .map(|(_, p)| *p),
     );
-    let task = toasty::create!(Task {
-        project_id,
-        list_id,
-        title: title.clone(),
-        description: input.description.clone(),
-        position,
-        priority: input.priority.unwrap_or(Priority::Medium),
-        start_date,
-        due_date,
-        sprint_id: input.sprint_id,
-        estimate_minutes: input.estimate_minutes,
-        spent_minutes: input.spent_minutes,
-        parent_id,
-    })
-    .exec(tx)
+    let task = tasks::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        project_id: Set(project_id),
+        list_id: Set(list_id),
+        title: Set(title.clone()),
+        description: Set(input.description.clone()),
+        position: Set(position),
+        priority: Set(input.priority.unwrap_or(Priority::Medium)),
+        start_date: Set(start_date),
+        due_date: Set(due_date),
+        sprint_id: Set(input.sprint_id),
+        estimate_minutes: Set(input.estimate_minutes),
+        spent_minutes: Set(input.spent_minutes),
+        parent_id: Set(parent_id),
+        ..Default::default()
+    }
+    .insert(tx)
     .await?;
 
     for user_id in &input.assignee_ids {
-        toasty::create!(TaskAssignee {
-            task_id: task.id,
-            user_id: *user_id,
-        })
-        .exec(tx)
+        task_assignees::ActiveModel {
+            task_id: Set(task.id),
+            user_id: Set(*user_id),
+        }
+        .insert(tx)
         .await?;
     }
     crate::notify::notify(
@@ -514,11 +541,11 @@ pub(crate) async fn create_task_tx(
     )
     .await?;
     for label_id in &input.label_ids {
-        toasty::create!(TaskLabel {
-            task_id: task.id,
-            label_id: *label_id,
-        })
-        .exec(tx)
+        task_labels::ActiveModel {
+            task_id: Set(task.id),
+            label_id: Set(*label_id),
+        }
+        .insert(tx)
         .await?;
     }
     revisions::record_task(
@@ -532,7 +559,12 @@ pub(crate) async fn create_task_tx(
     )
     .await?;
     let parent_title = match parent_id {
-        Some(pid) => Some(Task::get_by_id(tx, &pid).await?.title),
+        Some(pid) => Some(
+            tasks::Entity::find_by_id(pid)
+                .one_or_not_found(tx)
+                .await?
+                .title,
+        ),
         None => None,
     };
     // A new subtask shows up in its parent's feed, where people look for it.
@@ -554,8 +586,8 @@ pub(crate) async fn create_task_tx(
 }
 
 /// Create a task in its own transaction and return it as the API shows it.
-pub(crate) async fn create_task_in(
-    db: &mut toasty::Db,
+pub async fn create_task_in(
+    db: &impl Db,
     workspace_id: uuid::Uuid,
     project_id: uuid::Uuid,
     list_id: Option<uuid::Uuid>,
@@ -563,9 +595,9 @@ pub(crate) async fn create_task_in(
     actor: uuid::Uuid,
     input: CreateTaskRequest,
 ) -> Result<TaskResponse, ApiError> {
-    let mut tx = db.transaction().await?;
+    let tx = db.begin().await?;
     let task = create_task_tx(
-        &mut tx,
+        &tx,
         workspace_id,
         project_id,
         list_id,
@@ -597,7 +629,7 @@ pub async fn get_task(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let (task, _) = access::require_task(db, &user, id, Role::Read).await?;
     let mut responses = hydrate_tasks(db, vec![task]).await?;
     Ok(Json(responses.swap_remove(0)))
@@ -625,18 +657,18 @@ pub async fn update_task(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, ApiError> {
-    let mut db = state.writer().await;
-    let (current, workspace_id) = access::require_task(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (current, workspace_id) = access::require_task(&*db, &user, id, Role::Write).await?;
     if let Some(title) = &input.title
         && title.trim().is_empty()
     {
         return Err(ApiError::bad_request("title cannot be empty"));
     }
     if let Some(assignee_ids) = &input.assignee_ids {
-        validate_assignees(&mut *db, assignee_ids, workspace_id).await?;
+        validate_assignees(&*db, assignee_ids, workspace_id).await?;
     }
     if let Some(label_ids) = &input.label_ids {
-        validate_labels(&mut *db, label_ids, workspace_id).await?;
+        validate_labels(&*db, label_ids, workspace_id).await?;
     }
 
     // Where the task ends up: under a new parent (in the parent's list), in the requested list, or the
@@ -644,7 +676,7 @@ pub async fn update_task(
     let mut new_list: Option<Option<uuid::Uuid>> = None;
     if let Some(target) = input.list_id {
         if let Some(list_id) = target {
-            let (list, _) = access::require_list(&mut *db, &user, list_id, Role::Write).await?;
+            let (list, _) = access::require_list(&*db, &user, list_id, Role::Write).await?;
             if list.project_id != current.project_id {
                 return Err(ApiError::bad_request("list is in another project"));
             }
@@ -653,8 +685,9 @@ pub async fn update_task(
             new_list = Some(target);
         }
     }
-    let project_tasks = Task::filter_by_project_id(current.project_id)
-        .exec(&mut *db)
+    let project_tasks = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(current.project_id))
+        .all(&*db)
         .await?;
     let mut new_parent: Option<Option<uuid::Uuid>> = None;
     if let Some(parent) = input.parent_id {
@@ -682,8 +715,9 @@ pub async fn update_task(
     // Snapshot what the activity feed compares against after the update.
     let old_assignees: Option<HashSet<uuid::Uuid>> = if input.assignee_ids.is_some() {
         Some(
-            TaskAssignee::filter_by_task_id(id)
-                .exec(&mut *db)
+            task_assignees::Entity::find()
+                .filter(task_assignees::Column::TaskId.eq(id))
+                .all(&*db)
                 .await?
                 .into_iter()
                 .map(|a| a.user_id)
@@ -694,7 +728,12 @@ pub async fn update_task(
     };
     let new_assignees = input.assignee_ids.clone();
     let old_list_name = match current.list_id {
-        Some(l) => Some(List::get_by_id(&mut *db, &l).await?.name),
+        Some(l) => Some(
+            lists::Entity::find_by_id(l)
+                .one_or_not_found(&*db)
+                .await?
+                .name,
+        ),
         None => None,
     };
 
@@ -707,8 +746,8 @@ pub async fn update_task(
             .as_ref()
             .is_some_and(|d| *d != current.description);
 
-    let mut tx = db.transaction().await?;
-    let mut task = Task::get_by_id(&mut tx, &id).await?;
+    let tx = db.begin().await?;
+    let task = tasks::Entity::find_by_id(id).one_or_not_found(&tx).await?;
     let moving = new_list.is_some() || new_parent.is_some();
     let (target_list, target_parent) = (
         new_list.unwrap_or(current.list_id),
@@ -719,7 +758,7 @@ pub async fn update_task(
     let mut position: Option<i64> = None;
     if input.after_id.is_some() || moving {
         let others = siblings(
-            &mut tx,
+            &tx,
             current.project_id,
             target_list,
             target_parent,
@@ -734,17 +773,22 @@ pub async fn update_task(
             },
         };
         for (sibling, new_position) in &placement.renumber {
-            Task::filter_by_id(*sibling)
-                .update()
-                .position(*new_position)
-                .exec(&mut tx)
-                .await?;
+            tasks::ActiveModel {
+                id: Unchanged(*sibling),
+                position: Set(*new_position),
+                ..Default::default()
+            }
+            .update(&tx)
+            .await?;
         }
         position = Some(placement.position);
     }
 
     let was_completed = task.completed_at.is_some();
-    let mut update = task.update();
+    let mut update = tasks::ActiveModel {
+        id: Unchanged(task.id),
+        ..Default::default()
+    };
     let has_field_changes = input.title.is_some()
         || input.description.is_some()
         || input.is_completed.is_some()
@@ -757,48 +801,49 @@ pub async fn update_task(
         || position.is_some()
         || moving;
     if let Some(title) = &input.title {
-        update = update.title(title.trim().to_string());
+        update.title = Set(title.trim().to_string());
     }
     if let Some(description) = &input.description {
-        update = update.description(description.clone());
+        update.description = Set(description.clone());
     }
     if let Some(is_completed) = input.is_completed
         && is_completed != was_completed
     {
-        update = update.completed_at(is_completed.then(time::now));
+        update.completed_at = Set(is_completed.then(time::now));
     }
     if let Some(priority) = input.priority {
-        update = update.priority(priority);
+        update.priority = Set(priority);
     }
     if let Some(due_date) = input.due_date {
-        update = update.due_date(due_date.map(time::to_day));
+        update.due_date = Set(due_date.map(time::to_day));
     }
     if let Some(start_date) = input.start_date {
-        update = update.start_date(start_date.map(time::to_day));
+        update.start_date = Set(start_date.map(time::to_day));
     }
     if let Some(sprint_id) = input.sprint_id {
         if let Some(sprint_id) = sprint_id {
-            validate_sprint(&mut tx, current.project_id, sprint_id).await?;
+            validate_sprint(&tx, current.project_id, sprint_id).await?;
         }
-        update = update.sprint_id(sprint_id);
+        update.sprint_id = Set(sprint_id);
     }
     if let Some(minutes) = input.estimate_minutes {
         validate_minutes(minutes)?;
-        update = update.estimate_minutes(minutes);
+        update.estimate_minutes = Set(minutes);
     }
     if let Some(minutes) = input.spent_minutes {
         validate_minutes(minutes)?;
-        update = update.spent_minutes(minutes);
+        update.spent_minutes = Set(minutes);
     }
     if let Some(position) = position {
-        update = update.position(position);
+        update.position = Set(position);
     }
     if moving {
-        update = update.list_id(target_list).parent_id(target_parent);
+        update.list_id = Set(target_list);
+        update.parent_id = Set(target_parent);
     }
-    // Toasty rejects an update with no assignments (e.g. assignee-only PATCH).
+    // An update with nothing to set (e.g. an assignee-only PATCH) does nothing.
     if has_field_changes {
-        update.exec(&mut tx).await?;
+        update.update(&tx).await?;
     }
     drop(task);
 
@@ -809,48 +854,50 @@ pub async fn update_task(
             .filter(|t| *t != id)
             .collect();
         if !below.is_empty() {
-            Task::all()
-                .filter(in_list(Task::fields().id(), below))
-                .update()
-                .list_id(target)
-                .exec(&mut tx)
+            tasks::Entity::update_many()
+                .set(tasks::ActiveModel {
+                    list_id: Set(target),
+                    ..Default::default()
+                })
+                .filter(tasks::Column::Id.is_in(below))
+                .exec(&tx)
                 .await?;
         }
     }
 
     if let Some(assignee_ids) = input.assignee_ids {
-        TaskAssignee::filter_by_task_id(id)
-            .delete()
-            .exec(&mut tx)
+        task_assignees::Entity::delete_many()
+            .filter(task_assignees::Column::TaskId.eq(id))
+            .exec(&tx)
             .await?;
         for user_id in assignee_ids {
-            toasty::create!(TaskAssignee {
-                task_id: id,
-                user_id,
-            })
-            .exec(&mut tx)
+            task_assignees::ActiveModel {
+                task_id: Set(id),
+                user_id: Set(user_id),
+            }
+            .insert(&tx)
             .await?;
         }
     }
     if let Some(label_ids) = input.label_ids {
-        TaskLabel::filter_by_task_id(id)
-            .delete()
-            .exec(&mut tx)
+        task_labels::Entity::delete_many()
+            .filter(task_labels::Column::TaskId.eq(id))
+            .exec(&tx)
             .await?;
         for label_id in label_ids {
-            toasty::create!(TaskLabel {
-                task_id: id,
-                label_id,
-            })
-            .exec(&mut tx)
+            task_labels::ActiveModel {
+                task_id: Set(id),
+                label_id: Set(label_id),
+            }
+            .insert(&tx)
             .await?;
         }
     }
 
-    let task = Task::get_by_id(&mut tx, &id).await?;
+    let task = tasks::Entity::find_by_id(id).one_or_not_found(&tx).await?;
     if text_changed {
         let revision = revisions::record_task(
-            &mut tx,
+            &tx,
             id,
             user.id,
             &TaskContent {
@@ -860,7 +907,7 @@ pub async fn update_task(
         )
         .await?;
         audit::record(
-            &mut tx,
+            &tx,
             audit::Entry::admin(Some(user.id), "task_edited")
                 .target("task", id)
                 .in_workspace(workspace_id)
@@ -869,7 +916,7 @@ pub async fn update_task(
         .await?;
     }
     record_changes(
-        &mut tx,
+        &tx,
         workspace_id,
         user.id,
         &current,
@@ -881,14 +928,14 @@ pub async fn update_task(
     .await?;
     tx.commit().await?;
 
-    let mut responses = hydrate_tasks(&mut *db, vec![task]).await?;
+    let mut responses = hydrate_tasks(&*db, vec![task]).await?;
     Ok(Json(responses.swap_remove(0)))
 }
 
 /// Write a feed entry for each thing that changed between `before` and `after`.
 #[allow(clippy::too_many_arguments)]
 async fn record_changes(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     workspace_id: uuid::Uuid,
     actor: uuid::Uuid,
     before: &Task,
@@ -914,7 +961,12 @@ async fn record_changes(
     }
     if before.list_id != after.list_id {
         let to = match after.list_id {
-            Some(l) => Some(List::get_by_id(db, &l).await?.name),
+            Some(l) => Some(
+                lists::Entity::find_by_id(l)
+                    .one_or_not_found(db)
+                    .await?
+                    .name,
+            ),
             None => None,
         };
         events.push((
@@ -992,8 +1044,13 @@ async fn record_changes(
             if ids.is_empty() {
                 continue;
             }
-            let people = People::load(db, ids.iter().copied()).await?;
-            let names: Vec<String> = ids.into_iter().filter_map(|id| people.label(id)).collect();
+            let names: Vec<String> = users::Entity::find()
+                .filter(users::Column::Id.is_in(ids))
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|u| if u.name.is_empty() { u.email } else { u.name })
+                .collect();
             events.push((
                 kind,
                 serde_json::json!({ "title": after.title, "who": names }),
@@ -1033,14 +1090,14 @@ pub async fn delete_task(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let (task, workspace_id) = access::require_task(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let (task, workspace_id) = access::require_task(&*db, &user, id, Role::Write).await?;
 
-    let mut tx = db.transaction().await?;
-    trash::delete_task(&mut tx, &task, time::now()).await?;
-    audit::deleted(&mut tx, user.id, workspace_id, "task", id, &task.title).await?;
+    let tx = db.begin().await?;
+    trash::delete_task(&tx, &task, time::now()).await?;
+    audit::deleted(&tx, user.id, workspace_id, "task", id, &task.title).await?;
     audit::task_event(
-        &mut tx,
+        &tx,
         workspace_id,
         task.project_id,
         user.id,
@@ -1055,7 +1112,7 @@ pub async fn delete_task(
 
 /// Assignees must be able to see the workspace (they must be able to see the task).
 pub(crate) async fn validate_assignees(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     assignee_ids: &[uuid::Uuid],
     workspace_id: uuid::Uuid,
 ) -> Result<(), ApiError> {
@@ -1071,16 +1128,16 @@ pub(crate) async fn validate_assignees(
 
 /// Labels must belong to the same workspace. Returns the label rows.
 async fn validate_labels(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     label_ids: &[uuid::Uuid],
     workspace_id: uuid::Uuid,
 ) -> Result<Vec<Label>, ApiError> {
     if label_ids.is_empty() {
         return Ok(vec![]);
     }
-    let labels = Label::all()
-        .filter(in_list(Label::fields().id(), label_ids.to_vec()))
-        .exec(db)
+    let labels = labels::Entity::find()
+        .filter(labels::Column::Id.is_in(label_ids.iter().copied()))
+        .all(db)
         .await?;
     if labels.len() != label_ids.len()
         || labels
@@ -1096,7 +1153,7 @@ async fn validate_labels(
 
 /// Bulk-load assignees and labels for a set of tasks (no per-task queries).
 pub(crate) async fn hydrate_tasks(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     tasks: Vec<Task>,
 ) -> Result<Vec<TaskResponse>, ApiError> {
     if tasks.is_empty() {
@@ -1104,80 +1161,53 @@ pub(crate) async fn hydrate_tasks(
     }
     let task_ids: Vec<uuid::Uuid> = tasks.iter().map(|t| t.id).collect();
 
-    let assignee_rows = TaskAssignee::all()
-        .filter(in_list(TaskAssignee::fields().task_id(), task_ids.clone()))
-        .exec(db)
+    // Assignees and labels through the join tables, one query each; the results line up with `tasks`.
+    let assignees = tasks
+        .load_many_to_many(users::Entity, task_assignees::Entity, db)
         .await?;
-    let label_rows = TaskLabel::all()
-        .filter(in_list(TaskLabel::fields().task_id(), task_ids.clone()))
-        .exec(db)
+    let labels = tasks
+        .load_many_to_many(labels::Entity, task_labels::Entity, db)
         .await?;
 
     // Every live task in those projects, to count each task's subtasks (any depth).
     let project_ids: HashSet<uuid::Uuid> = tasks.iter().map(|t| t.project_id).collect();
-    let live_in_projects: Vec<Task> = Task::all()
-        .filter(in_list(
-            Task::fields().project_id(),
-            project_ids.iter().copied().collect::<Vec<_>>(),
-        ))
-        .filter(Task::fields().deleted_at().is_none())
-        .exec(db)
+    let live_in_projects: Vec<Task> = tasks::Entity::find()
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(tasks::Column::ProjectId.is_in(project_ids.iter().copied()))
+        .all(db)
         .await?;
     let completed_by_id: HashMap<uuid::Uuid, bool> = live_in_projects
         .iter()
         .map(|t| (t.id, t.completed_at.is_some()))
         .collect();
 
-    let comment_rows = Comment::all()
-        .filter(in_list(Comment::fields().task_id(), task_ids.clone()))
-        .exec(db)
-        .await?;
-    let file_rows = FileRef::all()
-        .filter(in_list(FileRef::fields().target_id(), task_ids))
-        .exec(db)
-        .await?;
-
-    let people = People::load(db, assignee_rows.iter().map(|a| a.user_id)).await?;
-    let label_ids: HashSet<uuid::Uuid> = label_rows.iter().map(|l| l.label_id).collect();
-    let labels: Vec<Label> = if label_ids.is_empty() {
-        vec![]
-    } else {
-        Label::all()
-            .filter(in_list(
-                Label::fields().id(),
-                label_ids.into_iter().collect::<Vec<_>>(),
-            ))
-            .exec(db)
-            .await?
-    };
-
-    let labels_by_id: HashMap<uuid::Uuid, Label> = labels
-        .into_iter()
-        .filter(|l| l.deleted_at.is_none())
-        .map(|l| (l.id, l))
-        .collect();
-
-    let mut assignees_by_task: HashMap<uuid::Uuid, Vec<PublicUser>> = HashMap::new();
-    for row in assignee_rows {
-        if let Some(user) = people.public(row.user_id) {
-            assignees_by_task.entry(row.task_id).or_default().push(user);
-        }
-    }
-    let mut labels_by_task: HashMap<uuid::Uuid, Vec<Label>> = HashMap::new();
-    for row in label_rows {
-        if let Some(label) = labels_by_id.get(&row.label_id) {
-            labels_by_task
-                .entry(row.task_id)
-                .or_default()
-                .push(label.clone());
-        }
-    }
+    let comment_counts = counts(
+        db,
+        comments::Entity::find()
+            .filter(comments::Column::TaskId.is_in(task_ids.iter().copied()))
+            .filter(comments::Column::DeletedAt.is_null()),
+        comments::Column::TaskId,
+    )
+    .await?;
+    let attachment_counts = counts(
+        db,
+        file_refs::Entity::find()
+            .filter(file_refs::Column::TargetId.is_in(task_ids.iter().copied()))
+            .filter(file_refs::Column::TargetType.eq("task")),
+        file_refs::Column::TargetId,
+    )
+    .await?;
 
     Ok(tasks
         .into_iter()
-        .map(|task| {
-            let assignees = assignees_by_task.remove(&task.id).unwrap_or_default();
-            let task_labels = labels_by_task.remove(&task.id).unwrap_or_default();
+        .zip(assignees)
+        .zip(labels)
+        .map(|((task, assignees), task_labels)| {
+            let assignees: Vec<PublicUser> = assignees.iter().map(PublicUser::from).collect();
+            let task_labels: Vec<Label> = task_labels
+                .into_iter()
+                .filter(|l| l.deleted_at.is_none())
+                .collect();
             let below: Vec<uuid::Uuid> = trash::subtree(&live_in_projects, task.id)
                 .into_iter()
                 .filter(|id| *id != task.id)
@@ -1205,14 +1235,8 @@ pub(crate) async fn hydrate_tasks(
                 labels: task_labels,
                 subtask_total: below.len(),
                 subtask_completed,
-                comment_count: comment_rows
-                    .iter()
-                    .filter(|c| c.task_id == task.id && c.deleted_at.is_none())
-                    .count(),
-                attachment_count: file_rows
-                    .iter()
-                    .filter(|r| r.target_type == "task" && r.target_id == task.id)
-                    .count(),
+                comment_count: comment_counts.get(&task.id).copied().unwrap_or(0),
+                attachment_count: attachment_counts.get(&task.id).copied().unwrap_or(0),
             }
         })
         .collect())

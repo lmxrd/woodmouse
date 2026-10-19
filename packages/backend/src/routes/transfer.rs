@@ -1,5 +1,7 @@
 //! Export a workspace's data as JSON (chosen parts) or tasks as CSV, and import either one.
 
+use crate::db::prelude::*;
+use crate::models::workspaces;
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
@@ -15,7 +17,7 @@ use crate::api::attachment;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Workspace};
+use crate::models::Role;
 use crate::state::AppState;
 use crate::transfer::{self, Export, ImportOptions, ImportReport, Parts, UserChoice};
 
@@ -75,7 +77,7 @@ pub async fn export_workspace(
     Path(id): Path<uuid::Uuid>,
     Query(query): Query<ExportQuery>,
 ) -> Result<Response, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let role = access::require_access(db, &user, id, Role::Read).await?;
     let wanted: Vec<String> = query
         .parts
@@ -100,7 +102,9 @@ pub async fn export_workspace(
     if parts.members && role < Role::Admin {
         return Err(ApiError::not_found());
     }
-    let workspace = Workspace::get_by_id(db, &id).await?;
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     let export = transfer::build_export(db, &workspace, &parts, &ids(&query.project_ids)?).await?;
     let text = serde_json::to_string_pretty(&export)
         .map_err(|_| ApiError::internal("could not write the export"))?;
@@ -137,9 +141,11 @@ pub async fn export_tasks_csv(
     Path(id): Path<uuid::Uuid>,
     Query(query): Query<CsvQuery>,
 ) -> Result<Response, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Read).await?;
-    let workspace = Workspace::get_by_id(db, &id).await?;
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     let parts = Parts {
         projects: true,
         labels: false,
@@ -223,8 +229,8 @@ pub async fn import_workspace_data(
         }
         other => return Err(ApiError::bad_request(format!("unknown format `{other}`"))),
     };
-    let mut db = state.writer().await;
-    let role = access::require_access(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let role = access::require_access(&*db, &user, id, Role::Write).await?;
     // Unreadable rows block the import, so it only previews when there are any.
     let blocked_by_file = !parse_report.problems.is_empty();
     let options = ImportOptions {
@@ -236,7 +242,7 @@ pub async fn import_workspace_data(
             .collect(),
         can_create_users: role >= Role::Admin,
     };
-    let mut report = transfer::apply(&mut db, id, user.id, data, &options).await?;
+    let mut report = transfer::apply(&*db, id, user.id, data, &options).await?;
     report.problems.splice(0..0, parse_report.problems);
     report.warnings.splice(0..0, parse_report.warnings);
     if !input.dry_run && blocked_by_file {
@@ -249,9 +255,9 @@ pub async fn import_workspace_data(
     if !report.applied {
         return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(report)).into_response());
     }
-    let mut tx = db.transaction().await?;
+    let tx = db.begin().await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "data_imported")
             .in_workspace(id)
             .data(serde_json::json!({

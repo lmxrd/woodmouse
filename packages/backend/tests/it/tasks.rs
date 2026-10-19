@@ -3,6 +3,8 @@
 
 use axum::http::StatusCode;
 use serde_json::Value;
+use woodmouse::db::prelude::*;
+use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -509,23 +511,26 @@ async fn access_isolation_and_roles() {
     let project_id = json_id(res).await;
 
     // A second, non-member user (seeded directly).
-    let other = toasty::create!(woodmouse::models::User {
-        email: "other@home.io".to_string(),
-        name: "Other".to_string(),
-        password_hash: "not-a-login-hash".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(&mut db.clone())
+    let other = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("other@home.io".to_string()),
+        name: Set("Other".to_string()),
+        password_hash: Set("not-a-login-hash".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .expect("seed user");
     let other_token = uuid::Uuid::new_v4().to_string();
-    toasty::create!(woodmouse::models::Session {
-        token: other_token.clone(),
-        user_id: other.id,
-        expires_at: crate::common::far_future(),
-    })
-    .exec(&mut db.clone())
+    sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(other_token.clone()),
+        user_id: Set(other.id),
+        expires_at: Set(crate::common::far_future()),
+    }
+    .insert(&db)
     .await
     .expect("seed session");
     let other_cookie = format!("woodmouse_session={other_token}");
@@ -560,12 +565,13 @@ async fn access_isolation_and_roles() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
     // As a read-only member: can list, cannot write.
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: other.id,
-        workspace_id,
-        role: woodmouse::models::Role::Read,
-    })
-    .exec(&mut db.clone())
+    workspace_members::ActiveModel {
+        user_id: Set(other.id),
+        workspace_id: Set(workspace_id),
+        role: Set(woodmouse::models::Role::Read),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .expect("seed membership");
 
@@ -754,22 +760,25 @@ async fn workspace_members_listing() {
     let cookie = bootstrap_admin(&app).await;
     let workspace_id = create_workspace(&app, &cookie, "Home").await;
 
-    let other = toasty::create!(woodmouse::models::User {
-        email: "other@home.io".to_string(),
-        name: "Alice".to_string(),
-        password_hash: "not-a-login-hash".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(&mut db.clone())
+    let other = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("other@home.io".to_string()),
+        name: Set("Alice".to_string()),
+        password_hash: Set("not-a-login-hash".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .expect("seed user");
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: other.id,
-        workspace_id,
-        role: woodmouse::models::Role::Write,
-    })
-    .exec(&mut db.clone())
+    workspace_members::ActiveModel {
+        user_id: Set(other.id),
+        workspace_id: Set(workspace_id),
+        role: Set(woodmouse::models::Role::Write),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .expect("seed membership");
 
@@ -793,22 +802,25 @@ async fn workspace_members_listing() {
 
     // A user with no membership sees a 404, like the workspace itself.
     let token = uuid::Uuid::new_v4().to_string();
-    let stranger = toasty::create!(woodmouse::models::User {
-        email: "stranger@x.io".to_string(),
-        name: "Stranger".to_string(),
-        password_hash: "not-a-login-hash".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(&mut db.clone())
+    let stranger = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("stranger@x.io".to_string()),
+        name: Set("Stranger".to_string()),
+        password_hash: Set("not-a-login-hash".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .expect("seed user");
-    toasty::create!(woodmouse::models::Session {
-        token: token.clone(),
-        user_id: stranger.id,
-        expires_at: crate::common::far_future(),
-    })
-    .exec(&mut db.clone())
+    sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(token.clone()),
+        user_id: Set(stranger.id),
+        expires_at: Set(crate::common::far_future()),
+    }
+    .insert(&db)
     .await
     .expect("seed session");
     let res = request(

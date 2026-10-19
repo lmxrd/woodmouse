@@ -1,16 +1,18 @@
 //! What pages refer to: "referenced by" lists, and the current titles of referenced pages and tasks.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{content_links, projects, tasks, wiki_pages};
 use axum::Json;
 use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{ContentLink, Project, Role, Task, WikiPage};
+use crate::models::{Role, WikiPage};
 use crate::state::AppState;
 
 pub fn router() -> OpenApiRouter<AppState> {
@@ -27,12 +29,10 @@ pub struct Backlink {
     pub title: String,
 }
 
-async fn backlinks_of(
-    db: &mut dyn toasty::Executor,
-    target: uuid::Uuid,
-) -> Result<Vec<Backlink>, ApiError> {
-    let sources: Vec<uuid::Uuid> = ContentLink::filter_by_target_id(target)
-        .exec(db)
+async fn backlinks_of(db: &impl Db, target: uuid::Uuid) -> Result<Vec<Backlink>, ApiError> {
+    let sources: Vec<uuid::Uuid> = content_links::Entity::find()
+        .filter(content_links::Column::TargetId.eq(target))
+        .all(db)
         .await?
         .into_iter()
         .map(|l| l.source_page_id)
@@ -40,12 +40,12 @@ async fn backlinks_of(
     if sources.is_empty() {
         return Ok(vec![]);
     }
-    let mut pages: Vec<WikiPage> = WikiPage::all()
-        .filter(in_list(WikiPage::fields().id(), sources))
-        .filter(WikiPage::fields().deleted_at().is_none())
-        .exec(db)
+    let pages: Vec<WikiPage> = wiki_pages::Entity::find()
+        .filter(wiki_pages::Column::DeletedAt.is_null())
+        .filter(wiki_pages::Column::Id.is_in(sources.iter().copied()))
+        .order_by_asc(Func::lower(Expr::col(wiki_pages::Column::Title)))
+        .all(db)
         .await?;
-    pages.sort_by_key(|p| p.title.to_lowercase());
     Ok(pages
         .into_iter()
         .map(|p| Backlink {
@@ -72,7 +72,7 @@ pub async fn page_backlinks(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<Backlink>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_page_access(db, &user, id, Role::Read).await?;
     Ok(Json(backlinks_of(db, id).await?))
 }
@@ -94,7 +94,7 @@ pub async fn task_backlinks(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<Backlink>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
     Ok(Json(backlinks_of(db, id).await?))
 }
@@ -151,14 +151,14 @@ pub async fn resolve(
     if input.page_ids.len() > MAX_RESOLVE || input.task_ids.len() > MAX_RESOLVE {
         return Err(ApiError::bad_request("too many ids"));
     }
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
 
     let mut pages = vec![];
     if !input.page_ids.is_empty() {
-        for p in WikiPage::all()
-            .filter(in_list(WikiPage::fields().id(), input.page_ids))
-            .exec(db)
+        for p in wiki_pages::Entity::find()
+            .filter(wiki_pages::Column::Id.is_in(input.page_ids.iter().copied()))
+            .all(db)
             .await?
             .into_iter()
             .filter(|p| p.workspace_id == workspace_id)
@@ -174,16 +174,20 @@ pub async fn resolve(
 
     let mut tasks = vec![];
     if !input.task_ids.is_empty() {
-        let found = Task::all()
-            .filter(in_list(Task::fields().id(), input.task_ids))
-            .exec(db)
+        let found = tasks::Entity::find()
+            .filter(tasks::Column::Id.is_in(input.task_ids.iter().copied()))
+            .all(db)
             .await?;
         // A task is gone when it or its project is in the trash (a deleted list or parent takes its tasks
         // along).
         let mut projects = std::collections::HashMap::new();
         for t in found {
             if let std::collections::hash_map::Entry::Vacant(slot) = projects.entry(t.project_id) {
-                slot.insert(Project::get_by_id(db, &t.project_id).await?);
+                slot.insert(
+                    projects::Entity::find_by_id(t.project_id)
+                        .one_or_not_found(db)
+                        .await?,
+                );
             }
             let project = &projects[&t.project_id];
             if project.workspace_id != workspace_id {

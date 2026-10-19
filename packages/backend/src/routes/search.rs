@@ -1,5 +1,7 @@
 //! Search over pages and tasks, for the ⌘K palette and the `@` and `[[` pickers.
 
+use crate::db::prelude::*;
+use crate::models::{workspace_members, workspaces};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
@@ -9,7 +11,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Workspace, WorkspaceMember};
+use crate::models::{Role, Workspace};
 use crate::search::{self, Kind};
 use crate::state::AppState;
 
@@ -73,16 +75,17 @@ pub async fn search(
     Path(workspace_id): Path<uuid::Uuid>,
     Query(params): Query<SearchParams>,
 ) -> Result<Json<Vec<SearchHit>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
     let workspaces: Vec<Workspace> = if params.all_workspaces == Some(true) {
-        let all = Workspace::all().exec(db).await?;
+        let all = workspaces::Entity::find().all(db).await?;
         if user.super_admin {
             all
         } else {
             let member_of: std::collections::HashSet<uuid::Uuid> =
-                WorkspaceMember::filter_by_user_id(user.id)
-                    .exec(db)
+                workspace_members::Entity::find()
+                    .filter(workspace_members::Column::UserId.eq(user.id))
+                    .all(db)
                     .await?
                     .into_iter()
                     .map(|m| m.workspace_id)
@@ -92,7 +95,11 @@ pub async fn search(
                 .collect()
         }
     } else {
-        vec![Workspace::get_by_id(db, &workspace_id).await?]
+        vec![
+            workspaces::Entity::find_by_id(workspace_id)
+                .one_or_not_found(db)
+                .await?,
+        ]
     };
     let ids: Vec<uuid::Uuid> = workspaces.iter().map(|w| w.id).collect();
     let kind = params.kind.map(|k| match k {

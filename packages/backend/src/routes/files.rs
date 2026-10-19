@@ -3,13 +3,16 @@
 //! Uploads are deduplicated per workspace by SHA-256. A file stays in the library when it is detached
 //! from a task or the task is deleted; only an admin's cleanup removes files nothing references.
 
+use crate::db::prelude::*;
+use crate::db::{Db, counts};
+use crate::models::users;
+use crate::models::{file_refs, file_versions, files, tasks, wiki_pages};
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -17,8 +20,8 @@ use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{File, FileRef, FileVersion, Role, Task, User, WikiPage};
-use crate::routes::auth::{People, PublicUser};
+use crate::models::{File, FileRef, Role, User};
+use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::storage::sha256_hex;
 use crate::time;
@@ -93,36 +96,35 @@ pub struct FileFilters {
     pub unused: Option<bool>,
 }
 
-async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<FileView>, ApiError> {
+async fn views(db: &impl Db, files: Vec<File>) -> Result<Vec<FileView>, ApiError> {
     if files.is_empty() {
         return Ok(vec![]);
     }
-    let file_ids: Vec<uuid::Uuid> = files.iter().map(|f| f.id).collect();
-    let refs = FileRef::all()
-        .filter(in_list(FileRef::fields().file_id(), file_ids))
-        .exec(db)
-        .await?;
-    let version_rows = FileVersion::all()
-        .filter(in_list(
-            FileVersion::fields().file_id(),
-            files.iter().map(|f| f.id).collect::<Vec<_>>(),
-        ))
-        .exec(db)
-        .await?;
-    let people = People::load(db, files.iter().map(|f| f.uploaded_by)).await?;
+    let used_in = counts(
+        db,
+        file_refs::Entity::find()
+            .filter(file_refs::Column::FileId.is_in(files.iter().map(|f| f.id))),
+        file_refs::Column::FileId,
+    )
+    .await?;
+    let versions = counts(
+        db,
+        file_versions::Entity::find()
+            .filter(file_versions::Column::FileId.is_in(files.iter().map(|f| f.id))),
+        file_versions::Column::FileId,
+    )
+    .await?;
+    let uploaders = files.load_one(users::Entity, db).await?;
     Ok(files
         .into_iter()
-        .map(|f| FileView {
+        .zip(uploaders)
+        .map(|(f, uploader)| FileView {
             id: f.id,
             workspace_id: f.workspace_id,
             previewable: INLINE_TYPES.contains(&f.mime.as_str()),
-            uploaded_by: people.public(f.uploaded_by),
-            used_in: refs.iter().filter(|r| r.file_id == f.id).count(),
-            versions: version_rows
-                .iter()
-                .filter(|v| v.file_id == f.id)
-                .count()
-                .max(1),
+            uploaded_by: uploader.as_ref().map(PublicUser::from),
+            used_in: used_in.get(&f.id).copied().unwrap_or(0),
+            versions: versions.get(&f.id).copied().unwrap_or(0).max(1),
             name: f.name,
             mime: f.mime,
             size: f.size,
@@ -133,25 +135,22 @@ async fn views(db: &mut dyn toasty::Executor, files: Vec<File>) -> Result<Vec<Fi
 }
 
 /// One file as the API shows it.
-pub(crate) async fn file_view(
-    db: &mut dyn toasty::Executor,
-    file: File,
-) -> Result<FileView, ApiError> {
+pub(crate) async fn file_view(db: &impl Db, file: File) -> Result<FileView, ApiError> {
     one_view(db, file).await
 }
 
-async fn one_view(db: &mut dyn toasty::Executor, file: File) -> Result<FileView, ApiError> {
+async fn one_view(db: &impl Db, file: File) -> Result<FileView, ApiError> {
     Ok(views(db, vec![file]).await?.swap_remove(0))
 }
 
 /// A file the caller may read; returns it with its workspace.
 async fn load_file(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user: &User,
     id: uuid::Uuid,
     min_role: Role,
 ) -> Result<File, ApiError> {
-    let file = File::get_by_id(db, &id).await?;
+    let file = files::Entity::find_by_id(id).one_or_not_found(db).await?;
     if file.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
@@ -191,19 +190,18 @@ pub async fn list_files(
     Path(id): Path<uuid::Uuid>,
     Query(filters): Query<FileFilters>,
 ) -> Result<Json<Vec<FileView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Read).await?;
-    let mut files = File::filter_by_workspace_id(id).exec(db).await?;
-    files.retain(|f| f.deleted_at.is_none());
-    if let Some(q) = filters
-        .q
-        .as_ref()
-        .map(|q| q.to_lowercase())
-        .filter(|q| !q.is_empty())
-    {
-        files.retain(|f| f.name.to_lowercase().contains(&q));
+    let mut query = files::Entity::find()
+        .filter(files::Column::WorkspaceId.eq(id))
+        .filter(files::Column::DeletedAt.is_null());
+    if let Some(q) = filters.q.as_ref().filter(|q| !q.is_empty()) {
+        query = query.filter(files::Column::Name.contains(q));
     }
-    files.sort_by_key(|f| std::cmp::Reverse(f.created_at));
+    let files = query
+        .order_by_desc(files::Column::CreatedAt)
+        .all(db)
+        .await?;
     let mut out = views(db, files).await?;
     if filters.unused == Some(true) {
         out.retain(|f| f.used_in == 0);
@@ -234,7 +232,7 @@ pub async fn upload_file(
     Path(id): Path<uuid::Uuid>,
     mut multipart: Multipart,
 ) -> Result<Response, ApiError> {
-    access::require_access(&mut state.db(), &user, id, Role::Write).await?;
+    access::require_access(state.db(), &user, id, Role::Write).await?;
 
     let mut upload: Option<(String, Option<String>, Vec<u8>)> = None;
     let mut task_id: Option<uuid::Uuid> = None;
@@ -285,8 +283,8 @@ pub async fn upload_file(
             .to_string()
     });
 
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     if let Some(task_id) = task_id {
         let workspace = access::require_task_access(db, &user, task_id, Role::Write).await?;
         if workspace != id {
@@ -295,8 +293,9 @@ pub async fn upload_file(
     }
 
     // Identical content already in this workspace: do not store it twice.
-    if let Some(existing) = File::filter_by_sha256(sha256.clone())
-        .exec(db)
+    if let Some(existing) = files::Entity::find()
+        .filter(files::Column::Sha256.eq(&sha256))
+        .all(db)
         .await?
         .into_iter()
         .find(|f| f.workspace_id == id && f.deleted_at.is_none())
@@ -314,18 +313,20 @@ pub async fn upload_file(
         tracing::error!(error = %e, "storing an upload failed");
         ApiError::internal("could not store the file")
     })?;
-    let created = toasty::create!(File {
-        workspace_id: id,
-        name,
-        mime,
-        size: bytes.len() as i64,
-        sha256,
-        storage_backend: store.name().to_string(),
-        storage_key: key.clone(),
-        uploaded_by: user.id,
-        created_at: time::now(),
-    })
-    .exec(db)
+    let created = files::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        workspace_id: Set(id),
+        name: Set(name),
+        mime: Set(mime),
+        size: Set(bytes.len() as i64),
+        sha256: Set(sha256),
+        storage_backend: Set(store.name().to_string()),
+        storage_key: Set(key.clone()),
+        uploaded_by: Set(user.id),
+        created_at: Set(time::now()),
+        ..Default::default()
+    }
+    .insert(db)
     .await;
     let file = match created {
         Ok(file) => file,
@@ -334,10 +335,10 @@ pub async fn upload_file(
             return Err(e.into());
         }
     };
-    let mut tx = db.transaction().await?;
-    crate::routes::file_versions::record_first(&mut tx, &file).await?;
+    let tx = db.begin().await?;
+    crate::routes::file_versions::record_first(&tx, &file).await?;
     if let Some(task_id) = task_id {
-        attach(&mut tx, id, task_id, user.id, &file).await?;
+        attach(&tx, id, task_id, user.id, &file).await?;
     }
     tx.commit().await?;
     let view = one_view(db, file).await?;
@@ -362,7 +363,7 @@ pub async fn file_content(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Response, ApiError> {
-    let file = { load_file(&mut state.db(), &user, id, Role::Read).await? };
+    let file = { load_file(state.db(), &user, id, Role::Read).await? };
     serve_blob(
         &state,
         &file.storage_backend,
@@ -467,9 +468,12 @@ pub async fn file_usage(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<FileUsage>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     load_file(db, &user, id, Role::Read).await?;
-    let refs = FileRef::filter_by_file_id(id).exec(db).await?;
+    let refs = file_refs::Entity::find()
+        .filter(file_refs::Column::FileId.eq(id))
+        .all(db)
+        .await?;
     let ids_of = |kind: &str| -> Vec<uuid::Uuid> {
         refs.iter()
             .filter(|r| r.target_type == kind)
@@ -478,9 +482,9 @@ pub async fn file_usage(
     };
     let mut out = vec![];
     if !ids_of(TASK).is_empty() {
-        for t in Task::all()
-            .filter(in_list(Task::fields().id(), ids_of(TASK)))
-            .exec(db)
+        for t in tasks::Entity::find()
+            .filter(tasks::Column::Id.is_in(ids_of(TASK).iter().copied()))
+            .all(db)
             .await?
         {
             out.push(FileUsage {
@@ -493,9 +497,9 @@ pub async fn file_usage(
         }
     }
     if !ids_of(PAGE).is_empty() {
-        for p in WikiPage::all()
-            .filter(in_list(WikiPage::fields().id(), ids_of(PAGE)))
-            .exec(db)
+        for p in wiki_pages::Entity::find()
+            .filter(wiki_pages::Column::Id.is_in(ids_of(PAGE).iter().copied()))
+            .all(db)
             .await?
         {
             out.push(FileUsage {
@@ -517,20 +521,22 @@ const PAGE: &str = crate::pages::PAGE;
 
 /// Attach `file` to a task and record it in the feed. Call with the transaction of the change.
 async fn attach(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     workspace_id: uuid::Uuid,
     task_id: uuid::Uuid,
     actor: uuid::Uuid,
     file: &File,
 ) -> Result<(), ApiError> {
-    let task = Task::get_by_id(db, &task_id).await?;
-    toasty::create!(FileRef {
-        file_id: file.id,
-        target_type: TASK.to_string(),
-        target_id: task_id,
-        embedded: false,
-    })
-    .exec(db)
+    let task = tasks::Entity::find_by_id(task_id)
+        .one_or_not_found(db)
+        .await?;
+    file_refs::ActiveModel {
+        file_id: Set(file.id),
+        target_type: Set(TASK.to_string()),
+        target_id: Set(task_id),
+        embedded: Set(false),
+    }
+    .insert(db)
     .await?;
     audit::record(
         db,
@@ -564,10 +570,11 @@ pub async fn list_attachments(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<FileView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
-    let refs: Vec<FileRef> = FileRef::filter_by_target_id(id)
-        .exec(db)
+    let refs: Vec<FileRef> = file_refs::Entity::find()
+        .filter(file_refs::Column::TargetId.eq(id))
+        .all(db)
         .await?
         .into_iter()
         .filter(|r| r.target_type == TASK)
@@ -575,15 +582,12 @@ pub async fn list_attachments(
     if refs.is_empty() {
         return Ok(Json(vec![]));
     }
-    let mut files = File::all()
-        .filter(in_list(
-            File::fields().id(),
-            refs.iter().map(|r| r.file_id).collect::<Vec<_>>(),
-        ))
-        .exec(db)
+    let files = files::Entity::find()
+        .filter(files::Column::Id.is_in(refs.iter().map(|r| r.file_id)))
+        .filter(files::Column::DeletedAt.is_null())
+        .order_by_asc(files::Column::CreatedAt)
+        .all(db)
         .await?;
-    files.retain(|f| f.deleted_at.is_none());
-    files.sort_by_key(|f| f.created_at);
     Ok(Json(views(db, files).await?))
 }
 
@@ -612,21 +616,24 @@ pub async fn attach_file(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<AttachFile>,
 ) -> Result<Json<FileView>, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     let workspace_id = access::require_task_access(db, &user, id, Role::Write).await?;
-    let file = File::get_by_id(db, &input.file_id).await?;
+    let file = files::Entity::find_by_id(input.file_id)
+        .one_or_not_found(db)
+        .await?;
     if file.workspace_id != workspace_id {
         return Err(ApiError::not_found());
     }
-    let already = FileRef::filter_by_file_id(file.id)
-        .exec(db)
+    let already = file_refs::Entity::find()
+        .filter(file_refs::Column::FileId.eq(file.id))
+        .all(db)
         .await?
         .iter()
         .any(|r| r.target_type == TASK && r.target_id == id);
     if !already {
-        let mut tx = db.transaction().await?;
-        attach(&mut tx, workspace_id, id, user.id, &file).await?;
+        let tx = db.begin().await?;
+        attach(&tx, workspace_id, id, user.id, &file).await?;
         tx.commit().await?;
     }
     Ok(Json(one_view(db, file).await?))
@@ -653,16 +660,22 @@ pub async fn detach_file(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, file_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     access::require_task_access(db, &user, id, Role::Write).await?;
-    let reference = FileRef::filter_by_file_id(file_id)
-        .exec(db)
+    let reference = file_refs::Entity::find()
+        .filter(file_refs::Column::FileId.eq(file_id))
+        .all(db)
         .await?
         .into_iter()
         .find(|r| r.target_type == TASK && r.target_id == id)
         .ok_or_else(ApiError::not_found)?;
-    reference.delete().exec(db).await?;
+    file_refs::Entity::delete_many()
+        .filter(file_refs::Column::FileId.eq(reference.file_id))
+        .filter(file_refs::Column::TargetType.eq(reference.target_type))
+        .filter(file_refs::Column::TargetId.eq(reference.target_id))
+        .exec(db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -673,25 +686,20 @@ pub struct UnusedFiles {
     pub total_bytes: i64,
 }
 
-async fn find_unused(
-    db: &mut dyn toasty::Executor,
-    workspace_id: uuid::Uuid,
-) -> Result<Vec<File>, ApiError> {
-    let files: Vec<File> = File::filter_by_workspace_id(workspace_id)
-        .exec(db)
+async fn find_unused(db: &impl Db, workspace_id: uuid::Uuid) -> Result<Vec<File>, ApiError> {
+    let files: Vec<File> = files::Entity::find()
+        .filter(files::Column::WorkspaceId.eq(workspace_id))
+        .filter(files::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|f| f.deleted_at.is_none())
         .collect();
     if files.is_empty() {
         return Ok(vec![]);
     }
-    let used: std::collections::HashSet<uuid::Uuid> = FileRef::all()
-        .filter(in_list(
-            FileRef::fields().file_id(),
-            files.iter().map(|f| f.id).collect::<Vec<_>>(),
-        ))
-        .exec(db)
+    let used: std::collections::HashSet<uuid::Uuid> = file_refs::Entity::find()
+        .filter(file_refs::Column::FileId.is_in(files.iter().map(|f| f.id)))
+        .all(db)
         .await?
         .into_iter()
         .map(|r| r.file_id)
@@ -720,7 +728,7 @@ pub async fn unused_files(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<UnusedFiles>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Admin).await?;
     let unused = find_unused(db, id).await?;
     Ok(Json(UnusedFiles {
@@ -754,15 +762,18 @@ pub async fn cleanup_files(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<CleanupResult>, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     access::require_access(db, &user, id, Role::Admin).await?;
     let mut result = CleanupResult {
         deleted: 0,
         freed_bytes: 0,
     };
     for file in find_unused(db, id).await? {
-        let versions = FileVersion::filter_by_file_id(file.id).exec(db).await?;
+        let versions = file_versions::Entity::find()
+            .filter(file_versions::Column::FileId.eq(file.id))
+            .all(db)
+            .await?;
         // Every version's bytes, and the current ones even if no version row names them.
         let mut blobs: Vec<(String, String, i64)> = versions
             .iter()
@@ -785,10 +796,16 @@ pub async fn cleanup_files(
             result.freed_bytes += size;
         }
         for v in versions {
-            v.delete().exec(db).await?;
+            file_versions::Entity::delete_many()
+                .filter(file_versions::Column::Id.eq(v.id))
+                .exec(db)
+                .await?;
         }
         result.deleted += 1;
-        file.delete().exec(db).await?;
+        files::Entity::delete_many()
+            .filter(files::Column::Id.eq(file.id))
+            .exec(db)
+            .await?;
     }
     Ok(Json(result))
 }
@@ -831,10 +848,11 @@ pub async fn list_page_attachments(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<FileView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_page_access(db, &user, id, Role::Read).await?;
-    let ids: Vec<uuid::Uuid> = FileRef::filter_by_target_id(id)
-        .exec(db)
+    let ids: Vec<uuid::Uuid> = file_refs::Entity::find()
+        .filter(file_refs::Column::TargetId.eq(id))
+        .all(db)
         .await?
         .into_iter()
         .filter(|r| r.target_type == PAGE)
@@ -843,12 +861,12 @@ pub async fn list_page_attachments(
     if ids.is_empty() {
         return Ok(Json(vec![]));
     }
-    let mut files = File::all()
-        .filter(in_list(File::fields().id(), ids))
-        .exec(db)
+    let files = files::Entity::find()
+        .filter(files::Column::Id.is_in(ids.iter().copied()))
+        .filter(files::Column::DeletedAt.is_null())
+        .order_by_asc(files::Column::CreatedAt)
+        .all(db)
         .await?;
-    files.retain(|f| f.deleted_at.is_none());
-    files.sort_by_key(|f| f.created_at);
     Ok(Json(views(db, files).await?))
 }
 
@@ -872,16 +890,18 @@ pub async fn attach_page_file(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<AttachFile>,
 ) -> Result<Json<FileView>, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     let page = access::require_page_access(db, &user, id, Role::Write).await?;
-    let file = File::get_by_id(db, &input.file_id).await?;
+    let file = files::Entity::find_by_id(input.file_id)
+        .one_or_not_found(db)
+        .await?;
     if file.workspace_id != page.workspace_id {
         return Err(ApiError::not_found());
     }
-    let mut tx = db.transaction().await?;
+    let tx = db.begin().await?;
     crate::pages::attach_file(
-        &mut tx,
+        &tx,
         id,
         page.workspace_id,
         &page.title,
@@ -915,11 +935,11 @@ pub async fn detach_page_file(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, file_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     let page = access::require_page_access(db, &user, id, Role::Write).await?;
-    let mut tx = db.transaction().await?;
-    let detached = crate::pages::detach_file(&mut tx, &page, file_id, user.id).await?;
+    let tx = db.begin().await?;
+    let detached = crate::pages::detach_file(&tx, &page, file_id, user.id).await?;
     tx.commit().await?;
     if !detached {
         return Err(ApiError::not_found());

@@ -1,34 +1,38 @@
 //! Building the export document.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{
+    comments, labels, lists, projects, sprints, task_assignees, task_labels, tasks, users,
+    wiki_pages, workspace_members,
+};
 use std::collections::HashMap;
 
 use crate::error::ApiError;
-use crate::models::{
-    Comment, Label, List, Project, Sprint, Task, TaskAssignee, TaskLabel, User, WikiPage,
-    Workspace, WorkspaceMember,
-};
+use crate::models::{Comment, Label, List, Project, Sprint, Task, User, WikiPage, Workspace};
 use crate::{pages, time};
 
 use super::*;
 
 pub async fn build_export(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     workspace: &Workspace,
     parts: &Parts,
     project_ids: &[uuid::Uuid],
 ) -> Result<Export, ApiError> {
-    let users: HashMap<uuid::Uuid, User> = User::all()
-        .exec(db)
+    let users: HashMap<uuid::Uuid, User> = users::Entity::find()
+        .all(db)
         .await?
         .into_iter()
         .map(|u| (u.id, u))
         .collect();
     let email_of = |id: &uuid::Uuid| users.get(id).map(|u| u.email.clone()).unwrap_or_default();
-    let labels: Vec<Label> = Label::filter_by_workspace_id(workspace.id)
-        .exec(db)
+    let labels: Vec<Label> = labels::Entity::find()
+        .filter(labels::Column::WorkspaceId.eq(workspace.id))
+        .filter(labels::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|l| l.deleted_at.is_none())
         .collect();
     let mut out = Export {
         version: VERSION,
@@ -52,9 +56,9 @@ pub async fn build_export(
     }
     if parts.members {
         let mut members = vec![];
-        for m in WorkspaceMember::all()
-            .filter(WorkspaceMember::fields().workspace_id().eq(workspace.id))
-            .exec(db)
+        for m in workspace_members::Entity::find()
+            .filter(workspace_members::Column::WorkspaceId.eq(workspace.id))
+            .all(db)
             .await?
         {
             if let Some(u) = users.get(&m.user_id) {
@@ -69,8 +73,9 @@ pub async fn build_export(
         out.members = Some(members);
     }
     if parts.projects {
-        let mut projects: Vec<Project> = Project::filter_by_workspace_id(workspace.id)
-            .exec(db)
+        let mut projects: Vec<Project> = projects::Entity::find()
+            .filter(projects::Column::WorkspaceId.eq(workspace.id))
+            .all(db)
             .await?
             .into_iter()
             .filter(|p| {
@@ -85,11 +90,12 @@ pub async fn build_export(
         out.projects = Some(exported);
     }
     if parts.wiki {
-        let mut pages: Vec<WikiPage> = WikiPage::filter_by_workspace_id(workspace.id)
-            .exec(db)
+        let mut pages: Vec<WikiPage> = wiki_pages::Entity::find()
+            .filter(wiki_pages::Column::WorkspaceId.eq(workspace.id))
+            .filter(wiki_pages::Column::DeletedAt.is_null())
+            .all(db)
             .await?
             .into_iter()
-            .filter(|p| p.deleted_at.is_none())
             .collect();
         pages.sort_by_key(|p| (p.position, p.id));
         // Number them parents-first.
@@ -128,29 +134,32 @@ pub async fn build_export(
 }
 
 async fn export_project(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     project: &Project,
     labels: &[Label],
     email_of: &(dyn Fn(&uuid::Uuid) -> String + Sync),
 ) -> Result<ExportProject, ApiError> {
-    let mut lists: Vec<List> = List::filter_by_project_id(project.id)
-        .exec(db)
+    let mut lists: Vec<List> = lists::Entity::find()
+        .filter(lists::Column::ProjectId.eq(project.id))
+        .filter(lists::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|l| l.deleted_at.is_none())
         .collect();
     lists.sort_by_key(|l| (l.position, l.id));
-    let sprints: Vec<Sprint> = Sprint::filter_by_project_id(project.id)
-        .exec(db)
+    let sprints: Vec<Sprint> = sprints::Entity::find()
+        .filter(sprints::Column::ProjectId.eq(project.id))
+        .filter(sprints::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|s| s.deleted_at.is_none())
         .collect();
-    let mut tasks: Vec<Task> = Task::filter_by_project_id(project.id)
-        .exec(db)
+    let mut tasks: Vec<Task> = tasks::Entity::find()
+        .filter(tasks::Column::ProjectId.eq(project.id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .all(db)
         .await?
         .into_iter()
-        .filter(|t| t.deleted_at.is_none())
         .collect();
     tasks.sort_by_key(|t| (t.position, t.id));
     // Parents before subtasks, numbered from 1.
@@ -167,9 +176,9 @@ async fn export_project(
         .enumerate()
         .map(|(i, t)| (t.id, i as u32 + 1))
         .collect();
-    let assignees = TaskAssignee::all().exec(db).await?;
-    let task_labels = TaskLabel::all().exec(db).await?;
-    let comments = Comment::all().exec(db).await?;
+    let assignees = task_assignees::Entity::find().all(db).await?;
+    let task_labels = task_labels::Entity::find().all(db).await?;
+    let comments = comments::Entity::find().all(db).await?;
     let mut exported = vec![];
     for t in order {
         let mut cs: Vec<&Comment> = comments

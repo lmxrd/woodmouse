@@ -1,8 +1,10 @@
+use crate::db::counts;
+use crate::db::prelude::*;
+use crate::models::{labels, task_labels, tasks};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -11,7 +13,7 @@ use crate::api::required;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Label, Role, Task, TaskLabel};
+use crate::models::{Label, Role};
 use crate::state::AppState;
 use crate::{time, trash};
 
@@ -66,48 +68,33 @@ pub async fn list_labels(
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<LabelWithCount>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;
-    let mut labels: Vec<Label> = Label::filter_by_workspace_id(workspace_id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|l| l.deleted_at.is_none())
-        .collect();
-    labels.sort_by_key(|l| l.name.to_lowercase());
+    let labels: Vec<Label> = labels::Entity::find()
+        .filter(labels::Column::WorkspaceId.eq(workspace_id))
+        .filter(labels::Column::DeletedAt.is_null())
+        .order_by_asc(Func::lower(Expr::col(labels::Column::Name)))
+        .all(db)
+        .await?;
     if labels.is_empty() {
         return Ok(Json(vec![]));
     }
 
-    let label_ids: Vec<uuid::Uuid> = labels.iter().map(|l| l.id).collect();
-    let uses = TaskLabel::all()
-        .filter(in_list(TaskLabel::fields().label_id(), label_ids))
-        .exec(db)
-        .await?;
     // Only count tasks that are not in the trash.
-    let live_tasks: std::collections::HashSet<uuid::Uuid> = if uses.is_empty() {
-        Default::default()
-    } else {
-        Task::all()
-            .filter(in_list(
-                Task::fields().id(),
-                uses.iter().map(|u| u.task_id).collect::<Vec<_>>(),
-            ))
-            .exec(db)
-            .await?
-            .into_iter()
-            .filter(|t| t.deleted_at.is_none())
-            .map(|t| t.id)
-            .collect()
-    };
+    let task_counts = counts(
+        db,
+        task_labels::Entity::find()
+            .join(JoinType::InnerJoin, task_labels::Relation::Tasks.def())
+            .filter(task_labels::Column::LabelId.is_in(labels.iter().map(|l| l.id)))
+            .filter(tasks::Column::DeletedAt.is_null()),
+        task_labels::Column::LabelId,
+    )
+    .await?;
     Ok(Json(
         labels
             .into_iter()
             .map(|l| LabelWithCount {
-                task_count: uses
-                    .iter()
-                    .filter(|u| u.label_id == l.id && live_tasks.contains(&u.task_id))
-                    .count(),
+                task_count: task_counts.get(&l.id).copied().unwrap_or(0),
                 id: l.id,
                 workspace_id: l.workspace_id,
                 name: l.name,
@@ -140,15 +127,17 @@ pub async fn create_label(
 ) -> Result<(StatusCode, Json<Label>), ApiError> {
     let name = required(&input.name, "name")?;
 
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, workspace_id, Role::Write).await?;
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, workspace_id, Role::Write).await?;
 
-    let label = toasty::create!(Label {
-        workspace_id,
-        name,
-        color: input.color.unwrap_or_else(|| "#71717a".to_string()),
-    })
-    .exec(&mut *db)
+    let label = labels::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        workspace_id: Set(workspace_id),
+        name: Set(name),
+        color: Set(input.color.unwrap_or_else(|| "#71717a".to_string())),
+        ..Default::default()
+    }
+    .insert(&*db)
     .await?;
     Ok((StatusCode::CREATED, Json(label)))
 }
@@ -174,22 +163,23 @@ pub async fn update_label(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateLabel>,
 ) -> Result<Json<Label>, ApiError> {
-    let mut db = state.writer().await;
-    let mut label = Label::get_by_id(&mut *db, &id).await?;
-    access::require_access(&mut *db, &user, label.workspace_id, Role::Write).await?;
+    let db = state.writer().await?;
+    let label = labels::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
+    access::require_access(&*db, &user, label.workspace_id, Role::Write).await?;
     if label.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
 
-    let mut update = label.update();
+    let mut update = labels::ActiveModel::from(label);
     if let Some(name) = input.name {
-        update = update.name(required(&name, "name")?);
+        update.name = Set(required(&name, "name")?);
     }
     if let Some(color) = input.color {
-        update = update.color(color);
+        update.color = Set(color);
     }
-    update.exec(&mut *db).await?;
-    Ok(Json(label))
+    Ok(Json(update.update(&*db).await?))
 }
 
 /// Delete a label (detaching it from all tasks).
@@ -210,18 +200,20 @@ pub async fn delete_label(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let label = Label::get_by_id(&mut *db, &id).await?;
-    access::require_access(&mut *db, &user, label.workspace_id, Role::Write).await?;
+    let db = state.writer().await?;
+    let label = labels::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
+    access::require_access(&*db, &user, label.workspace_id, Role::Write).await?;
     if label.deleted_at.is_some() {
         return Err(ApiError::not_found());
     }
 
     // Soft delete: tasks keep the association, which reappears on restore.
-    let mut tx = db.transaction().await?;
-    trash::delete_label(&mut tx, label.id, time::now()).await?;
+    let tx = db.begin().await?;
+    trash::delete_label(&tx, label.id, time::now()).await?;
     audit::deleted(
-        &mut tx,
+        &tx,
         user.id,
         label.workspace_id,
         "label",

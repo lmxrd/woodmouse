@@ -1,6 +1,8 @@
 //! Notifications, watching, email (instant and digest), deadlines and the email settings.
 
 use std::sync::Arc;
+use woodmouse::db::prelude::*;
+use woodmouse::models::{sessions, users, workspace_members};
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -25,15 +27,7 @@ async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
 }
 
 async fn fixture() -> Fx {
-    let db = toasty::Db::builder()
-        .models(toasty::models!(woodmouse::*))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    woodmouse::migrations::MIGRATIONS.apply(&db).await.unwrap();
-    woodmouse::search::ensure_index(&mut db.clone())
-        .await
-        .unwrap_or_else(|_| panic!("index"));
+    let db = woodmouse::db::temporary().await;
     let outbox = Arc::new(Outbox::default());
     let state = AppState::new(db.clone()).with_mailer(outbox.clone());
     let app = woodmouse::routes::api(state.clone())
@@ -43,31 +37,35 @@ async fn fixture() -> Fx {
     let admin = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &admin, "Home").await;
 
-    let sara = toasty::create!(woodmouse::models::User {
-        email: "sara@home.io".to_string(),
-        name: "Sara".to_string(),
-        password_hash: "x".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(&mut db.clone())
+    let sara = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("sara@home.io".to_string()),
+        name: Set("Sara".to_string()),
+        password_hash: Set("x".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .unwrap();
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: sara.id,
-        workspace_id: ws,
-        role: woodmouse::models::Role::Write
-    })
-    .exec(&mut db.clone())
+    workspace_members::ActiveModel {
+        user_id: Set(sara.id),
+        workspace_id: Set(ws),
+        role: Set(woodmouse::models::Role::Write),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .unwrap();
     let token = uuid::Uuid::new_v4().to_string();
-    toasty::create!(woodmouse::models::Session {
-        token: token.clone(),
-        user_id: sara.id,
-        expires_at: far_future()
-    })
-    .exec(&mut db.clone())
+    sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(token.clone()),
+        user_id: Set(sara.id),
+        expires_at: Set(far_future()),
+    }
+    .insert(&db)
     .await
     .unwrap();
 

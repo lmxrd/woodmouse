@@ -2,6 +2,8 @@
 
 use axum::http::StatusCode;
 use serde_json::Value;
+use woodmouse::db::prelude::*;
+use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -357,31 +359,35 @@ async fn trash_needs_write_access() {
     let (app, db) = app_with_db().await;
     let admin = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &admin, "Home").await;
-    let reader = toasty::create!(woodmouse::models::User {
-        email: "reader@home.io".to_string(),
-        name: "Reader".to_string(),
-        password_hash: "not-a-login-hash".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(&mut db.clone())
+    let reader = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("reader@home.io".to_string()),
+        name: Set("Reader".to_string()),
+        password_hash: Set("not-a-login-hash".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .unwrap();
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: reader.id,
-        workspace_id: ws,
-        role: woodmouse::models::Role::Read,
-    })
-    .exec(&mut db.clone())
+    workspace_members::ActiveModel {
+        user_id: Set(reader.id),
+        workspace_id: Set(ws),
+        role: Set(woodmouse::models::Role::Read),
+        ..Default::default()
+    }
+    .insert(&db)
     .await
     .unwrap();
     let token = uuid::Uuid::new_v4().to_string();
-    toasty::create!(woodmouse::models::Session {
-        token: token.clone(),
-        user_id: reader.id,
-        expires_at: crate::common::far_future(),
-    })
-    .exec(&mut db.clone())
+    sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(token.clone()),
+        user_id: Set(reader.id),
+        expires_at: Set(crate::common::far_future()),
+    }
+    .insert(&db)
     .await
     .unwrap();
     let res = request(

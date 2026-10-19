@@ -89,6 +89,24 @@ optional:
 | `SMTP_*`                   | unset                   | Email, see below                                                                         |
 
 
+### Backups
+
+The whole state is two things: the database and the uploaded files. Back up both
+together. The simplest way is to stop Woodmouse (it finishes writing the database
+on a clean stop) and copy `woodmouse.db` and the `data` folder. In Docker, stop the
+container and archive the volume:
+
+```bash
+docker stop woodmouse
+docker run --rm -v woodmouse-data:/data -v "$PWD":/backup alpine tar czf /backup/woodmouse-backup.tgz -C /data .
+docker start woodmouse
+```
+
+To copy the database while the server runs, use SQLite rather than `cp`:
+`sqlite3 woodmouse.db "VACUUM INTO 'backup.db'"`.
+
+`woodmouse check` reports rows that point at something that no longer exists.
+
 ### Behind a reverse proxy
 
 - **Pass WebSockets through.** Live editing uses one (`/api/pages/<id>/live`).

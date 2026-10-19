@@ -3,9 +3,61 @@
 //! one as local time. Task dates (`start_date`, `due_date`) are a calendar day stored as that day at
 //! `00:00` UTC: only the date part counts.
 
-use jiff::civil::{Date, DateTime};
+use std::ops::Deref;
+
+use jiff::civil::Date;
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
+
+/// A UTC date-time: a `jiff::civil::DateTime` that sqlx can store (as `YYYY-MM-DDTHH:MM:SS` text, which
+/// sorts like the time it names) and that derefs to the jiff type, so its methods are all there.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, sea_orm::DeriveValueType,
+)]
+#[sea_orm(
+    value_type = "String",
+    from_str = "DateTime::from_text",
+    to_str = "DateTime::as_text"
+)]
+pub struct DateTime(pub jiff::civil::DateTime);
+
+impl DateTime {
+    /// The stored form, `YYYY-MM-DDTHH:MM:SS`.
+    fn as_text(&self) -> String {
+        self.0.to_string()
+    }
+
+    fn from_text(text: &str) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {
+        text.parse()
+            .map(Self)
+            .map_err(|_| sea_orm::sea_query::ValueTypeErr)
+    }
+}
+
+impl Deref for DateTime {
+    type Target = jiff::civil::DateTime;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<jiff::civil::DateTime> for DateTime {
+    fn from(dt: jiff::civil::DateTime) -> Self {
+        Self(dt)
+    }
+}
+
+impl From<DateTime> for jiff::civil::DateTime {
+    fn from(dt: DateTime) -> Self {
+        dt.0
+    }
+}
+
+impl std::fmt::Display for DateTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// The current moment, as a UTC date-time in whole seconds (every stored time has the same shape, so
 /// they sort and compare as text too).
@@ -24,23 +76,25 @@ pub fn timestamp(dt: DateTime) -> Timestamp {
 
 /// A UTC date-time from a timestamp.
 pub fn from_timestamp(ts: Timestamp) -> DateTime {
-    ts.to_zoned(TimeZone::UTC).datetime()
+    DateTime(ts.to_zoned(TimeZone::UTC).datetime())
 }
 
 /// Whole seconds from `from` to `to` (negative if `to` is earlier).
 pub fn seconds_between(from: DateTime, to: DateTime) -> i64 {
-    from.duration_until(to).as_secs()
+    from.duration_until(*to).as_secs()
 }
 
 /// `dt` moved by `seconds`.
 pub fn add_seconds(dt: DateTime, seconds: i64) -> DateTime {
-    dt.checked_add(SignedDuration::from_secs(seconds))
-        .unwrap_or(dt)
+    DateTime(
+        dt.checked_add(SignedDuration::from_secs(seconds))
+            .unwrap_or(*dt),
+    )
 }
 
 /// A calendar day as stored: that day at midnight UTC.
 pub fn day(date: Date) -> DateTime {
-    date.to_datetime(jiff::civil::Time::midnight())
+    DateTime(date.to_datetime(jiff::civil::Time::midnight()))
 }
 
 /// Normalize a task date to its day (midnight UTC), dropping any time of day.
@@ -50,7 +104,7 @@ pub fn to_day(dt: DateTime) -> DateTime {
 
 /// Serde for a required UTC date-time: RFC 3339 with `Z` out, any RFC 3339 offset in.
 pub mod utc {
-    use jiff::civil::DateTime;
+    use super::DateTime;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(dt: &DateTime, s: S) -> Result<S::Ok, S::Error> {
@@ -67,7 +121,7 @@ pub mod utc {
 
 /// Serde for an optional UTC date-time (`null` for none).
 pub mod utc_option {
-    use jiff::civil::DateTime;
+    use super::DateTime;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(dt: &Option<DateTime>, s: S) -> Result<S::Ok, S::Error> {
@@ -90,7 +144,7 @@ pub mod utc_option {
 
 /// Serde for a PATCH field that can be absent (leave), `null` (clear) or a date-time (set).
 pub mod utc_patch {
-    use jiff::civil::DateTime;
+    use super::DateTime;
     use serde::Deserializer;
 
     pub fn deserialize<'de, D: Deserializer<'de>>(
@@ -114,7 +168,7 @@ mod tests {
             maybe: Option<DateTime>,
         }
         let t = T {
-            at: jiff::civil::date(2026, 10, 16).at(8, 30, 0, 0),
+            at: jiff::civil::date(2026, 10, 16).at(8, 30, 0, 0).into(),
             maybe: None,
         };
         let json = serde_json::to_string(&t).unwrap();
@@ -130,12 +184,15 @@ mod tests {
 
     #[test]
     fn days_and_differences() {
-        let a = jiff::civil::date(2026, 10, 16).at(23, 59, 0, 0);
-        assert_eq!(to_day(a), jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0));
+        let a: DateTime = jiff::civil::date(2026, 10, 16).at(23, 59, 0, 0).into();
+        assert_eq!(
+            to_day(a),
+            jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0).into()
+        );
         assert_eq!(seconds_between(to_day(a), a), 23 * 3600 + 59 * 60);
         assert_eq!(
             add_seconds(a, 60),
-            jiff::civil::date(2026, 10, 17).at(0, 0, 0, 0)
+            jiff::civil::date(2026, 10, 17).at(0, 0, 0, 0).into()
         );
     }
 }

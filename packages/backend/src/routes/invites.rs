@@ -2,6 +2,9 @@
 //! password. The token in the URL is the credential; it works once and
 //! expires after seven days.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{user_invites, users};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -36,17 +39,18 @@ pub struct AcceptInvite {
 }
 
 /// A valid (existing, unexpired) invite and the user it belongs to.
-async fn load_invite(
-    db: &mut dyn toasty::Executor,
-    token: &str,
-) -> Result<(UserInvite, User), ApiError> {
-    let invite = UserInvite::get_by_token(db, token)
+async fn load_invite(db: &impl Db, token: &str) -> Result<(UserInvite, User), ApiError> {
+    let invite = user_invites::Entity::find()
+        .filter(user_invites::Column::Token.eq(token))
+        .one_or_not_found(db)
         .await
         .map_err(|_| ApiError::not_found())?;
     if invite.expires_at < time::now() {
         return Err(ApiError::not_found());
     }
-    let user = User::get_by_id(db, &invite.user_id).await?;
+    let user = users::Entity::find_by_id(invite.user_id)
+        .one_or_not_found(db)
+        .await?;
     if !user.active {
         return Err(ApiError::not_found());
     }
@@ -68,7 +72,7 @@ pub async fn get_invite(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<InviteInfo>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let (_, user) = load_invite(db, &token).await?;
     Ok(Json(InviteInfo {
         name: user.name,
@@ -95,23 +99,26 @@ pub async fn accept_invite(
     Json(input): Json<AcceptInvite>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     validate_password(&input.password)?;
-    let mut db = state.writer().await;
-    let (_, mut user) = load_invite(&mut *db, &token).await?;
-    let mut tx = db.transaction().await?;
-    user.update()
-        .password_hash(auth::hash_password(&input.password)?)
-        .exec(&mut tx)
-        .await?;
-    UserInvite::filter_by_user_id(user.id)
-        .delete()
-        .exec(&mut tx)
+    let db = state.writer().await?;
+    let (_, user) = load_invite(&*db, &token).await?;
+    let tx = db.begin().await?;
+    users::ActiveModel {
+        id: Unchanged(user.id),
+        password_hash: Set(auth::hash_password(&input.password)?),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
+    user_invites::Entity::delete_many()
+        .filter(user_invites::Column::UserId.eq(user.id))
+        .exec(&tx)
         .await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "invite_accepted").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&mut tx, user.id, state.secure_cookies).await?;
+    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
 }

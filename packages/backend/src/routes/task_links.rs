@@ -1,10 +1,12 @@
 //! Links between tasks: blocks / blocked by, relates to, duplicates / duplicated by.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{projects, task_links, tasks};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -12,7 +14,7 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{LinkKind, Project, Role, Task, TaskLink};
+use crate::models::{LinkKind, Role, TaskLink};
 use crate::state::AppState;
 
 pub fn router() -> OpenApiRouter<AppState> {
@@ -40,7 +42,7 @@ pub struct LinkedTask {
     /// When the task was completed; absent while it is open.
     #[serde(with = "crate::time::utc_option")]
     #[schema(value_type = Option<String>, format = DateTime)]
-    pub completed_at: Option<jiff::civil::DateTime>,
+    pub completed_at: Option<crate::time::DateTime>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -58,7 +60,7 @@ pub struct AddLink {
 }
 
 async fn views_for(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     task_id: uuid::Uuid,
     links: Vec<TaskLink>,
 ) -> Result<Vec<TaskLinkView>, ApiError> {
@@ -75,9 +77,9 @@ async fn views_for(
     if other_ids.is_empty() {
         return Ok(vec![]);
     }
-    let tasks = Task::all()
-        .filter(in_list(Task::fields().id(), other_ids))
-        .exec(db)
+    let tasks = tasks::Entity::find()
+        .filter(tasks::Column::Id.is_in(other_ids.iter().copied()))
+        .all(db)
         .await?;
 
     Ok(links
@@ -111,14 +113,15 @@ async fn views_for(
         .collect())
 }
 
-async fn links_of(
-    db: &mut dyn toasty::Executor,
-    task_id: uuid::Uuid,
-) -> Result<Vec<TaskLink>, ApiError> {
-    let mut links = TaskLink::filter_by_task_id(task_id).exec(db).await?;
+async fn links_of(db: &impl Db, task_id: uuid::Uuid) -> Result<Vec<TaskLink>, ApiError> {
+    let mut links = task_links::Entity::find()
+        .filter(task_links::Column::TaskId.eq(task_id))
+        .all(db)
+        .await?;
     links.extend(
-        TaskLink::filter_by_related_task_id(task_id)
-            .exec(db)
+        task_links::Entity::find()
+            .filter(task_links::Column::RelatedTaskId.eq(task_id))
+            .all(db)
             .await?,
     );
     Ok(links)
@@ -142,7 +145,7 @@ pub async fn list_links(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<TaskLinkView>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
     let links = links_of(db, id).await?;
     Ok(Json(views_for(db, id, links).await?))
@@ -170,20 +173,20 @@ pub async fn add_link(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<AddLink>,
 ) -> Result<(StatusCode, Json<TaskLinkView>), ApiError> {
-    let mut db = state.writer().await;
-    let workspace_id = access::require_task_access(&mut *db, &user, id, Role::Write).await?;
+    let db = state.writer().await?;
+    let workspace_id = access::require_task_access(&*db, &user, id, Role::Write).await?;
     if input.related_task_id == id {
         return Err(ApiError::bad_request("a task cannot link to itself"));
     }
     // The other task must be live and in the same workspace (otherwise it looks nonexistent).
     let other =
-        access::require_task_access(&mut *db, &user, input.related_task_id, Role::Write).await?;
+        access::require_task_access(&*db, &user, input.related_task_id, Role::Write).await?;
     if other != workspace_id {
         return Err(ApiError::not_found());
     }
 
     // Any existing link of the same kind between the two (either direction) is a conflict.
-    let existing = links_of(&mut *db, id).await?;
+    let existing = links_of(&*db, id).await?;
     if existing.iter().any(|l| {
         l.kind == input.kind
             && (l.task_id == input.related_task_id || l.related_task_id == input.related_task_id)
@@ -193,20 +196,21 @@ pub async fn add_link(
         ));
     }
 
-    let mut tx = db.transaction().await?;
-    let link = toasty::create!(TaskLink {
-        task_id: id,
-        related_task_id: input.related_task_id,
-        kind: input.kind,
-    })
-    .exec(&mut tx)
+    let tx = db.begin().await?;
+    let link = task_links::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        task_id: Set(id),
+        related_task_id: Set(input.related_task_id),
+        kind: Set(input.kind),
+    }
+    .insert(&tx)
     .await?;
-    let mut views = views_for(&mut tx, id, vec![link]).await?;
+    let mut views = views_for(&tx, id, vec![link]).await?;
     let view = views.swap_remove(0);
 
-    let task = Task::get_by_id(&mut tx, &id).await?;
+    let task = tasks::Entity::find_by_id(id).one_or_not_found(&tx).await?;
     audit::task_event(
-        &mut tx,
+        &tx,
         workspace_id,
         task.project_id,
         user.id,
@@ -240,13 +244,18 @@ pub async fn remove_link(
     CurrentUser { user, .. }: CurrentUser,
     Path((id, link_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    access::require_task_access(&mut *db, &user, id, Role::Write).await?;
-    let link = TaskLink::get_by_id(&mut *db, &link_id).await?;
+    let db = state.writer().await?;
+    access::require_task_access(&*db, &user, id, Role::Write).await?;
+    let link = task_links::Entity::find_by_id(link_id)
+        .one_or_not_found(&*db)
+        .await?;
     if link.task_id != id && link.related_task_id != id {
         return Err(ApiError::not_found());
     }
-    link.delete().exec(&mut *db).await?;
+    task_links::Entity::delete_many()
+        .filter(task_links::Column::Id.eq(link.id))
+        .exec(&*db)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -286,23 +295,23 @@ pub async fn list_workspace_links(
     Path(id): Path<uuid::Uuid>,
     Query(filters): Query<LinkFilters>,
 ) -> Result<Json<Vec<LinkEdge>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Read).await?;
 
-    let project_ids: Vec<uuid::Uuid> = Project::filter_by_workspace_id(id)
-        .exec(db)
-        .await?
-        .into_iter()
-        .filter(|p| p.deleted_at.is_none() && filters.project_id.is_none_or(|f| f == p.id))
-        .map(|p| p.id)
-        .collect();
+    let mut projects = projects::Entity::find()
+        .filter(projects::Column::WorkspaceId.eq(id))
+        .filter(projects::Column::DeletedAt.is_null());
+    if let Some(project_id) = filters.project_id {
+        projects = projects.filter(projects::Column::Id.eq(project_id));
+    }
+    let project_ids: Vec<uuid::Uuid> = projects.all(db).await?.into_iter().map(|p| p.id).collect();
     if project_ids.is_empty() {
         return Ok(Json(vec![]));
     }
-    let live: std::collections::HashSet<uuid::Uuid> = Task::all()
-        .filter(in_list(Task::fields().project_id(), project_ids))
-        .filter(Task::fields().deleted_at().is_none())
-        .exec(db)
+    let live: std::collections::HashSet<uuid::Uuid> = tasks::Entity::find()
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(tasks::Column::ProjectId.is_in(project_ids.iter().copied()))
+        .all(db)
         .await?
         .into_iter()
         .map(|t| t.id)
@@ -310,12 +319,9 @@ pub async fn list_workspace_links(
     if live.is_empty() {
         return Ok(Json(vec![]));
     }
-    let links = TaskLink::all()
-        .filter(in_list(
-            TaskLink::fields().task_id(),
-            live.iter().copied().collect::<Vec<_>>(),
-        ))
-        .exec(db)
+    let links = task_links::Entity::find()
+        .filter(task_links::Column::TaskId.is_in(live.iter().copied()))
+        .all(db)
         .await?;
     Ok(Json(
         links

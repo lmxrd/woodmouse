@@ -11,30 +11,18 @@ use tower::ServiceExt;
 use woodmouse::state::AppState;
 
 /// A date-time far enough ahead that nothing seeded with it expires during a test.
-pub fn far_future() -> jiff::civil::DateTime {
-    "2100-01-01T00:00:00".parse().expect("valid date-time")
+pub fn far_future() -> woodmouse::time::DateTime {
+    woodmouse::time::DateTime("2100-01-01T00:00:00".parse().expect("valid date-time"))
 }
 
 pub async fn app() -> axum::Router {
     app_with_db().await.0
 }
 
-/// A fresh in-memory database: the schema from the migrations (so the tests also prove they build a
-/// working database) and the search index.
-async fn database() -> toasty::Db {
-    let db = toasty::Db::builder()
-        .models(toasty::models!(woodmouse::*))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory db");
-    woodmouse::migrations::MIGRATIONS
-        .apply(&db)
-        .await
-        .expect("apply migrations");
-    woodmouse::search::ensure_index(&mut db.clone())
-        .await
-        .unwrap_or_else(|_| panic!("create search index"));
-    db
+/// A fresh database in a temporary file, from the migrations (so the tests also prove they build a
+/// working database), search index included.
+async fn database() -> sea_orm::DatabaseConnection {
+    woodmouse::db::temporary().await
 }
 
 fn router(state: AppState) -> axum::Router {
@@ -45,7 +33,7 @@ fn router(state: AppState) -> axum::Router {
 }
 
 /// The router with a small upload limit, for testing size checks.
-pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db) {
+pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, sea_orm::DatabaseConnection) {
     let db = database().await;
     let root = std::env::temp_dir().join(format!("woodmouse-test-{}", uuid::Uuid::new_v4()));
     let files = woodmouse::storage::FileStores::new(
@@ -56,7 +44,7 @@ pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, toasty::Db)
 }
 
 /// The router and a handle on its database (the clone shares the pool), to seed users and sessions directly.
-pub async fn app_with_db() -> (axum::Router, toasty::Db) {
+pub async fn app_with_db() -> (axum::Router, sea_orm::DatabaseConnection) {
     let db = database().await;
     (router(AppState::new(db.clone())), db)
 }

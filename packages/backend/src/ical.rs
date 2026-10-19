@@ -2,7 +2,8 @@
 
 use std::fmt::Write;
 
-use jiff::civil::{Date, DateTime};
+use crate::time::DateTime;
+use jiff::civil::Date;
 
 /// A task as it appears in a feed.
 pub struct FeedTask {
@@ -145,12 +146,12 @@ mod tests {
 
     #[test]
     fn a_range_becomes_one_event_ending_after_the_last_day() {
-        let day = jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0);
+        let day: DateTime = jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0).into();
         let text = calendar(
             "My tasks",
             &[task(
                 Some(day),
-                Some(day.checked_add(jiff::Span::new().days(2)).unwrap()),
+                Some(day.checked_add(jiff::Span::new().days(2)).unwrap().into()),
                 false,
             )],
             day,
@@ -164,7 +165,7 @@ mod tests {
 
     #[test]
     fn a_single_date_is_a_one_day_event_and_done_tasks_are_marked() {
-        let day = jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0);
+        let day: DateTime = jiff::civil::date(2026, 10, 16).at(0, 0, 0, 0).into();
         let text = calendar("x", &[task(None, Some(day), true)], day);
         assert!(text.contains("DTSTART;VALUE=DATE:20261016\r\n"));
         assert!(text.contains("DTEND;VALUE=DATE:20261017\r\n"));
@@ -174,7 +175,7 @@ mod tests {
         let text = calendar(
             "x",
             &[task(
-                Some(day.checked_add(jiff::Span::new().days(5)).unwrap()),
+                Some(day.checked_add(jiff::Span::new().days(5)).unwrap().into()),
                 Some(day),
                 false,
             )],
@@ -186,10 +187,17 @@ mod tests {
     #[test]
     fn undated_tasks_are_left_out_and_long_lines_fold() {
         let mut long = task(None, None, false);
-        assert!(!calendar("x", &[long.clone_dates()], DateTime::ZERO).contains("BEGIN:VEVENT"));
-        long.due = Some(DateTime::ZERO);
+        assert!(
+            !calendar(
+                "x",
+                &[long.clone_dates()],
+                DateTime(jiff::civil::DateTime::ZERO)
+            )
+            .contains("BEGIN:VEVENT")
+        );
+        long.due = Some(DateTime(jiff::civil::DateTime::ZERO));
         long.title = "x".repeat(200);
-        let text = calendar("x", &[long], DateTime::ZERO);
+        let text = calendar("x", &[long], DateTime(jiff::civil::DateTime::ZERO));
         assert!(text.split("\r\n").all(|l| l.len() <= 75), "{text}");
         assert!(text.ends_with("END:VCALENDAR\r\n"));
     }

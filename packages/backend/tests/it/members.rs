@@ -2,6 +2,8 @@
 
 use axum::http::StatusCode;
 use serde_json::Value;
+use woodmouse::db::prelude::*;
+use woodmouse::models::user_invites;
 
 use crate::common::*;
 
@@ -154,14 +156,17 @@ async fn expired_and_reissued_invites() {
     assert_eq!(res.status(), StatusCode::CONFLICT);
 
     // An expired invite is dead.
-    let expired = toasty::create!(woodmouse::models::UserInvite {
-        token: "expired-token".to_string(),
-        user_id: user_id.parse::<uuid::Uuid>().unwrap(),
-        expires_at: "2000-01-01T00:00:00"
-            .parse::<jiff::civil::DateTime>()
-            .unwrap(),
-    })
-    .exec(&mut db.clone())
+    let expired = user_invites::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set("expired-token".to_string()),
+        user_id: Set(user_id.parse::<uuid::Uuid>().unwrap()),
+        expires_at: Set(woodmouse::time::DateTime(
+            "2000-01-01T00:00:00"
+                .parse::<jiff::civil::DateTime>()
+                .unwrap(),
+        )),
+    }
+    .insert(&db)
     .await
     .expect("seed invite");
     let res = request(&app, get(&format!("/api/invites/{}", expired.token), None)).await;

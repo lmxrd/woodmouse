@@ -1,5 +1,8 @@
 //! Saved views: named view settings for a project, private or shared with the workspace.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{saved_views, users};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -73,7 +76,7 @@ pub(crate) fn visible_to(view: &SavedView, user: &User) -> bool {
 }
 
 async fn respond(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user: &User,
     workspace_id: uuid::Uuid,
     views: Vec<SavedView>,
@@ -83,7 +86,10 @@ async fn respond(
         .is_ok();
     let mut out = Vec::with_capacity(views.len());
     for view in views {
-        let owner = User::get_by_id(db, &view.owner_id).await.ok();
+        let owner = users::Entity::find_by_id(view.owner_id)
+            .one_or_not_found(db)
+            .await
+            .ok();
         out.push(SavedViewResponse {
             id: view.id,
             project_id: view.project_id,
@@ -115,15 +121,17 @@ pub async fn list_views(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Vec<SavedViewResponse>>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     let workspace_id = access::require_project_access(db, &user, id, Role::Read).await?;
-    let mut views: Vec<SavedView> = SavedView::filter_by_project_id(id)
-        .exec(db)
+    let views: Vec<SavedView> = saved_views::Entity::find()
+        .filter(saved_views::Column::ProjectId.eq(id))
+        .filter(saved_views::Column::DeletedAt.is_null())
+        .order_by_asc(Func::lower(Expr::col(saved_views::Column::Name)))
+        .all(db)
         .await?
         .into_iter()
-        .filter(|v| v.deleted_at.is_none() && visible_to(v, &user))
+        .filter(|v| visible_to(v, &user))
         .collect();
-    views.sort_by_key(|v| v.name.to_lowercase());
     Ok(Json(respond(db, &user, workspace_id, views).await?))
 }
 
@@ -149,35 +157,35 @@ pub async fn create_view(
     Json(input): Json<CreateView>,
 ) -> Result<(StatusCode, Json<SavedViewResponse>), ApiError> {
     let name = validate(&input.name, &input.params)?;
-    let mut db = state.writer().await;
+    let db = state.writer().await?;
     let min = if input.is_shared {
         Role::Write
     } else {
         Role::Read
     };
-    let workspace_id = access::require_project_access(&mut *db, &user, id, min).await?;
-    let view = toasty::create!(SavedView {
-        workspace_id,
-        project_id: id,
-        owner_id: user.id,
-        name,
-        params: input.params.to_string(),
-        is_shared: input.is_shared,
-        created_at: time::now(),
-    })
-    .exec(&mut *db)
+    let workspace_id = access::require_project_access(&*db, &user, id, min).await?;
+    let view = saved_views::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        workspace_id: Set(workspace_id),
+        project_id: Set(id),
+        owner_id: Set(user.id),
+        name: Set(name),
+        params: Set(input.params.to_string()),
+        is_shared: Set(input.is_shared),
+        created_at: Set(time::now()),
+        ..Default::default()
+    }
+    .insert(&*db)
     .await?;
-    let mut out = respond(&mut *db, &user, workspace_id, vec![view]).await?;
+    let mut out = respond(&*db, &user, workspace_id, vec![view]).await?;
     Ok((StatusCode::CREATED, Json(out.swap_remove(0))))
 }
 
 /// A view the caller may change: visible to them, and theirs (or shared with them as an admin).
-async fn editable(
-    db: &mut dyn toasty::Executor,
-    user: &User,
-    id: uuid::Uuid,
-) -> Result<SavedView, ApiError> {
-    let view = SavedView::get_by_id(db, &id).await?;
+async fn editable(db: &impl Db, user: &User, id: uuid::Uuid) -> Result<SavedView, ApiError> {
+    let view = saved_views::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     if view.deleted_at.is_some() || !visible_to(&view, user) {
         return Err(ApiError::not_found());
     }
@@ -212,25 +220,26 @@ pub async fn update_view(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<UpdateView>,
 ) -> Result<Json<SavedViewResponse>, ApiError> {
-    let mut db = state.writer().await;
-    let mut view = editable(&mut *db, &user, id).await?;
+    let db = state.writer().await?;
+    let view = editable(&*db, &user, id).await?;
     let name = validate(
         input.name.as_deref().unwrap_or(&view.name),
         input.params.as_ref().unwrap_or(&serde_json::json!({})),
     )?;
     if input.is_shared == Some(true) {
-        access::require_project_access(&mut *db, &user, view.project_id, Role::Write).await?;
+        access::require_project_access(&*db, &user, view.project_id, Role::Write).await?;
     }
     let workspace_id = view.workspace_id;
-    let mut update = view.update().name(name);
+    let mut update = saved_views::ActiveModel::from(view);
+    update.name = Set(name);
     if let Some(params) = &input.params {
-        update = update.params(params.to_string());
+        update.params = Set(params.to_string());
     }
     if let Some(shared) = input.is_shared {
-        update = update.is_shared(shared);
+        update.is_shared = Set(shared);
     }
-    update.exec(&mut *db).await?;
-    let mut out = respond(&mut *db, &user, workspace_id, vec![view]).await?;
+    let view = update.update(&*db).await?;
+    let mut out = respond(&*db, &user, workspace_id, vec![view]).await?;
     Ok(Json(out.swap_remove(0)))
 }
 
@@ -252,15 +261,17 @@ pub async fn delete_view(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let view = editable(&mut *db, &user, id).await?;
-    let mut tx = db.transaction().await?;
-    SavedView::filter_by_id(id)
-        .update()
-        .deleted_at(Some(time::now()))
-        .exec(&mut tx)
-        .await?;
-    audit::deleted(&mut tx, user.id, view.workspace_id, "view", id, &view.name).await?;
+    let db = state.writer().await?;
+    let view = editable(&*db, &user, id).await?;
+    let tx = db.begin().await?;
+    saved_views::ActiveModel {
+        id: Unchanged(id),
+        deleted_at: Set(Some(time::now())),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
+    audit::deleted(&tx, user.id, view.workspace_id, "view", id, &view.name).await?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }

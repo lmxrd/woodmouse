@@ -24,7 +24,6 @@ const ACTIONS = [
   "page_edited",
   "comment_edited",
   "revision_redacted",
-  "backup_created",
 ];
 
 /** The whole audit log, newest first; the action filter is in the URL. */

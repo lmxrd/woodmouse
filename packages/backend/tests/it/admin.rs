@@ -1,7 +1,9 @@
-//! The site admin: users, deleted workspaces, the audit log, the integrity check and backups.
+//! The site admin: users, deleted workspaces, the audit log, and the integrity check.
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use woodmouse::db::prelude::*;
+use woodmouse::models::{sessions, users};
 
 use crate::common::*;
 
@@ -10,24 +12,27 @@ async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
 }
 
 /// A second, ordinary user with a session; returns (id, cookie).
-async fn seed_user(db: &toasty::Db, email: &str) -> (uuid::Uuid, String) {
-    let user = toasty::create!(woodmouse::models::User {
-        email: email.to_string(),
-        name: "".to_string(),
-        password_hash: "x".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(&mut db.clone())
+async fn seed_user(db: &sea_orm::DatabaseConnection, email: &str) -> (uuid::Uuid, String) {
+    let user = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set(email.to_string()),
+        name: Set("".to_string()),
+        password_hash: Set("x".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(db)
     .await
     .unwrap();
     let token = uuid::Uuid::new_v4().to_string();
-    toasty::create!(woodmouse::models::Session {
-        token: token.clone(),
-        user_id: user.id,
-        expires_at: far_future(),
-    })
-    .exec(&mut db.clone())
+    sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(token.clone()),
+        user_id: Set(user.id),
+        expires_at: Set(far_future()),
+    }
+    .insert(db)
     .await
     .unwrap();
     (user.id, format!("woodmouse_session={token}"))
@@ -176,16 +181,27 @@ async fn the_integrity_check_finds_orphans_and_redaction_removes_content() {
     let res = request(&app, get("/api/admin/integrity", Some(&admin))).await;
     assert_eq!(json_of(res).await, json!([]));
 
-    // A membership of a workspace that does not exist is reported.
+    // A membership of a workspace that does not exist is reported. The database refuses to make one, so
+    // the row is written with foreign keys off, as a manual edit or a partial restore could.
     let user = seed_user(&db, "x@home.io").await.0;
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: user,
-        workspace_id: uuid::Uuid::new_v4(),
-        role: woodmouse::models::Role::Read
-    })
-    .exec(&mut db.clone())
+    let mut conn = db.get_sqlite_connection_pool().acquire().await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO workspace_members (user_id, workspace_id, role) VALUES (?1, ?2, 'read')",
+    )
+    .bind(user)
+    .bind(uuid::Uuid::new_v4())
+    .execute(&mut *conn)
     .await
     .unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    drop(conn);
     let problems = json_of(request(&app, get("/api/admin/integrity", Some(&admin))).await).await;
     assert_eq!(problems.as_array().unwrap().len(), 1);
     assert_eq!(problems[0]["table"], "workspace_members");

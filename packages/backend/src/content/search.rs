@@ -1,30 +1,23 @@
 //! Full-text search over pages and tasks (SQLite FTS5).
 //!
-//! `search_docs` holds one row of searchable text per page and task, and `search_fts` indexes it
-//! (external-content table, kept in sync by triggers). Triggers on `tasks` and on page titles keep the
-//! text current without any handler having to remember; a page's body is written by
-//! [`index_page_body`] when its blocks are saved. Which results a person may see is decided at query
-//! time, by joining the live pages, tasks, lists and projects of the workspaces they can access, so
-//! soft deletes, restores and moves never need to touch the index.
+//! `search_docs` holds one row of searchable text per page, task and comment, and `search_fts` indexes it
+//! (an FTS5 external-content table); both, and the triggers that keep them current, are created by
+//! `src/migrations/m20260101_000001_init.sql`. Triggers on `tasks`, comments and page titles keep the text current without
+//! any handler having to remember; a page's body is written by [`index_page_body`] when its blocks are
+//! saved. Which results a person may see is decided at query time, by joining the live pages, tasks,
+//! lists and projects of the workspaces they can access, so soft deletes, restores and moves never need
+//! to touch the index.
 
 use crate::blocks::BlockData;
+use crate::db::{Db, json_ids};
 use crate::error::ApiError;
-use toasty::stmt::Value;
+use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 
-const SETUP: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS search_docs (
-        rid INTEGER PRIMARY KEY,
-        id TEXT NOT NULL UNIQUE,
-        kind TEXT NOT NULL,
-        ws TEXT NOT NULL,
-        title TEXT NOT NULL,
-        body TEXT NOT NULL DEFAULT ''
-    )",
-    "CREATE INDEX IF NOT EXISTS search_docs_ws ON search_docs(ws)",
-    "CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
-        title, body, content='search_docs', content_rowid='rid',
-        tokenize='unicode61 remove_diacritics 2', prefix='2 3'
-    )",
+/// The triggers that keep `search_docs` and the index current, as in `src/migrations/m20260101_000001_init.sql`. They are
+/// created again at startup (idempotent) because a migration that rebuilds `tasks`, `comments` or
+/// `wiki_pages` (SQLite drops a table's triggers with it) would otherwise leave search silently stale. The
+/// test `startup_triggers_match_the_migration` fails when this list and the migration drift apart.
+const TRIGGERS: &[&str] = &[
     "CREATE TRIGGER IF NOT EXISTS search_docs_ai AFTER INSERT ON search_docs BEGIN
         INSERT INTO search_fts(rowid, title, body) VALUES (new.rid, new.title, new.body);
     END",
@@ -37,7 +30,6 @@ const SETUP: &[&str] = &[
             VALUES ('delete', old.rid, old.title, old.body);
         INSERT INTO search_fts(rowid, title, body) VALUES (new.rid, new.title, new.body);
     END",
-    // Tasks: the workspace comes from the task's project.
     "CREATE TRIGGER IF NOT EXISTS search_tasks_ai AFTER INSERT ON tasks BEGIN
         INSERT INTO search_docs(id, kind, ws, title, body)
             VALUES (lower(hex(new.id)), 'task',
@@ -73,6 +65,16 @@ const SETUP: &[&str] = &[
     END",
 ];
 
+/// Create the search triggers again if they are missing. The migrations must have run.
+pub async fn ensure_triggers(db: &impl Db) -> Result<(), ApiError> {
+    for sql in TRIGGERS {
+        db.execute_unprepared(sql)
+            .await
+            .map_err(|e| err("creating the search triggers", e))?;
+    }
+    Ok(())
+}
+
 fn err(what: &str, e: impl std::fmt::Display) -> ApiError {
     tracing::error!(%e, "{what}");
     ApiError::internal("search is unavailable")
@@ -83,34 +85,20 @@ fn key(id: uuid::Uuid) -> String {
     id.simple().to_string()
 }
 
-/// Create the index and its triggers (idempotent).
-pub async fn ensure_index(db: &mut dyn toasty::Executor) -> Result<(), ApiError> {
-    for sql in SETUP {
-        toasty::sql::statement(*sql)
-            .exec(db)
-            .await
-            .map_err(|e| err("creating the search index", e))?;
-    }
-    Ok(())
-}
-
-async fn set_body(
-    db: &mut dyn toasty::Executor,
-    page_id: uuid::Uuid,
-    body: &str,
-) -> Result<(), ApiError> {
-    toasty::sql::statement("UPDATE search_docs SET body = ?1 WHERE id = ?2")
-        .bind(body.to_string())
-        .bind(key(page_id))
-        .exec(db)
-        .await
-        .map_err(|e| err("indexing a page", e))?;
+async fn set_body(db: &impl Db, page_id: uuid::Uuid, body: &str) -> Result<(), ApiError> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "UPDATE search_docs SET body = ?1 WHERE id = ?2",
+        [body.into(), key(page_id).into()],
+    ))
+    .await
+    .map_err(|e| err("indexing a page", e))?;
     Ok(())
 }
 
 /// Index a page's text after its blocks were saved.
 pub async fn index_page_body(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     page_id: uuid::Uuid,
     blocks: &[BlockData],
 ) -> Result<(), ApiError> {
@@ -122,25 +110,16 @@ pub async fn index_page_body(
     set_body(db, page_id, &text).await
 }
 
-fn str_at(row: &Value, col: usize) -> String {
-    match row {
-        Value::Record(rec) => match &rec[col] {
-            Value::String(s) => s.clone(),
-            _ => String::new(),
-        },
-        _ => String::new(),
-    }
-}
-
-fn i64_at(row: &Value, col: usize) -> i64 {
-    match row {
-        Value::Record(rec) => match &rec[col] {
-            Value::I64(n) => *n,
-            Value::Bool(b) => i64::from(*b),
-            _ => 0,
-        },
-        _ => 0,
-    }
+/// One row of the search query, before it is checked and typed.
+#[derive(FromQueryResult)]
+struct Found {
+    kind: String,
+    id: String,
+    title: String,
+    snip: String,
+    ws: String,
+    project: String,
+    completed: i64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -173,7 +152,7 @@ fn match_expression(query: &str) -> Option<String> {
 /// Search the live pages and tasks of `workspaces`, best match first (title matches count ten times as
 /// much as text matches). An empty query returns the newest items instead.
 pub async fn search(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     workspaces: &[uuid::Uuid],
     query: &str,
     kind: Option<Kind>,
@@ -195,35 +174,20 @@ pub async fn search(
         Some(Kind::Task) => "task",
         None => "",
     };
-    let marks: Vec<String> = (0..workspaces.len())
-        .map(|i| format!("?{}", i + 4))
-        .collect();
-    let marks = marks.join(", ");
-    let (from, order, snippet) = if expression.is_some() {
-        (
-            "search_fts JOIN search_docs d ON d.rid = search_fts.rowid",
-            "bm25(search_fts, 10.0, 1.0)",
-            "snippet(search_fts, 1, '', '', '…', 12)",
-        )
-    } else {
-        ("search_docs d", "-d.rid", "''")
-    };
-    let matching = if expression.is_some() {
-        "search_fts MATCH ?1 AND"
-    } else {
-        "?1 = ?1 AND"
-    };
     // Matching documents first (cheap: the index and the workspace column), then only those are checked
     // against the live pages, tasks and comments, so deleted things and moved or deleted lists never show.
-    let sql = format!(
-        "WITH hits AS (
-            SELECT d.id AS id, d.kind AS kind, d.ws AS ws, {snippet} AS snip, {order} AS rank
-            FROM {from}
-            WHERE {matching} d.ws IN ({marks})
+    // Two queries: with words to match (ranked, with a snippet), and without (the newest items). Both take
+    // the kind (`''` for any), the limit and the workspaces as a JSON list of ids.
+    const WITH_WORDS: &str = "WITH hits AS (
+            SELECT d.id AS id, d.kind AS kind, d.ws AS ws, snippet(search_fts, 1, '', '', '…', 12) AS snip,
+                   bm25(search_fts, 10.0, 1.0) AS rank
+            FROM search_fts JOIN search_docs d ON d.rid = search_fts.rowid
+            WHERE search_fts MATCH ?1 AND d.ws IN (SELECT value FROM json_each(?4))
               AND (?2 = '' OR d.kind = ?2 OR (?2 = 'task' AND d.kind = 'comment'))
             ORDER BY rank LIMIT ?3
         )
-        SELECT h.kind, h.id, p.title, h.snip, h.ws, '', 0, h.rank
+        SELECT h.kind AS kind, h.id AS id, p.title AS title, h.snip AS snip, h.ws AS ws, '' AS project,
+               0 AS completed, h.rank AS rank
         FROM hits h JOIN wiki_pages p ON p.id = unhex(h.id)
         WHERE h.kind = 'page' AND p.deleted_at IS NULL
         UNION ALL
@@ -245,32 +209,71 @@ pub async fn search(
         LEFT JOIN lists l ON l.id = t.list_id
         WHERE h.kind = 'comment' AND c.deleted_at IS NULL AND t.deleted_at IS NULL
           AND pr.deleted_at IS NULL AND (l.id IS NULL OR l.deleted_at IS NULL)
-        ORDER BY rank"
-    );
-    let mut q = toasty::sql::query(sql)
-        .bind(expression.unwrap_or_default())
-        .bind(kind_filter.to_string())
-        .bind((limit * 4) as i64);
-    for ws in workspaces {
-        q = q.bind(key(*ws));
-    }
-    let rows = q.exec(db).await.map_err(|e| err("searching", e))?;
-    let parse = |s: String| uuid::Uuid::parse_str(&s).ok();
+        ORDER BY rank";
+    const NEWEST: &str = "WITH hits AS (
+            SELECT d.id AS id, d.kind AS kind, d.ws AS ws, '' AS snip, -d.rid AS rank
+            FROM search_docs d
+            WHERE ?1 = ?1 AND d.ws IN (SELECT value FROM json_each(?4))
+              AND (?2 = '' OR d.kind = ?2 OR (?2 = 'task' AND d.kind = 'comment'))
+            ORDER BY rank LIMIT ?3
+        )
+        SELECT h.kind AS kind, h.id AS id, p.title AS title, h.snip AS snip, h.ws AS ws, '' AS project,
+               0 AS completed, h.rank AS rank
+        FROM hits h JOIN wiki_pages p ON p.id = unhex(h.id)
+        WHERE h.kind = 'page' AND p.deleted_at IS NULL
+        UNION ALL
+        SELECT 'task', lower(hex(t.id)), t.title, h.snip, h.ws, lower(hex(t.project_id)),
+               t.completed_at IS NOT NULL, h.rank
+        FROM hits h
+        JOIN tasks t ON t.id = unhex(h.id)
+        JOIN projects pr ON pr.id = t.project_id
+        LEFT JOIN lists l ON l.id = t.list_id
+        WHERE h.kind = 'task' AND t.deleted_at IS NULL AND pr.deleted_at IS NULL
+          AND (l.id IS NULL OR l.deleted_at IS NULL)
+        UNION ALL
+        SELECT 'comment', lower(hex(t.id)), t.title, h.snip, h.ws, lower(hex(t.project_id)),
+               t.completed_at IS NOT NULL, h.rank
+        FROM hits h
+        JOIN comments c ON c.id = unhex(h.id)
+        JOIN tasks t ON t.id = c.task_id
+        JOIN projects pr ON pr.id = t.project_id
+        LEFT JOIN lists l ON l.id = t.list_id
+        WHERE h.kind = 'comment' AND c.deleted_at IS NULL AND t.deleted_at IS NULL
+          AND pr.deleted_at IS NULL AND (l.id IS NULL OR l.deleted_at IS NULL)
+        ORDER BY rank";
+    let found: Vec<Found> = Found::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        if expression.is_some() {
+            WITH_WORDS
+        } else {
+            NEWEST
+        },
+        [
+            expression.unwrap_or_default().into(),
+            kind_filter.into(),
+            ((limit * 4) as i64).into(),
+            json_ids(workspaces).into(),
+        ],
+    ))
+    .all(db)
+    .await
+    .map_err(|e| err("searching", e))?;
+    let parse = |s: &str| uuid::Uuid::parse_str(s).ok();
     let mut seen = std::collections::HashSet::new();
-    let mut hits: Vec<Hit> = rows
+    let mut hits: Vec<Hit> = found
         .iter()
         .filter_map(|row| {
             // A comment is found as the task it belongs to.
-            let is_task = matches!(str_at(row, 0).as_str(), "task" | "comment");
-            let snippet = Some(str_at(row, 3)).filter(|s| !s.trim().is_empty());
+            let is_task = matches!(row.kind.as_str(), "task" | "comment");
+            let snippet = Some(row.snip.clone()).filter(|s| !s.trim().is_empty());
             Some(Hit {
                 kind: if is_task { Kind::Task } else { Kind::Page },
-                id: parse(str_at(row, 1))?,
-                title: str_at(row, 2),
+                id: parse(&row.id)?,
+                title: row.title.clone(),
                 snippet,
-                workspace_id: parse(str_at(row, 4))?,
-                project_id: if is_task { parse(str_at(row, 5)) } else { None },
-                is_completed: is_task.then(|| i64_at(row, 6) != 0),
+                workspace_id: parse(&row.ws)?,
+                project_id: if is_task { parse(&row.project) } else { None },
+                is_completed: is_task.then_some(row.completed != 0),
             })
         })
         .filter(|hit| seen.insert(hit.id))

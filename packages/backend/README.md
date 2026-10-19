@@ -1,6 +1,6 @@
 # woodmouse
 
-API service built with axum, utoipa (OpenAPI), and toasty on SQLite.
+API service built with axum, utoipa (OpenAPI), and SeaORM on SQLite.
 
 ## Commands
 
@@ -17,8 +17,7 @@ API service built with axum, utoipa (OpenAPI), and toasty on SQLite.
 Environment variables (see `src/main.rs`):
 
 - `BIND_ADDR` — listen address (default `0.0.0.0:8000`)
-- `DATABASE_URL` — toasty connection URL (default `sqlite:woodmouse.db`;
-  use `sqlite::memory:` for a throwaway database)
+- `DATABASE_URL` — SQLite URL (default `sqlite:woodmouse.db`)
 
 ## Docker
 

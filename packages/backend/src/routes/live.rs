@@ -48,7 +48,7 @@ pub async fn live_session(
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<LiveSession>, ApiError> {
     let can_edit = {
-        let db = &mut state.db();
+        let db = state.db();
         let page = access::require_page_access(db, &user, id, Role::Read).await?;
         access::role_in(db, &user, page.workspace_id)
             .await?
@@ -90,7 +90,7 @@ pub async fn live_socket(
 ) -> Result<Response, ApiError> {
     // The session cookie is SameSite=Lax, so a page on another site cannot open this with the user's login.
     let can_edit = {
-        let db = &mut state.db();
+        let db = state.db();
         let page = access::require_page_access(db, &user, id, Role::Read).await?;
         access::role_in(db, &user, page.workspace_id)
             .await?

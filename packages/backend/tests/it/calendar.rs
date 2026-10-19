@@ -2,12 +2,15 @@
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use woodmouse::db::prelude::*;
+use woodmouse::models::users;
+use woodmouse::models::{sessions, workspace_members};
 
 use crate::common::*;
 
 struct Fx {
     app: axum::Router,
-    db: toasty::Db,
+    db: sea_orm::DatabaseConnection,
     cookie: String,
     ws: uuid::Uuid,
 }
@@ -47,32 +50,36 @@ impl Fx {
         (res.status(), body_string(res.into_body()).await)
     }
     async fn member(&self, email: &str) -> String {
-        let db = &mut self.db.clone();
-        let user = toasty::create!(woodmouse::models::User {
-            email: email.to_string(),
-            name: "".to_string(),
-            password_hash: "x".to_string(),
-            super_admin: false,
-            active: true,
-        })
-        .exec(db)
+        let db = &self.db;
+        let user = users::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            email: Set(email.to_string()),
+            name: Set("".to_string()),
+            password_hash: Set("x".to_string()),
+            super_admin: Set(false),
+            active: Set(true),
+            ..Default::default()
+        }
+        .insert(db)
         .await
         .unwrap();
-        toasty::create!(woodmouse::models::WorkspaceMember {
-            user_id: user.id,
-            workspace_id: self.ws,
-            role: woodmouse::models::Role::Read
-        })
-        .exec(db)
+        workspace_members::ActiveModel {
+            user_id: Set(user.id),
+            workspace_id: Set(self.ws),
+            role: Set(woodmouse::models::Role::Read),
+            ..Default::default()
+        }
+        .insert(db)
         .await
         .unwrap();
         let token = uuid::Uuid::new_v4().to_string();
-        toasty::create!(woodmouse::models::Session {
-            token: token.clone(),
-            user_id: user.id,
-            expires_at: crate::common::far_future()
-        })
-        .exec(db)
+        sessions::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            token: Set(token.clone()),
+            user_id: Set(user.id),
+            expires_at: Set(crate::common::far_future()),
+        }
+        .insert(db)
         .await
         .unwrap();
         format!("woodmouse_session={token}")
@@ -276,12 +283,15 @@ async fn links_belong_to_their_owner_and_follow_their_access() {
         fx.feed(link["path"].as_str().unwrap()).await.0,
         StatusCode::OK
     );
-    let db = &mut fx.db.clone();
-    let user = woodmouse::models::User::get_by_email(db, "r@home.io")
+    let db = &fx.db;
+    let user = users::Entity::find()
+        .filter(users::Column::Email.eq("r@home.io"))
+        .one_or_not_found(db)
         .await
         .unwrap();
-    woodmouse::models::WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, fx.ws)
-        .delete()
+    workspace_members::Entity::delete_many()
+        .filter(workspace_members::Column::UserId.eq(user.id))
+        .filter(workspace_members::Column::WorkspaceId.eq(fx.ws))
         .exec(db)
         .await
         .unwrap();
@@ -289,12 +299,13 @@ async fn links_belong_to_their_owner_and_follow_their_access() {
         fx.feed(link["path"].as_str().unwrap()).await.0,
         StatusCode::NOT_FOUND
     );
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: user.id,
-        workspace_id: fx.ws,
-        role: woodmouse::models::Role::Read
-    })
-    .exec(db)
+    workspace_members::ActiveModel {
+        user_id: Set(user.id),
+        workspace_id: Set(fx.ws),
+        role: Set(woodmouse::models::Role::Read),
+        ..Default::default()
+    }
+    .insert(db)
     .await
     .unwrap();
     assert_eq!(

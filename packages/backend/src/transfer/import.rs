@@ -1,19 +1,21 @@
 //! Importing a document, as one plan that can be previewed first.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{comments, tasks};
+use crate::models::{labels, lists, projects, sprints, users, wiki_pages, workspace_members};
 use std::collections::HashMap;
 
 use crate::audit::{self, Entry};
 use crate::error::ApiError;
-use crate::models::{
-    Comment, Label, List, Priority, Project, Sprint, Task, User, WikiPage, WorkspaceMember,
-};
+use crate::models::{Priority, Project, WikiPage};
 use crate::routes::tasks::{CreateTaskRequest, create_task_tx};
 use crate::{blocks, pages, revisions, time};
 
 use super::*;
 
 /// A date or date-time as a UTC date-time (`YYYY-MM-DD` means that day at midnight).
-fn parse_when(text: &str) -> Option<jiff::civil::DateTime> {
+fn parse_when(text: &str) -> Option<crate::time::DateTime> {
     let t = text.trim();
     if let Ok(ts) = t.parse::<jiff::Timestamp>() {
         return Some(time::from_timestamp(ts));
@@ -35,7 +37,7 @@ fn parse_priority(text: &str) -> Option<Priority> {
 /// import first previews; if the file has problems, or people who still need a choice, it is refused with
 /// that report (`applied` false). Otherwise everything is written in one transaction.
 pub async fn apply(
-    db: &mut toasty::Db,
+    db: &impl Db,
     workspace_id: uuid::Uuid,
     actor: uuid::Uuid,
     data: Export,
@@ -46,16 +48,7 @@ pub async fn apply(
             dry_run: true,
             ..Default::default()
         };
-        run(
-            &mut *db,
-            workspace_id,
-            actor,
-            &data,
-            options,
-            true,
-            &mut report,
-        )
-        .await?;
+        run(db, workspace_id, actor, &data, options, true, &mut report).await?;
         report
     };
     if options.dry_run {
@@ -68,19 +61,10 @@ pub async fn apply(
             ..preview
         });
     }
-    let mut tx = db.transaction().await?;
+    let tx = db.begin().await?;
     let mut report = ImportReport::default();
     // Any error rolls everything back (the transaction is dropped without a commit).
-    run(
-        &mut tx,
-        workspace_id,
-        actor,
-        &data,
-        options,
-        false,
-        &mut report,
-    )
-    .await?;
+    run(&tx, workspace_id, actor, &data, options, false, &mut report).await?;
     tx.commit().await?;
     report.applied = true;
     Ok(report)
@@ -89,7 +73,7 @@ pub async fn apply(
 /// Resolve the people the file names to users of this workspace, creating or adding some when asked to.
 /// `None` means "leave out". Anyone without a choice is reported as unmapped.
 async fn resolve_users(
-    ex: &mut dyn toasty::Executor,
+    ex: &impl Db,
     workspace_id: uuid::Uuid,
     actor: uuid::Uuid,
     data: &Export,
@@ -114,15 +98,15 @@ async fn resolve_users(
         t.comments.iter().for_each(|c| count(&c.author));
     }
 
-    let users: HashMap<uuid::Uuid, String> = User::all()
-        .exec(&mut *ex)
+    let users: HashMap<uuid::Uuid, String> = users::Entity::find()
+        .all(ex)
         .await?
         .into_iter()
         .map(|u| (u.id, u.email.to_lowercase()))
         .collect();
-    let members: HashMap<String, uuid::Uuid> = WorkspaceMember::all()
-        .filter(WorkspaceMember::fields().workspace_id().eq(workspace_id))
-        .exec(&mut *ex)
+    let members: HashMap<String, uuid::Uuid> = workspace_members::Entity::find()
+        .filter(workspace_members::Column::WorkspaceId.eq(workspace_id))
+        .all(ex)
         .await?
         .into_iter()
         .filter_map(|m| users.get(&m.user_id).map(|e| (e.clone(), m.user_id)))
@@ -166,35 +150,37 @@ async fn resolve_users(
                 let (user_id, new_account) = match by_email.get(&email) {
                     Some(id) => (*id, false),
                     None => {
-                        let created = toasty::create!(User {
-                            email: email.clone(),
-                            name: String::new(),
-                            password_hash: String::new(),
-                            super_admin: false,
-                            active: true,
-                        })
-                        .exec(&mut *ex)
+                        let created = users::ActiveModel {
+                            id: Set(uuid::Uuid::now_v7()),
+                            email: Set(email.clone()),
+                            name: Set(String::new()),
+                            password_hash: Set(String::new()),
+                            super_admin: Set(false),
+                            active: Set(true),
+                            ..Default::default()
+                        }
+                        .insert(ex)
                         .await?;
                         (created.id, true)
                     }
                 };
-                toasty::create!(WorkspaceMember {
-                    user_id,
-                    workspace_id,
-                    role: *role,
-                })
-                .exec(&mut *ex)
+                workspace_members::ActiveModel {
+                    user_id: Set(user_id),
+                    workspace_id: Set(workspace_id),
+                    role: Set(*role),
+                    ..Default::default()
+                }
+                .insert(ex)
                 .await?;
                 audit::record(
-                    &mut *ex,
+                    ex,
                     Entry::feed(workspace_id, actor, "member_added")
                         .target("user", user_id)
                         .data(serde_json::json!({ "role": role })),
                 )
                 .await?;
                 if new_account {
-                    let invite_token =
-                        crate::routes::members::issue_invite(&mut *ex, user_id).await?;
+                    let invite_token = crate::routes::members::issue_invite(ex, user_id).await?;
                     report.invites.push(CreatedInvite {
                         email: email.clone(),
                         invite_token,
@@ -210,7 +196,7 @@ async fn resolve_users(
 /// One pass over the data: with `dry_run` it only fills in the report, otherwise it writes through `ex`
 /// (which the caller makes a transaction).
 async fn run(
-    ex: &mut dyn toasty::Executor,
+    ex: &impl Db,
     workspace_id: uuid::Uuid,
     actor: uuid::Uuid,
     data: &Export,
@@ -218,21 +204,13 @@ async fn run(
     dry_run: bool,
     report: &mut ImportReport,
 ) -> Result<(), ApiError> {
-    let users = resolve_users(
-        &mut *ex,
-        workspace_id,
-        actor,
-        data,
-        options,
-        dry_run,
-        report,
-    )
-    .await?;
-    let mut labels: HashMap<String, uuid::Uuid> = Label::filter_by_workspace_id(workspace_id)
-        .exec(&mut *ex)
+    let users = resolve_users(ex, workspace_id, actor, data, options, dry_run, report).await?;
+    let mut labels: HashMap<String, uuid::Uuid> = labels::Entity::find()
+        .filter(labels::Column::WorkspaceId.eq(workspace_id))
+        .filter(labels::Column::DeletedAt.is_null())
+        .all(ex)
         .await?
         .into_iter()
-        .filter(|l| l.deleted_at.is_none())
         .map(|l| (l.name.to_lowercase(), l.id))
         .collect();
     if data.members.as_ref().is_some_and(|m| !m.is_empty()) {
@@ -262,12 +240,14 @@ async fn run(
         let id = if dry_run {
             uuid::Uuid::new_v4()
         } else {
-            toasty::create!(Label {
-                workspace_id,
-                name: name.clone(),
-                color: color.unwrap_or_else(|| "#71717a".to_string()),
-            })
-            .exec(&mut *ex)
+            labels::ActiveModel {
+                id: Set(uuid::Uuid::now_v7()),
+                workspace_id: Set(workspace_id),
+                name: Set(name.clone()),
+                color: Set(color.unwrap_or_else(|| "#71717a".to_string())),
+                ..Default::default()
+            }
+            .insert(ex)
             .await?
             .id
         };
@@ -275,11 +255,12 @@ async fn run(
         report.labels_created += 1;
     }
 
-    let existing_projects: Vec<Project> = Project::filter_by_workspace_id(workspace_id)
-        .exec(&mut *ex)
+    let existing_projects: Vec<Project> = projects::Entity::find()
+        .filter(projects::Column::WorkspaceId.eq(workspace_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .all(ex)
         .await?
         .into_iter()
-        .filter(|p| p.deleted_at.is_none())
         .collect();
     for project in data.projects.iter().flatten() {
         let name = project.name.trim().to_string();
@@ -297,12 +278,14 @@ async fn run(
                 let id = if dry_run {
                     uuid::Uuid::new_v4()
                 } else {
-                    toasty::create!(Project {
-                        workspace_id,
-                        name: name.clone(),
-                        description: project.description.clone(),
-                    })
-                    .exec(&mut *ex)
+                    projects::ActiveModel {
+                        id: Set(uuid::Uuid::now_v7()),
+                        workspace_id: Set(workspace_id),
+                        name: Set(name.clone()),
+                        description: Set(project.description.clone()),
+                        ..Default::default()
+                    }
+                    .insert(ex)
                     .await?
                     .id
                 };
@@ -333,7 +316,7 @@ async fn run(
 
 #[allow(clippy::too_many_arguments)]
 async fn import_project(
-    ex: &mut dyn toasty::Executor,
+    ex: &impl Db,
     workspace_id: uuid::Uuid,
     actor: uuid::Uuid,
     project_id: uuid::Uuid,
@@ -346,22 +329,25 @@ async fn import_project(
     report: &mut ImportReport,
 ) -> Result<(), ApiError> {
     let mut lists: HashMap<String, uuid::Uuid> = if existing {
-        List::filter_by_project_id(project_id)
-            .exec(&mut *ex)
+        lists::Entity::find()
+            .filter(lists::Column::ProjectId.eq(project_id))
+            .filter(lists::Column::DeletedAt.is_null())
+            .all(ex)
             .await?
             .into_iter()
-            .filter(|l| l.deleted_at.is_none())
             .map(|l| (l.name.to_lowercase(), l.id))
             .collect()
     } else {
         HashMap::new()
     };
     let mut sprints: HashMap<String, uuid::Uuid> = if existing {
-        Sprint::filter_by_project_id(project_id)
-            .exec(&mut *ex)
+        sprints::Entity::find()
+            .filter(sprints::Column::ProjectId.eq(project_id))
+            .filter(sprints::Column::DeletedAt.is_null())
+            .filter(sprints::Column::CompletedAt.is_null())
+            .all(ex)
             .await?
             .into_iter()
-            .filter(|s| s.deleted_at.is_none() && s.completed_at.is_none())
             .map(|s| (s.name.to_lowercase(), s.id))
             .collect()
     } else {
@@ -378,12 +364,14 @@ async fn import_project(
             let id = if dry_run {
                 uuid::Uuid::new_v4()
             } else {
-                toasty::create!(List {
-                    project_id,
-                    name: name.clone(),
-                    position: next_position,
-                })
-                .exec(&mut *ex)
+                lists::ActiveModel {
+                    id: Set(uuid::Uuid::now_v7()),
+                    project_id: Set(project_id),
+                    name: Set(name.clone()),
+                    position: Set(next_position),
+                    ..Default::default()
+                }
+                .insert(ex)
                 .await?
                 .id
             };
@@ -436,15 +424,17 @@ async fn import_project(
         let id = if dry_run {
             uuid::Uuid::new_v4()
         } else {
-            toasty::create!(Sprint {
-                project_id,
-                name: name.clone(),
-                goal: spec.goal.clone(),
-                start_date: start,
-                end_date: end,
-                completed_at: completed,
-            })
-            .exec(&mut *ex)
+            sprints::ActiveModel {
+                id: Set(uuid::Uuid::now_v7()),
+                project_id: Set(project_id),
+                name: Set(name.clone()),
+                goal: Set(spec.goal.clone()),
+                start_date: Set(start),
+                end_date: Set(end),
+                completed_at: Set(completed),
+                ..Default::default()
+            }
+            .insert(ex)
             .await?
             .id
         };
@@ -551,7 +541,7 @@ async fn import_project(
             continue;
         }
         let task = create_task_tx(
-            &mut *ex,
+            ex,
             workspace_id,
             project_id,
             list_id,
@@ -574,11 +564,13 @@ async fn import_project(
         created.insert(t.id, (task.id, task.list_id));
         report.tasks_created += 1;
         if let Some(done) = completed_at {
-            Task::filter_by_id(task.id)
-                .update()
-                .completed_at(Some(done))
-                .exec(&mut *ex)
-                .await?;
+            tasks::ActiveModel {
+                id: Unchanged(task.id),
+                completed_at: Set(Some(done)),
+                ..Default::default()
+            }
+            .update(ex)
+            .await?;
         }
         for c in &t.comments {
             let body = c.body.trim().to_string();
@@ -595,15 +587,17 @@ async fn import_project(
                 .as_deref()
                 .and_then(parse_when)
                 .unwrap_or_else(time::now);
-            let comment = toasty::create!(Comment {
-                task_id: task.id,
-                author_id: author,
-                body: body.clone(),
-                created_at: at,
-            })
-            .exec(&mut *ex)
+            let comment = comments::ActiveModel {
+                id: Set(uuid::Uuid::now_v7()),
+                task_id: Set(task.id),
+                author_id: Set(author),
+                body: Set(body.clone()),
+                created_at: Set(at),
+                ..Default::default()
+            }
+            .insert(ex)
             .await?;
-            revisions::record_comment(&mut *ex, comment.id, author, &body).await?;
+            revisions::record_comment(ex, comment.id, author, &body).await?;
             report.comments_created += 1;
         }
     }
@@ -611,7 +605,7 @@ async fn import_project(
 }
 
 async fn import_wiki(
-    ex: &mut dyn toasty::Executor,
+    ex: &impl Db,
     workspace_id: uuid::Uuid,
     actor: uuid::Uuid,
     wiki: &[ExportPage],
@@ -619,11 +613,12 @@ async fn import_wiki(
     report: &mut ImportReport,
 ) -> Result<(), ApiError> {
     let mut created: HashMap<u32, uuid::Uuid> = HashMap::new();
-    let existing: Vec<WikiPage> = WikiPage::filter_by_workspace_id(workspace_id)
-        .exec(&mut *ex)
+    let existing: Vec<WikiPage> = wiki_pages::Entity::find()
+        .filter(wiki_pages::Column::WorkspaceId.eq(workspace_id))
+        .filter(wiki_pages::Column::DeletedAt.is_null())
+        .all(ex)
         .await?
         .into_iter()
-        .filter(|p| p.deleted_at.is_none())
         .collect();
     let mut positions: HashMap<Option<uuid::Uuid>, i64> = HashMap::new();
     for p in &existing {
@@ -663,22 +658,24 @@ async fn import_wiki(
         let position = positions.entry(parent).or_insert(0);
         *position += crate::ordering::GAP;
         let now = time::now();
-        let mut row = toasty::create!(WikiPage {
-            workspace_id,
-            parent_id: parent,
-            title: title.clone(),
-            position: *position,
-            content: blocks::encode(&[]),
-            created_by: actor,
-            created_at: now,
-            updated_by: actor,
-            updated_at: now,
-            version: 0,
-        })
-        .exec(&mut *ex)
+        let mut row = wiki_pages::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            workspace_id: Set(workspace_id),
+            parent_id: Set(parent),
+            title: Set(title.clone()),
+            position: Set(*position),
+            content: Set(blocks::encode(&[])),
+            created_by: Set(actor),
+            created_at: Set(now),
+            updated_by: Set(actor),
+            updated_at: Set(now),
+            version: Set(0),
+            ..Default::default()
+        }
+        .insert(ex)
         .await?;
         revisions::record_page(
-            &mut *ex,
+            ex,
             row.id,
             actor,
             &revisions::PageContent {
@@ -688,7 +685,7 @@ async fn import_wiki(
             true,
         )
         .await?;
-        pages::save_content(&mut *ex, &mut row, actor, &page.blocks, true).await?;
+        pages::save_content(ex, &mut row, actor, &page.blocks, true).await?;
         created.insert(page.id, row.id);
         report.pages_created += 1;
     }

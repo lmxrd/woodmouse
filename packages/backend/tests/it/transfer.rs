@@ -3,12 +3,14 @@
 use axum::body::Body;
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use woodmouse::db::prelude::*;
+use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
 struct Fx {
     app: axum::Router,
-    db: toasty::Db,
+    db: sea_orm::DatabaseConnection,
     cookie: String,
     ws: uuid::Uuid,
 }
@@ -72,31 +74,35 @@ impl Fx {
     }
     /// A second person who is a member with `role` (and their session cookie and id).
     async fn member(&self, email: &str, role: woodmouse::models::Role) -> (String, uuid::Uuid) {
-        let user = toasty::create!(woodmouse::models::User {
-            email: email.to_string(),
-            name: "".to_string(),
-            password_hash: "x".to_string(),
-            super_admin: false,
-            active: true,
-        })
-        .exec(&mut self.db.clone())
+        let user = users::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            email: Set(email.to_string()),
+            name: Set("".to_string()),
+            password_hash: Set("x".to_string()),
+            super_admin: Set(false),
+            active: Set(true),
+            ..Default::default()
+        }
+        .insert(&self.db)
         .await
         .unwrap();
-        toasty::create!(woodmouse::models::WorkspaceMember {
-            user_id: user.id,
-            workspace_id: self.ws,
-            role
-        })
-        .exec(&mut self.db.clone())
+        workspace_members::ActiveModel {
+            user_id: Set(user.id),
+            workspace_id: Set(self.ws),
+            role: Set(role),
+            ..Default::default()
+        }
+        .insert(&self.db)
         .await
         .unwrap();
         let token = uuid::Uuid::new_v4().to_string();
-        toasty::create!(woodmouse::models::Session {
-            token: token.clone(),
-            user_id: user.id,
-            expires_at: far_future()
-        })
-        .exec(&mut self.db.clone())
+        sessions::ActiveModel {
+            id: Set(uuid::Uuid::now_v7()),
+            token: Set(token.clone()),
+            user_id: Set(user.id),
+            expires_at: Set(far_future()),
+        }
+        .insert(&self.db)
         .await
         .unwrap();
         (format!("woodmouse_session={token}"), user.id)

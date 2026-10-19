@@ -185,7 +185,7 @@ pub struct ImportReport {
     pub warnings: Vec<String>,
 }
 
-pub fn day_text(d: Option<jiff::civil::DateTime>) -> Option<String> {
+pub fn day_text(d: Option<crate::time::DateTime>) -> Option<String> {
     d.map(|d| time::timestamp(d).to_string())
 }
 

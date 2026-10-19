@@ -1,6 +1,8 @@
 //! Appearance: a workspace's palette and accent colour (set by admins), each member's own choice for the
 //! workspace, and the light/dark mode (an account setting, see `UpdateMe`).
 
+use crate::db::prelude::*;
+use crate::models::{workspace_members, workspaces};
 use axum::Json;
 use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
@@ -10,7 +12,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Role, Workspace, WorkspaceMember};
+use crate::models::Role;
 use crate::state::AppState;
 
 /// The colour palettes the app ships (each has a light and a dark version).
@@ -84,12 +86,15 @@ pub async fn get_theme(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<ThemeView>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_access(db, &user, id, Role::Read).await?;
-    let workspace = Workspace::get_by_id(db, &id).await?;
-    let mine = WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, id)
-        .first()
-        .exec(db)
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
+    let mine = workspace_members::Entity::find()
+        .filter(workspace_members::Column::UserId.eq(user.id))
+        .filter(workspace_members::Column::WorkspaceId.eq(id))
+        .one(db)
         .await?
         .map(|m| ThemeChoice {
             palette: m.theme_palette,
@@ -128,15 +133,19 @@ pub async fn set_workspace_theme(
 ) -> Result<Json<ThemeChoice>, ApiError> {
     valid(&input)?;
     let input = normalized(input);
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, id, Role::Admin).await?;
-    let mut workspace = Workspace::get_by_id(&mut *db, &id).await?;
-    workspace
-        .update()
-        .theme_palette(input.palette.clone())
-        .theme_accent(input.accent.clone())
-        .exec(&mut *db)
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, id, Role::Admin).await?;
+    let workspace = workspaces::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
         .await?;
+    workspaces::ActiveModel {
+        id: Unchanged(workspace.id),
+        theme_palette: Set(input.palette.clone()),
+        theme_accent: Set(input.accent.clone()),
+        ..Default::default()
+    }
+    .update(&*db)
+    .await?;
     Ok(Json(input))
 }
 
@@ -163,22 +172,27 @@ pub async fn set_my_theme(
 ) -> Result<Json<ThemeChoice>, ApiError> {
     valid(&input)?;
     let input = normalized(input);
-    let mut db = state.writer().await;
-    access::require_access(&mut *db, &user, id, Role::Read).await?;
-    let Some(mut member) = WorkspaceMember::filter_by_user_id_and_workspace_id(user.id, id)
-        .first()
-        .exec(&mut *db)
+    let db = state.writer().await?;
+    access::require_access(&*db, &user, id, Role::Read).await?;
+    let Some(member) = workspace_members::Entity::find()
+        .filter(workspace_members::Column::UserId.eq(user.id))
+        .filter(workspace_members::Column::WorkspaceId.eq(id))
+        .one(&*db)
         .await?
     else {
         return Err(ApiError::bad_request(
             "only members can set their own theme for a workspace",
         ));
     };
-    member
-        .update()
-        .theme_palette(input.palette.clone())
-        .theme_accent(input.accent.clone())
-        .exec(&mut *db)
+    workspace_members::Entity::update_many()
+        .set(workspace_members::ActiveModel {
+            theme_palette: Set(input.palette.clone()),
+            theme_accent: Set(input.accent.clone()),
+            ..Default::default()
+        })
+        .filter(workspace_members::Column::UserId.eq(member.user_id))
+        .filter(workspace_members::Column::WorkspaceId.eq(member.workspace_id))
+        .exec(&*db)
         .await?;
     Ok(Json(input))
 }

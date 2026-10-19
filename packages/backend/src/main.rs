@@ -1,4 +1,4 @@
-//! woodmouse API: axum + utoipa (OpenAPI) + toasty (ORM) on SQLite.
+//! woodmouse API: axum + utoipa (OpenAPI) + sqlx on SQLite.
 //!
 //! Endpoints (all under `/api`):
 //!   GET  /api/health     - liveness probe
@@ -6,8 +6,7 @@
 //!   /                    - embedded CSR frontend (SPA fallback)
 //!   /swagger-ui         - Swagger UI (only with WOODMOUSE_SWAGGER_UI set)
 //!
-//! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse seed` fills an empty database with mock data; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
-//! consistent copy of the database (default `BACKUP_DIR`, or `backups`).
+//! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse check` reports orphaned rows.
 
 // The embedded frontend bundle — a module of this binary, not the library,
 // so spec generation (cargo specs) never requires a built frontend.
@@ -32,60 +31,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return run_healthcheck().await;
     }
 
-    // The URL scheme selects the driver; `sqlite:<path>` opens a file-backed
-    // database. Use `sqlite::memory:` for a throwaway in-process database.
+    // `sqlite:<path>` opens a file-backed database (created when missing).
     let db_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:woodmouse.db".to_string());
 
-    let mut db = toasty::Db::builder()
-        // Discovers every #[derive(Model)] struct in this crate.
-        .models(toasty::models!(crate::*))
-        .connect(&db_url)
-        .await?;
-
-    // Bring the schema up to date. A database made before migrations existed (by `push_schema`) has the
-    // tables but no migration record: `mise run clean` starts it fresh.
-    let applied = woodmouse::migrations::MIGRATIONS.apply(&db).await?;
-    tracing::info!(
-        applied = applied.applied(),
-        already_applied = applied.skipped(),
-        "schema is up to date"
-    );
-    woodmouse::search::ensure_index(&mut db)
-        .await
-        .map_err(|_| "could not create the search index")?;
-
-    // The sqlite driver sets no pragmas itself. WAL persists in the database
-    // file, so issuing it once at startup covers every pool connection (see
-    // backend/tests/spike.rs). In-process writes are additionally serialized
-    // by the AppState mutex.
-    {
-        let mode = toasty::sql::query("PRAGMA journal_mode=WAL")
-            .exec(&mut db)
-            .await?;
-        tracing::info!(url = %db_url, journal_mode = ?mode, "database ready");
-    }
-
-    let files = woodmouse::storage::FileStores::from_env()?;
-    tracing::info!(
-        max_upload_bytes = files.max_upload_bytes,
-        "file storage ready"
-    );
-    let state = AppState::with_files(db, files);
+    let state = AppState::open(&db_url).await?;
 
     match std::env::args().nth(1).as_deref() {
         None | Some("serve") => {}
         Some("check") => return run_check(&state).await,
-        Some("backup") => return run_backup(&state, std::env::args().nth(2)).await,
-        Some("seed") => {
-            let router = routes::api(state.clone())
-                .with_state(state)
-                .split_for_parts()
-                .0;
-            return woodmouse::seed::run(router).await.map_err(Into::into);
-        }
         Some(other) => {
-            return Err(format!("unknown command `{other}` (try check or backup)").into());
+            return Err(format!("unknown command `{other}` (try check)").into());
         }
     }
     woodmouse::jobs::spawn(state.clone());
@@ -170,7 +126,7 @@ async fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run_check(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
-    let problems = woodmouse::integrity::check(&mut state.db())
+    let problems = woodmouse::integrity::check(state.db())
         .await
         .map_err(|_| "the check failed")?;
     for p in &problems {
@@ -182,21 +138,6 @@ async fn run_check(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Err(format!("{} problem(s) found", problems.len()).into())
     }
-}
-
-async fn run_backup(
-    state: &AppState,
-    dir: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let dir = dir
-        .map(std::path::PathBuf::from)
-        .or_else(woodmouse::config::backup_dir)
-        .unwrap_or_else(|| "backups".into());
-    let path = woodmouse::jobs::backup(state, &dir)
-        .await
-        .map_err(|_| "the backup failed")?;
-    println!("{}", path.display());
-    Ok(())
 }
 
 /// Resolves on Ctrl+C or SIGTERM (what a container runtime sends on stop).

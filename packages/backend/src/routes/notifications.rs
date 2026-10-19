@@ -1,9 +1,13 @@
 //! Notifications, watching tasks and pages, and each person's notification settings.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::users;
+use crate::models::{notification_settings, notifications, watches};
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -11,8 +15,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
-use crate::models::{Notification, NotificationSetting, Role, Watch};
-use crate::routes::auth::{People, PublicUser};
+use crate::models::{NotificationSetting, Role};
+use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
 
@@ -72,18 +76,23 @@ pub async fn list_notifications(
     CurrentUser { user, .. }: CurrentUser,
     Query(filters): Query<NotificationFilters>,
 ) -> Result<Json<Vec<NotificationView>>, ApiError> {
-    let db = &mut state.db();
-    let mut rows = Notification::filter_by_user_id(user.id).exec(db).await?;
+    let db = state.db();
+    let mut query = notifications::Entity::find().filter(notifications::Column::UserId.eq(user.id));
     if filters.unread == Some(true) {
-        rows.retain(|n| n.read_at.is_none());
+        query = query.filter(notifications::Column::ReadAt.is_null());
     }
-    rows.sort_by_key(|n| std::cmp::Reverse((n.created_at, n.id)));
-    rows.truncate(filters.limit.unwrap_or(30).clamp(1, 100));
-    let people = People::load(db, rows.iter().filter_map(|n| n.actor_id)).await?;
+    let rows = query
+        .order_by_desc(notifications::Column::CreatedAt)
+        .order_by_desc(notifications::Column::Id)
+        .limit(filters.limit.unwrap_or(30).clamp(1, 100) as u64)
+        .all(db)
+        .await?;
+    let actors = rows.load_one(users::Entity, db).await?;
     Ok(Json(
         rows.into_iter()
-            .map(|n| NotificationView {
-                actor: people.public(n.actor_id),
+            .zip(actors)
+            .map(|(n, actor)| NotificationView {
+                actor: actor.as_ref().map(PublicUser::from),
                 data: serde_json::from_str(&n.data).unwrap_or_default(),
                 read: n.read_at.is_some(),
                 id: n.id,
@@ -114,12 +123,11 @@ pub async fn unread_notification_count(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<UnreadCount>, ApiError> {
-    let count = Notification::filter_by_user_id(user.id)
-        .exec(&mut state.db())
-        .await?
-        .iter()
-        .filter(|n| n.read_at.is_none())
-        .count();
+    let count = notifications::Entity::find()
+        .filter(notifications::Column::UserId.eq(user.id))
+        .filter(notifications::Column::ReadAt.is_null())
+        .count(state.db())
+        .await? as usize;
     Ok(Json(UnreadCount { count }))
 }
 
@@ -140,17 +148,21 @@ pub async fn mark_notification_read(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let n = Notification::get_by_id(&mut *db, &id).await?;
+    let db = state.writer().await?;
+    let n = notifications::Entity::find_by_id(id)
+        .one_or_not_found(&*db)
+        .await?;
     if n.user_id != user.id {
         return Err(ApiError::not_found());
     }
     if n.read_at.is_none() {
-        Notification::filter_by_id(id)
-            .update()
-            .read_at(Some(time::now()))
-            .exec(&mut *db)
-            .await?;
+        notifications::ActiveModel {
+            id: Unchanged(id),
+            read_at: Set(Some(time::now())),
+            ..Default::default()
+        }
+        .update(&*db)
+        .await?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -167,19 +179,22 @@ pub async fn mark_all_notifications_read(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
+    let db = state.writer().await?;
     let now = time::now();
-    for n in Notification::filter_by_user_id(user.id)
-        .exec(&mut *db)
+    for n in notifications::Entity::find()
+        .filter(notifications::Column::UserId.eq(user.id))
+        .all(&*db)
         .await?
         .into_iter()
         .filter(|n| n.read_at.is_none())
     {
-        Notification::filter_by_id(n.id)
-            .update()
-            .read_at(Some(now))
-            .exec(&mut *db)
-            .await?;
+        notifications::ActiveModel {
+            id: Unchanged(n.id),
+            read_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .update(&*db)
+        .await?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -205,13 +220,10 @@ pub struct UpdateSettings {
     pub digest_hour: Option<i64>,
 }
 
-async fn settings_of(
-    db: &mut dyn toasty::Executor,
-    user_id: uuid::Uuid,
-) -> Result<NotificationSetting, ApiError> {
-    Ok(NotificationSetting::filter_by_user_id(user_id)
-        .first()
-        .exec(db)
+async fn settings_of(db: &impl Db, user_id: uuid::Uuid) -> Result<NotificationSetting, ApiError> {
+    Ok(notification_settings::Entity::find()
+        .filter(notification_settings::Column::UserId.eq(user_id))
+        .one(db)
         .await?
         .unwrap_or(NotificationSetting {
             user_id,
@@ -234,7 +246,7 @@ pub async fn get_notification_settings(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<Settings>, ApiError> {
-    let s = settings_of(&mut state.db(), user.id).await?;
+    let s = settings_of(state.db(), user.id).await?;
     Ok(Json(Settings {
         email_instant: s.email_instant,
         digest: s.digest,
@@ -263,11 +275,11 @@ pub async fn update_notification_settings(
     if input.digest_hour.is_some_and(|h| !(0..=23).contains(&h)) {
         return Err(ApiError::bad_request("the hour must be 0 to 23"));
     }
-    let mut db = state.writer().await;
-    let current = settings_of(&mut *db, user.id).await?;
-    let exists = NotificationSetting::filter_by_user_id(user.id)
-        .first()
-        .exec(&mut *db)
+    let db = state.writer().await?;
+    let current = settings_of(&*db, user.id).await?;
+    let exists = notification_settings::Entity::find()
+        .filter(notification_settings::Column::UserId.eq(user.id))
+        .one(&*db)
         .await?
         .is_some();
     let (instant, digest, hour) = (
@@ -276,21 +288,24 @@ pub async fn update_notification_settings(
         input.digest_hour.unwrap_or(current.digest_hour),
     );
     if exists {
-        NotificationSetting::filter_by_user_id(user.id)
-            .update()
-            .email_instant(instant)
-            .digest(digest)
-            .digest_hour(hour)
-            .exec(&mut *db)
-            .await?;
+        notification_settings::ActiveModel {
+            user_id: Unchanged(user.id),
+            email_instant: Set(instant),
+            digest: Set(digest),
+            digest_hour: Set(hour),
+            ..Default::default()
+        }
+        .update(&*db)
+        .await?;
     } else {
-        toasty::create!(NotificationSetting {
-            user_id: user.id,
-            email_instant: instant,
-            digest,
-            digest_hour: hour,
-        })
-        .exec(&mut *db)
+        notification_settings::ActiveModel {
+            user_id: Set(user.id),
+            email_instant: Set(instant),
+            digest: Set(digest),
+            digest_hour: Set(hour),
+            ..Default::default()
+        }
+        .insert(&*db)
         .await?;
     }
     Ok(Json(Settings {
@@ -308,20 +323,21 @@ pub struct Watching {
 }
 
 async fn is_watching(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user_id: uuid::Uuid,
     target_type: &str,
     target_id: uuid::Uuid,
 ) -> Result<bool, ApiError> {
-    Ok(Watch::filter_by_user_id(user_id)
-        .exec(db)
+    Ok(watches::Entity::find()
+        .filter(watches::Column::UserId.eq(user_id))
+        .all(db)
         .await?
         .iter()
         .any(|w| w.target_type == target_type && w.target_id == target_id))
 }
 
 async fn set_watch(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     user_id: uuid::Uuid,
     target_type: &str,
     target_id: uuid::Uuid,
@@ -329,22 +345,28 @@ async fn set_watch(
 ) -> Result<(), ApiError> {
     let existing = is_watching(db, user_id, target_type, target_id).await?;
     if watching && !existing {
-        toasty::create!(Watch {
-            user_id,
-            target_type: target_type.to_string(),
-            target_id,
-            created_at: time::now(),
-        })
-        .exec(db)
+        watches::ActiveModel {
+            user_id: Set(user_id),
+            target_type: Set(target_type.to_string()),
+            target_id: Set(target_id),
+            created_at: Set(time::now()),
+        }
+        .insert(db)
         .await?;
     } else if !watching && existing {
-        for w in Watch::filter_by_user_id(user_id)
-            .exec(db)
+        for w in watches::Entity::find()
+            .filter(watches::Column::UserId.eq(user_id))
+            .all(db)
             .await?
             .into_iter()
             .filter(|w| w.target_type == target_type && w.target_id == target_id)
         {
-            w.delete().exec(db).await?;
+            watches::Entity::delete_many()
+                .filter(watches::Column::UserId.eq(w.user_id))
+                .filter(watches::Column::TargetType.eq(w.target_type))
+                .filter(watches::Column::TargetId.eq(w.target_id))
+                .exec(db)
+                .await?;
         }
     }
     Ok(())
@@ -364,7 +386,7 @@ pub async fn get_task_watch(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Watching>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_task_access(db, &user, id, Role::Read).await?;
     Ok(Json(Watching {
         watching: is_watching(db, user.id, crate::notify::TASK, id).await?,
@@ -387,9 +409,9 @@ pub async fn set_task_watch(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<Watching>,
 ) -> Result<Json<Watching>, ApiError> {
-    let mut db = state.writer().await;
-    access::require_task_access(&mut *db, &user, id, Role::Read).await?;
-    set_watch(&mut *db, user.id, crate::notify::TASK, id, input.watching).await?;
+    let db = state.writer().await?;
+    access::require_task_access(&*db, &user, id, Role::Read).await?;
+    set_watch(&*db, user.id, crate::notify::TASK, id, input.watching).await?;
     Ok(Json(input))
 }
 
@@ -407,7 +429,7 @@ pub async fn get_page_watch(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<Json<Watching>, ApiError> {
-    let db = &mut state.db();
+    let db = state.db();
     access::require_page_access(db, &user, id, Role::Read).await?;
     Ok(Json(Watching {
         watching: is_watching(db, user.id, crate::notify::PAGE, id).await?,
@@ -430,8 +452,8 @@ pub async fn set_page_watch(
     Path(id): Path<uuid::Uuid>,
     Json(input): Json<Watching>,
 ) -> Result<Json<Watching>, ApiError> {
-    let mut db = state.writer().await;
-    access::require_page_access(&mut *db, &user, id, Role::Read).await?;
-    set_watch(&mut *db, user.id, crate::notify::PAGE, id, input.watching).await?;
+    let db = state.writer().await?;
+    access::require_page_access(&*db, &user, id, Role::Read).await?;
+    set_watch(&*db, user.id, crate::notify::PAGE, id, input.watching).await?;
     Ok(Json(input))
 }

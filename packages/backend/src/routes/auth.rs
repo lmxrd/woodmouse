@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use crate::db::prelude::*;
+use crate::models::users;
 
 use axum::Json;
 use axum::extract::State;
@@ -89,52 +90,6 @@ impl From<&User> for PublicUser {
     }
 }
 
-/// People looked up in one go, to show who did what.
-pub struct People(HashMap<uuid::Uuid, User>);
-
-impl People {
-    /// Load the users with these ids (duplicates and unknown ids are fine).
-    pub async fn load(
-        db: &mut dyn toasty::Executor,
-        ids: impl IntoIterator<Item = uuid::Uuid>,
-    ) -> Result<Self, ApiError> {
-        let ids: Vec<uuid::Uuid> = ids
-            .into_iter()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        let users = if ids.is_empty() {
-            vec![]
-        } else {
-            User::all()
-                .filter(User::fields().id().in_list(ids))
-                .exec(db)
-                .await?
-        };
-        Ok(Self(users.into_iter().map(|u| (u.id, u)).collect()))
-    }
-
-    pub fn user(&self, id: uuid::Uuid) -> Option<&User> {
-        self.0.get(&id)
-    }
-
-    /// The person as the API shows them; `None` for no id or an unknown one.
-    pub fn public(&self, id: impl Into<Option<uuid::Uuid>>) -> Option<PublicUser> {
-        self.user(id.into()?).map(PublicUser::from)
-    }
-
-    /// Their display name, or their email while they have none.
-    pub fn label(&self, id: uuid::Uuid) -> Option<String> {
-        self.user(id).map(|u| {
-            if u.name.is_empty() {
-                u.email.clone()
-            } else {
-                u.name.clone()
-            }
-        })
-    }
-}
-
 #[derive(Serialize, ToSchema)]
 pub struct AuthStatus {
     /// True while the users table is empty: the first user must register.
@@ -186,8 +141,8 @@ fn validate_credentials(email: &str, password: &str) -> Result<(), ApiError> {
     responses((status = 200, description = "Auth status", body = AuthStatus))
 )]
 pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatus>, ApiError> {
-    let db = &mut state.db();
-    let users = User::all().exec(db).await?;
+    let db = state.db();
+    let users = users::Entity::find().all(db).await?;
     Ok(Json(AuthStatus {
         bootstrap_required: users.is_empty(),
     }))
@@ -213,29 +168,31 @@ pub async fn bootstrap(
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     validate_credentials(&input.email, &input.password)?;
 
-    let mut db = state.writer().await;
-    if !User::all().exec(&mut *db).await?.is_empty() {
+    let db = state.writer().await?;
+    if !users::Entity::find().all(&*db).await?.is_empty() {
         return Err(ApiError::conflict(
             "bootstrap is closed: a user already exists",
         ));
     }
 
-    let mut tx = db.transaction().await?;
-    let user = toasty::create!(User {
-        email: input.email.trim().to_lowercase(),
-        name: input.name.trim().to_string(),
-        password_hash: auth::hash_password(&input.password)?,
-        super_admin: true,
-        active: true,
-    })
-    .exec(&mut tx)
+    let tx = db.begin().await?;
+    let user = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set(input.email.trim().to_lowercase()),
+        name: Set(input.name.trim().to_string()),
+        password_hash: Set(auth::hash_password(&input.password)?),
+        super_admin: Set(true),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&tx)
     .await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "user_created").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&mut tx, user.id, state.secure_cookies).await?;
+    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, jar, Json(PublicUser::from(&user))))
 }
@@ -262,26 +219,30 @@ pub async fn login(
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
     }
-    let mut db = state.writer().await;
-    let user = User::get_by_email(&mut *db, &email).await.ok();
+    let db = state.writer().await?;
+    let user = users::Entity::find()
+        .filter(users::Column::Email.eq(&email))
+        .one_or_not_found(&*db)
+        .await
+        .ok();
     // Generic error: never reveal whether the email exists or the account is disabled.
     let ok = user
         .as_ref()
         .is_some_and(|u| u.active && auth::verify_password(&input.password, &u.password_hash));
     let Some(user) = user.filter(|_| ok) else {
         state.login_limits.failed(&email, address.as_deref());
-        let _ = audit::record(&mut *db, Entry::admin(None, "login_failed")).await;
+        let _ = audit::record(&*db, Entry::admin(None, "login_failed")).await;
         return Err(ApiError::unauthorized());
     };
     state.login_limits.succeeded(&email);
 
-    let mut tx = db.transaction().await?;
+    let tx = db.begin().await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "login").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&mut tx, user.id, state.secure_cookies).await?;
+    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
 }
@@ -302,11 +263,11 @@ pub async fn logout(
         ..
     }: CurrentUser,
 ) -> Result<(StatusCode, CookieJar), ApiError> {
-    let mut db = state.writer().await;
-    let mut tx = db.transaction().await?;
-    auth::delete_session(&mut tx, &session_token).await?;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    auth::delete_session(&tx, &session_token).await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "logout").target("user", user.id),
     )
     .await?;
@@ -398,14 +359,17 @@ pub async fn update_me(
         return Err(ApiError::bad_request("unknown timezone"));
     }
 
-    let mut writer = state.writer().await;
-    let db: &mut toasty::Db = &mut writer;
+    let writer = state.writer().await?;
+    let db = &*writer;
     let email = match &input.email {
         Some(email) => {
             validate_identity(email)?;
             let email = email.trim().to_lowercase();
             if email != user.email
-                && let Ok(other) = User::get_by_email(db, &email).await
+                && let Ok(other) = users::Entity::find()
+                    .filter(users::Column::Email.eq(&email))
+                    .one_or_not_found(db)
+                    .await
                 && other.id != user.id
             {
                 return Err(ApiError::conflict("that email is already taken"));
@@ -415,39 +379,32 @@ pub async fn update_me(
         None => None,
     };
 
-    let mut current = User::get_by_id(&mut *db, &user.id).await?;
-    if input.name.is_some()
-        || email.is_some()
-        || input.date_format.is_some()
-        || input.time_format.is_some()
-        || input.week_start.is_some()
-        || input.theme_mode.is_some()
-        || input.timezone.is_some()
-    {
-        let mut update = current.update();
-        if let Some(name) = &input.name {
-            update = update.name(name.trim().to_string());
-        }
-        if let Some(email) = email {
-            update = update.email(email);
-        }
-        if let Some(format) = input.date_format {
-            update = update.date_format(Some(format));
-        }
-        if let Some(format) = input.time_format {
-            update = update.time_format(Some(format));
-        }
-        if let Some(week_start) = input.week_start {
-            update = update.week_start(Some(week_start));
-        }
-        if let Some(mode) = input.theme_mode {
-            update = update.theme_mode(Some(mode));
-        }
-        if let Some(zone) = input.timezone {
-            update = update.timezone(Some(zone));
-        }
-        update.exec(db).await?;
+    let current = users::Entity::find_by_id(user.id)
+        .one_or_not_found(db)
+        .await?;
+    let mut update = users::ActiveModel::from(current);
+    if let Some(name) = &input.name {
+        update.name = Set(name.trim().to_string());
     }
+    if let Some(email) = email {
+        update.email = Set(email);
+    }
+    if let Some(format) = input.date_format {
+        update.date_format = Set(Some(format));
+    }
+    if let Some(format) = input.time_format {
+        update.time_format = Set(Some(format));
+    }
+    if let Some(week_start) = input.week_start {
+        update.week_start = Set(Some(week_start));
+    }
+    if let Some(mode) = input.theme_mode {
+        update.theme_mode = Set(Some(mode));
+    }
+    if let Some(zone) = input.timezone {
+        update.timezone = Set(Some(zone));
+    }
+    let current = update.update(db).await?;
     Ok(Json(PublicUser::from(&current)))
 }
 
@@ -484,17 +441,21 @@ pub async fn change_password(
     }
     validate_password(&input.new_password)?;
 
-    let mut db = state.writer().await;
-    let mut tx = db.transaction().await?;
-    let mut current = User::get_by_id(&mut tx, &user.id).await?;
-    current
-        .update()
-        .password_hash(auth::hash_password(&input.new_password)?)
-        .exec(&mut tx)
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    let current = users::Entity::find_by_id(user.id)
+        .one_or_not_found(&tx)
         .await?;
-    auth::delete_sessions_of(&mut tx, user.id, Some(&session_token)).await?;
+    users::ActiveModel {
+        id: Unchanged(current.id),
+        password_hash: Set(auth::hash_password(&input.new_password)?),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
+    auth::delete_sessions_of(&tx, user.id, Some(&session_token)).await?;
     audit::record(
-        &mut tx,
+        &tx,
         Entry::admin(Some(user.id), "password_changed").target("user", user.id),
     )
     .await?;

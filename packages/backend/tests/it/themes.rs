@@ -2,6 +2,8 @@
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use woodmouse::db::prelude::*;
+use woodmouse::models::{sessions, users, workspace_members};
 
 use crate::common::*;
 
@@ -25,32 +27,36 @@ async fn workspace_themes_personal_choices_and_mode() {
     let ws = create_workspace(&app, &admin, "Home").await;
 
     // A second user who is a plain member.
-    let db = &mut db.clone();
-    let user = toasty::create!(woodmouse::models::User {
-        email: "m@home.io".to_string(),
-        name: "".to_string(),
-        password_hash: "x".to_string(),
-        super_admin: false,
-        active: true,
-    })
-    .exec(db)
+    let db = &db;
+    let user = users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("m@home.io".to_string()),
+        name: Set("".to_string()),
+        password_hash: Set("x".to_string()),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(db)
     .await
     .unwrap();
-    toasty::create!(woodmouse::models::WorkspaceMember {
-        user_id: user.id,
-        workspace_id: ws,
-        role: woodmouse::models::Role::Write
-    })
-    .exec(db)
+    workspace_members::ActiveModel {
+        user_id: Set(user.id),
+        workspace_id: Set(ws),
+        role: Set(woodmouse::models::Role::Write),
+        ..Default::default()
+    }
+    .insert(db)
     .await
     .unwrap();
     let token = uuid::Uuid::new_v4().to_string();
-    toasty::create!(woodmouse::models::Session {
-        token: token.clone(),
-        user_id: user.id,
-        expires_at: crate::common::far_future()
-    })
-    .exec(db)
+    sessions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        token: Set(token.clone()),
+        user_id: Set(user.id),
+        expires_at: Set(crate::common::far_future()),
+    }
+    .insert(db)
     .await
     .unwrap();
     let member = format!("woodmouse_session={token}");

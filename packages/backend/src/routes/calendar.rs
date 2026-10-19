@@ -1,15 +1,17 @@
 //! Calendar links: secret URLs to a read-only iCalendar feed of tasks with dates. People manage their own
 //! links; calendar apps fetch the feed without logging in, so the secret in the URL is the credential.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::{calendar_links, projects, task_assignees, tasks, users, workspaces};
 use std::collections::HashMap;
 
+use crate::time::DateTime;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
-use toasty::stmt::in_list;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -19,7 +21,7 @@ use crate::auth::CurrentUser;
 use crate::config;
 use crate::error::ApiError;
 use crate::ical::{self, FeedTask};
-use crate::models::{CalendarLink, Priority, Project, Role, Task, TaskAssignee, User, Workspace};
+use crate::models::{CalendarLink, Priority, Project, Role, Task, User};
 use crate::state::AppState;
 use crate::time;
 
@@ -94,16 +96,21 @@ fn feed_path(secret: &str) -> String {
     format!("/api/calendar/{secret}.ics")
 }
 
-async fn view_of(
-    db: &mut dyn toasty::Executor,
-    link: &CalendarLink,
-) -> Result<CalendarLinkView, ApiError> {
+async fn view_of(db: &impl Db, link: &CalendarLink) -> Result<CalendarLinkView, ApiError> {
     let workspace_name = match link.workspace_id {
-        Some(id) => Workspace::get_by_id(db, &id).await.ok().map(|w| w.name),
+        Some(id) => workspaces::Entity::find_by_id(id)
+            .one_or_not_found(db)
+            .await
+            .ok()
+            .map(|w| w.name),
         None => None,
     };
     let project_name = match link.project_id {
-        Some(id) => Project::get_by_id(db, &id).await.ok().map(|p| p.name),
+        Some(id) => projects::Entity::find_by_id(id)
+            .one_or_not_found(db)
+            .await
+            .ok()
+            .map(|p| p.name),
         None => None,
     };
     Ok(CalendarLinkView {
@@ -151,9 +158,10 @@ pub async fn list_calendar_links(
     CurrentUser { user, .. }: CurrentUser,
     Query(filter): Query<LinkFilter>,
 ) -> Result<Json<Vec<CalendarLinkView>>, ApiError> {
-    let db = &mut state.db();
-    let mut links: Vec<CalendarLink> = CalendarLink::filter_by_user_id(user.id)
-        .exec(db)
+    let db = state.db();
+    let mut links: Vec<CalendarLink> = calendar_links::Entity::find()
+        .filter(calendar_links::Column::UserId.eq(user.id))
+        .all(db)
         .await?
         .into_iter()
         .filter(|l| l.revoked_at.is_none() && matches(l, &filter))
@@ -197,8 +205,8 @@ pub async fn create_calendar_link(
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<CreateLink>,
 ) -> Result<(StatusCode, Json<CalendarLinkView>), ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     let (workspace_id, project_id, default_name) = match input.scope {
         LinkScope::User => (None, None, "My tasks".to_string()),
         LinkScope::Workspace => {
@@ -206,7 +214,10 @@ pub async fn create_calendar_link(
                 .workspace_id
                 .ok_or_else(|| ApiError::bad_request("a workspace link needs workspace_id"))?;
             access::require_access(db, &user, id, Role::Read).await?;
-            let name = Workspace::get_by_id(db, &id).await?.name;
+            let name = workspaces::Entity::find_by_id(id)
+                .one_or_not_found(db)
+                .await?
+                .name;
             (Some(id), None, name)
         }
         LinkScope::Project => {
@@ -214,31 +225,37 @@ pub async fn create_calendar_link(
                 .project_id
                 .ok_or_else(|| ApiError::bad_request("a project link needs project_id"))?;
             let workspace = access::require_project_access(db, &user, id, Role::Read).await?;
-            let name = Project::get_by_id(db, &id).await?.name;
+            let name = projects::Entity::find_by_id(id)
+                .one_or_not_found(db)
+                .await?
+                .name;
             (Some(workspace), Some(id), name)
         }
     };
     let name = limited(input.name.as_deref().unwrap_or(""), "name", MAX_NAME)?;
-    let link = toasty::create!(CalendarLink {
-        user_id: user.id,
-        scope: input.scope.as_str().to_string(),
-        workspace_id,
-        project_id,
-        name: if name.is_empty() {
+    // 256 random bits: the secret is the whole credential.
+    let secret = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let link = calendar_links::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        user_id: Set(user.id),
+        scope: Set(input.scope.as_str().to_string()),
+        workspace_id: Set(workspace_id),
+        project_id: Set(project_id),
+        name: Set(if name.is_empty() {
             default_name
         } else {
             name.to_string()
-        },
-        mode: "read".to_string(),
-        // 256 random bits: the secret is the whole credential.
-        secret: format!(
-            "{}{}",
-            uuid::Uuid::new_v4().simple(),
-            uuid::Uuid::new_v4().simple()
-        ),
-        created_at: time::now(),
-    })
-    .exec(db)
+        }),
+        mode: Set("read".to_string()),
+        secret: Set(secret),
+        created_at: Set(time::now()),
+        ..Default::default()
+    }
+    .insert(db)
     .await?;
     Ok((StatusCode::CREATED, Json(view_of(db, &link).await?)))
 }
@@ -260,13 +277,21 @@ pub async fn revoke_calendar_link(
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
-    let mut link = CalendarLink::get_by_id(db, &id).await?;
+    let db = state.writer().await?;
+    let db = &*db;
+    let link = calendar_links::Entity::find_by_id(id)
+        .one_or_not_found(db)
+        .await?;
     if link.user_id != user.id || link.revoked_at.is_some() {
         return Err(ApiError::not_found());
     }
-    link.update().revoked_at(Some(time::now())).exec(db).await?;
+    calendar_links::ActiveModel {
+        id: Unchanged(link.id),
+        revoked_at: Set(Some(time::now())),
+        ..Default::default()
+    }
+    .update(db)
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -284,16 +309,23 @@ pub async fn revoke_calendar_links(
     CurrentUser { user, .. }: CurrentUser,
     Query(filter): Query<LinkFilter>,
 ) -> Result<StatusCode, ApiError> {
-    let mut db = state.writer().await;
-    let db = &mut *db;
+    let db = state.writer().await?;
+    let db = &*db;
     let now = time::now();
-    for mut link in CalendarLink::filter_by_user_id(user.id)
-        .exec(db)
+    for link in calendar_links::Entity::find()
+        .filter(calendar_links::Column::UserId.eq(user.id))
+        .all(db)
         .await?
         .into_iter()
         .filter(|l| l.revoked_at.is_none() && matches(l, &filter))
     {
-        link.update().revoked_at(Some(now)).exec(db).await?;
+        calendar_links::ActiveModel {
+            id: Unchanged(link.id),
+            revoked_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .update(db)
+        .await?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -308,34 +340,44 @@ struct Source {
 
 /// The tasks a link shows, with their projects.
 async fn tasks_for(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     link: &CalendarLink,
     owner: &User,
 ) -> Result<Vec<Source>, ApiError> {
     let mut projects: Vec<Project> = match LinkScope::parse(&link.scope) {
         Some(LinkScope::Project) => match link.project_id {
-            Some(id) => vec![Project::get_by_id(db, &id).await?],
+            Some(id) => vec![
+                projects::Entity::find_by_id(id)
+                    .one_or_not_found(db)
+                    .await?,
+            ],
             None => vec![],
         },
         Some(LinkScope::Workspace) => match link.workspace_id {
-            Some(id) => Project::filter_by_workspace_id(id).exec(db).await?,
+            Some(id) => {
+                projects::Entity::find()
+                    .filter(projects::Column::WorkspaceId.eq(id))
+                    .all(db)
+                    .await?
+            }
             None => vec![],
         },
         _ => vec![],
     };
     let mut tasks: Vec<Task> = vec![];
     if LinkScope::parse(&link.scope) == Some(LinkScope::User) {
-        let ids: Vec<uuid::Uuid> = TaskAssignee::filter_by_user_id(owner.id)
-            .exec(db)
+        let ids: Vec<uuid::Uuid> = task_assignees::Entity::find()
+            .filter(task_assignees::Column::UserId.eq(owner.id))
+            .all(db)
             .await?
             .into_iter()
             .map(|a| a.task_id)
             .collect();
         if !ids.is_empty() {
-            tasks = Task::all()
-                .filter(in_list(Task::fields().id(), ids))
-                .filter(Task::fields().deleted_at().is_none())
-                .exec(db)
+            tasks = tasks::Entity::find()
+                .filter(tasks::Column::DeletedAt.is_null())
+                .filter(tasks::Column::Id.is_in(ids.iter().copied()))
+                .all(db)
                 .await?;
         }
     } else {
@@ -344,10 +386,10 @@ async fn tasks_for(
         if project_ids.is_empty() {
             return Ok(vec![]);
         }
-        tasks = Task::all()
-            .filter(in_list(Task::fields().project_id(), project_ids))
-            .filter(Task::fields().deleted_at().is_none())
-            .exec(db)
+        tasks = tasks::Entity::find()
+            .filter(tasks::Column::DeletedAt.is_null())
+            .filter(tasks::Column::ProjectId.is_in(project_ids.iter().copied()))
+            .all(db)
             .await?;
     }
 
@@ -361,7 +403,11 @@ async fn tasks_for(
             continue;
         }
         if let std::collections::hash_map::Entry::Vacant(slot) = known.entry(task.project_id) {
-            slot.insert(Project::get_by_id(db, &task.project_id).await?);
+            slot.insert(
+                projects::Entity::find_by_id(task.project_id)
+                    .one_or_not_found(db)
+                    .await?,
+            );
         }
         let project = &known[&task.project_id];
         if project.deleted_at.is_some() {
@@ -425,15 +471,21 @@ pub async fn feed(
 ) -> Result<Response, ApiError> {
     let secret = token.strip_suffix(".ics").unwrap_or(&token);
     let base = public_base(&headers);
-    let mut db = state.writer().await;
-    let db = &mut *db;
-    let Ok(mut link) = CalendarLink::get_by_secret(db, secret).await else {
+    let db = state.writer().await?;
+    let db = &*db;
+    let Ok(link) = calendar_links::Entity::find()
+        .filter(calendar_links::Column::Secret.eq(secret))
+        .one_or_not_found(db)
+        .await
+    else {
         return Err(ApiError::not_found());
     };
     if link.revoked_at.is_some() {
         return Err(ApiError::not_found());
     }
-    let owner = User::get_by_id(db, &link.user_id).await?;
+    let owner = users::Entity::find_by_id(link.user_id)
+        .one_or_not_found(db)
+        .await?;
     if !owner.active {
         return Err(ApiError::not_found());
     }
@@ -452,7 +504,13 @@ pub async fn feed(
         .last_used_at
         .is_none_or(|t| time::seconds_between(t, now) >= USED_RESOLUTION_SECS)
     {
-        link.update().last_used_at(Some(now)).exec(db).await?;
+        calendar_links::ActiveModel {
+            id: Unchanged(link.id),
+            last_used_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .update(db)
+        .await?;
     }
 
     let feed: Vec<FeedTask> = tasks

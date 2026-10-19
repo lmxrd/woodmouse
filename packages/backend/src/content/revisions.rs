@@ -10,6 +10,9 @@
 //! Revisions are whole copies, not deltas: any version can be shown or restored on its own. Admins can
 //! redact a revision's content; the audit log keeps the record that an edit happened.
 
+use crate::db::Db;
+use crate::db::prelude::*;
+use crate::models::revisions;
 use serde::{Deserialize, Serialize};
 
 use crate::blocks::BlockData;
@@ -56,46 +59,45 @@ pub fn content<T: for<'de> Deserialize<'de>>(revision: &Revision) -> Option<T> {
 }
 
 /// All revisions of something, newest first.
-pub async fn of(
-    db: &mut dyn toasty::Executor,
-    target_id: uuid::Uuid,
-) -> Result<Vec<Revision>, ApiError> {
-    let mut revisions = Revision::filter_by_target_id(target_id).exec(db).await?;
+pub async fn of(db: &impl Db, target_id: uuid::Uuid) -> Result<Vec<Revision>, ApiError> {
+    let mut revisions = revisions::Entity::find()
+        .filter(revisions::Column::TargetId.eq(target_id))
+        .all(db)
+        .await?;
     revisions.sort_by_key(|r| std::cmp::Reverse((r.created_at, r.id)));
     Ok(revisions)
 }
 
 /// The newest revision of something: its current content and last editor.
-pub async fn newest(
-    db: &mut dyn toasty::Executor,
-    target_id: uuid::Uuid,
-) -> Result<Option<Revision>, ApiError> {
+pub async fn newest(db: &impl Db, target_id: uuid::Uuid) -> Result<Option<Revision>, ApiError> {
     Ok(of(db, target_id).await?.into_iter().next())
 }
 
 async fn insert(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     target_type: &'static str,
     target_id: uuid::Uuid,
     actor_id: uuid::Uuid,
     content: String,
 ) -> Result<Revision, ApiError> {
     let now = time::now();
-    Ok(toasty::create!(Revision {
-        target_type: target_type.to_string(),
-        target_id,
-        actor_id,
-        created_at: now,
-        updated_at: now,
-        content,
-    })
-    .exec(db)
+    Ok(revisions::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        target_type: Set(target_type.to_string()),
+        target_id: Set(target_id),
+        actor_id: Set(actor_id),
+        created_at: Set(now),
+        updated_at: Set(now),
+        content: Set(content),
+        ..Default::default()
+    }
+    .insert(db)
     .await?)
 }
 
 /// Record a task's text after a change (or at creation).
 pub async fn record_task(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     task_id: uuid::Uuid,
     actor_id: uuid::Uuid,
     content: &TaskContent,
@@ -105,7 +107,7 @@ pub async fn record_task(
 
 /// Record a comment's body after a change (or at creation).
 pub async fn record_comment(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     comment_id: uuid::Uuid,
     actor_id: uuid::Uuid,
     body: &str,
@@ -126,7 +128,7 @@ pub async fn record_comment(
 /// place; `new_session` (a restore, a save outside live editing) always starts a new one. Returns the
 /// revision and whether it is a new one.
 pub async fn record_page(
-    db: &mut dyn toasty::Executor,
+    db: &impl Db,
     page_id: uuid::Uuid,
     actor_id: uuid::Uuid,
     content: &PageContent,
@@ -139,12 +141,16 @@ pub async fn record_page(
         let other_editor = newest.actor_id != actor_id
             && time::seconds_between(newest.created_at, now) >= SHARED_SESSION_SECS;
         if !paused && !other_editor && newest.redacted_at.is_none() {
-            newest
-                .update()
-                .content(text)
-                .updated_at(now)
-                .exec(db)
-                .await?;
+            revisions::ActiveModel {
+                id: Unchanged(newest.id),
+                content: Set(text.clone()),
+                updated_at: Set(now),
+                ..Default::default()
+            }
+            .update(db)
+            .await?;
+            newest.content = text;
+            newest.updated_at = now;
             return Ok((newest, false));
         }
     }
@@ -152,15 +158,17 @@ pub async fn record_page(
 }
 
 /// Remove a revision's content (something sensitive was saved). The revision stays, marked redacted.
-pub async fn redact(
-    db: &mut dyn toasty::Executor,
-    mut revision: Revision,
-) -> Result<Revision, ApiError> {
-    revision
-        .update()
-        .content(String::new())
-        .redacted_at(Some(time::now()))
-        .exec(db)
-        .await?;
+pub async fn redact(db: &impl Db, mut revision: Revision) -> Result<Revision, ApiError> {
+    let now = time::now();
+    revisions::ActiveModel {
+        id: Unchanged(revision.id),
+        content: Set(String::new()),
+        redacted_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .update(db)
+    .await?;
+    revision.content = String::new();
+    revision.redacted_at = Some(now);
     Ok(revision)
 }
