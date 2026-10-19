@@ -1,67 +1,97 @@
 # Tool versions for the whole monorepo, managed by mise (mise.jdx.dev).
-# Prune any tool whose stack was not scaffolded.
+# Convenience tasks: `mise run <task>` (`mise r <task>`).
+# Prune any tool or task whose stack was not scaffolded.
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
 [tools]
-node = "26"      # frontend (react-csr / astro-site)
-pnpm = "12"      # frontend package manager (jsr: prefix needs >= 12)
-rust = { version = "1.99.0", components = ["clippy", "llvm-tools", "rustfmt"], targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"] }  # backend (rust-api); toasty requires >= 1.95; musl for the static release binary
-watchexec = "2.8.0"  # backend hot reload (dev:backend)
+node = "26" # frontend (react-csr / astro-site)
+pnpm = "12" # frontend package manager (jsr: prefix needs >= 12)
+rust = { version = "1.99.0", components = [
+  "clippy",
+  "llvm-tools",
+  "rustfmt",
+], targets = [
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+] } # backend (rust-api); toasty requires >= 1.95; musl for the static release binary
+watchexec = "2.8.0" # backend hot reload (dev:backend)
+zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and static linking
+"github:rust-cross/cargo-zigbuild" = "0.23.4" # builds the static release binaries via zig cc (prebuilt, no cargo install)
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+
+[tasks.build]
+description = "Build frontend (generates the client first), then backend with the bundle embedded"
+depends = ["build:backend"]
+
+[tasks."build:frontend"]
+description = "Build the frontend bundle into frontend/dist"
+dir = "packages/frontend"
+depends = ["gen:client"]
+run = "pnpm build"
+
+[tasks."build:backend"]
+description = "Build the static (musl) release binary for this machine's CPU architecture, with the frontend embedded"
+dir = "packages/backend"
+depends = ["build:frontend"]
+# zig is the C toolchain (ring, bundled SQLite), so the same command works
+# on Linux and on a Mac, where it produces a Linux binary.
+run = """
+arch="$(uname -m)"; [ "$arch" = arm64 ] && arch=aarch64
+cargo zigbuild --release --target "$arch-unknown-linux-musl" --bin woodmouse
+mkdir -p target/dist
+cp "target/$arch-unknown-linux-musl/release/woodmouse" target/dist/woodmouse
+"""
+
+[tasks."build:docker"]
+description = "Build the container image from the release binary (for this machine's architecture)"
+depends = ["build:backend"]
+run = "podman build --format docker --build-context bin=packages/backend/target/dist -t woodmouse ."
+
+# ---------------------------------------------------------------------------
+# Development
+# ---------------------------------------------------------------------------
 
 [tasks.dev]
 description = "Run dev mode"
 depends = ["dev:backend", "dev:frontend"]
 
-# Convenience tasks: `mise run <task>` (`mise r <task>`).
-# Prune tasks whose directory was not scaffolded.
 [tasks."dev:backend"]
-description = "Run the backend API server, restarting on source changes"
-dir = "backend"
+description = "Run and watch for changes for the backend"
+dir = "packages/backend"
 run = "watchexec --restart --stop-signal SIGINT --watch src --watch Cargo.toml --watch Cargo.lock --exts rs,toml -- cargo run"
 
 [tasks."dev:frontend"]
 description = "Run the frontend dev server"
-dir = "frontend"
+dir = "packages/frontend"
 run = "pnpm dev"
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
 
 [tasks.clean]
 description = "Delete the local dev database and uploaded files (recreated from the migrations on next backend start)"
-dir = "backend"
+dir = "packages/backend"
 run = "rm -rf woodmouse.db woodmouse.db-shm woodmouse.db-wal data"
 
 [tasks.seed]
 description = "Fill an empty dev database with mock data (run `mise run clean` first to start over)"
-dir = "backend"
+dir = "packages/backend"
 run = "cargo run -- seed"
 
-# rust-embed needs frontend/dist to exist to compile the main binary, hence the build.
-[tasks."check:backend"]
-description = "Run backend checks (rustfmt, clippy)"
-dir = "backend"
-depends = ["build:frontend"]
-run = "mise run check"
+# ---------------------------------------------------------------------------
+# Code generation
+# ---------------------------------------------------------------------------
 
-# The typecheck needs the generated API client.
-[tasks."check:frontend"]
-description = "Run frontend checks (typecheck, lint, format)"
-dir = "frontend"
-depends = ["gen:client"]
-run = "pnpm check"
-
-[tasks."build:frontend"]
-description = "Build the frontend bundle into frontend/dist"
-dir = "frontend"
-depends = ["gen:client"]
-run = "pnpm build"
-
-[tasks."install:frontend"]
-description = "Install frontend workspace dependencies"
-dir = "frontend"
-run = "pnpm install"  # frozen automatically when CI is set
-
-# Client generation pipeline: spec (backend only, no frontend bundle needed)
-# -> heyapi openapi-ts -> frontend/packages/client/src (never committed).
 [tasks."gen:spec"]
 description = "Generate the OpenAPI spec from the backend"
-dir = "backend"
+dir = "packages/backend"
 run = "cargo specs"
 # Skip regeneration while the sources are older than the generated specs.
 sources = ["src/**/*.rs", "Cargo.toml"]
@@ -70,52 +100,78 @@ outputs = ["target/specs/openapi.json", "target/specs/openapi.yaml"]
 [tasks."gen:client"]
 description = "Regenerate the heyapi client package from the OpenAPI spec"
 depends = ["gen:spec", "install:frontend"]
-dir = "frontend/packages/client"
-run = "pnpm exec openapi-ts"
+dir = "packages/frontend/src/client"
+run = "pnpm run openapi-ts"
+sources = ["target/specs/openapi.json"]
 
-[tasks."build:backend"]
-description = "Build the backend (embeds frontend/dist at compile time)"
-dir = "backend"
-run = "cargo build"
-
-[tasks.build]
-description = "Build frontend (generates the client first), then backend with the bundle embedded"
-run = "mise run build:frontend && mise run build:backend"
-
-[tasks."test:backend"]
-description = "Run the backend tests"
-dir = "backend"
-depends = ["build:frontend"]
-run = "cargo test"
-
-[tasks."test:frontend"]
-description = "Run the frontend tests"
-dir = "frontend"
-depends = ["install:frontend"]
-run = "pnpm test"
-
-[tasks.test]
-description = "Run each stack's tests"
-depends = ["test:backend", "test:frontend"]
-
-[tasks."build:docker"]
-description = "Build the container image (natively, for this machine's architecture)"
-run = "podman build -t woodmouse ."
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
 
 [tasks.check]
 description = "Run each stack's checks"
 depends = ["check:backend", "check:frontend"]
 
-[tasks."fix:backend"]
-description = "Auto-fix backend lint and formatting"
-dir = "backend"
-run = "mise run fix"
+# rust-embed needs frontend/dist to exist to compile the main binary, hence the build.
+[tasks."check:backend"]
+description = "Run backend checks (rustfmt, clippy)"
+dir = "packages/backend"
+depends = ["build:frontend"]
+run = ["cargo fmt --all --check", "cargo clippy --all-targets --all-features -- -D warnings"]
 
-[tasks."fix:frontend"]
-description = "Auto-fix frontend lint and formatting"
-dir = "frontend"
-run = "pnpm fix"
+# The typecheck needs the generated API client.
+[tasks."check:frontend"]
+description = "Run frontend checks (typecheck, lint, format)"
+dir = "packages/frontend"
+depends = ["gen:client"]
+run = "pnpm check"
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+[tasks.test]
+description = "Run each stack's tests"
+depends = ["test:backend", "test:frontend"]
+
+[tasks."test:backend"]
+description = "Run the backend tests"
+dir = "packages/backend"
+depends = ["build:frontend"]
+run = "cargo test"
+
+[tasks."test:frontend"]
+description = "Run the frontend tests"
+dir = "packages/frontend"
+depends = ["install:frontend"]
+run = "pnpm test"
+
+# ---------------------------------------------------------------------------
+# Fixes
+# ---------------------------------------------------------------------------
 
 [tasks.fix]
 description = "Auto-fix in each stack"
 depends = ["fix:backend", "fix:frontend"]
+
+[tasks."fix:backend"]
+description = "Auto-fix backend lint and formatting"
+dir = "packages/backend"
+run = [
+  "cargo fmt --all",
+  "cargo clippy --fix --allow-dirty --allow-staged --allow-no-vcs --all-targets --all-features -- -D warnings",
+]
+
+[tasks."fix:frontend"]
+description = "Auto-fix frontend lint and formatting"
+dir = "packages/frontend"
+run = "pnpm fix"
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+[tasks."install:frontend"]
+description = "Install frontend workspace dependencies"
+dir = "packages/frontend"
+run = "pnpm install" # frozen automatically when CI is set

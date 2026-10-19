@@ -16,3 +16,6 @@ target/
 .DS_Store
 *.log
 .local
+
+.idea
+.junie

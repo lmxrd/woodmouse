@@ -1,5 +1,5 @@
 //! The migrations in `toasty/` must describe the models: after changing `src/models.rs`, run
-//! `cargo run --bin migrate -- generate <name>` and commit the result.
+//! `cargo run --bin toasty -- generate <name>` and commit the result.
 
 #[tokio::test]
 async fn migrations_are_up_to_date_with_the_models() {
@@ -10,7 +10,7 @@ async fn migrations_are_up_to_date_with_the_models() {
         .unwrap();
     assert!(
         !woodmouse::migrations::is_behind(&db).unwrap(),
-        "the models changed: run `cargo run --bin migrate -- generate <name>`"
+        "the models changed: run `cargo run --bin toasty -- generate <name>`"
     );
 }
 

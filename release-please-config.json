@@ -8,22 +8,22 @@
       "extra-files": [
         {
           "type": "json",
-          "path": "frontend/package.json",
+          "path": "packages/frontend/package.json",
           "jsonpath": "$.version"
         },
         {
           "type": "json",
-          "path": "frontend/src/client/package.json",
+          "path": "packages/frontend/src/client/package.json",
           "jsonpath": "$.version"
         },
         {
           "type": "toml",
-          "path": "backend/Cargo.toml",
+          "path": "packages/backend/Cargo.toml",
           "jsonpath": "$.package.version"
         },
         {
           "type": "toml",
-          "path": "backend/Cargo.lock",
+          "path": "packages/backend/Cargo.lock",
           "jsonpath": "$.package[?(@.name=='woodmouse')].version"
         }
       ]
