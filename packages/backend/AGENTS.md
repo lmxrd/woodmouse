@@ -39,7 +39,7 @@
   schemas are collected automatically by `routes!`.
 - Errors: convert `toasty::Error` to `ApiError` (`src/error.rs`); record-not-
   found maps to 404, everything else to 500.
-- Schema: migrations. After changing `src/models.rs` run `cargo run --bin migrate -- generate <name>` and
+- Schema: migrations. After changing `src/models.rs` run `cargo run --bin toasty -- generate <name>` and
   commit `backend/toasty/` (history, SQL, snapshot); the server applies pending migrations at startup, and the
   test `migrations_are_up_to_date_with_the_models` fails when you forget. A rename generates drop + create:
   edit the SQL by hand. A dev database made before migrations existed needs `mise run clean`.

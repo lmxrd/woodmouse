@@ -1,0 +1,28 @@
+name: Build the release binary
+description: >
+  The static (musl) release binary for the runner's CPU architecture, with
+  the frontend embedded: the same `mise run build:backend` as locally.
+  The result is packages/backend/target/dist/woodmouse.
+
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@v4
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: packages/backend
+        # Dev (the OpenAPI spec) and release builds share one target dir.
+        key: release
+    - uses: actions/cache@v6
+      with:
+        path: ~/.local/share/pnpm/store
+        key: pnpm-${{ hashFiles('packages/frontend/pnpm-lock.yaml', 'packages/frontend/src/client/pnpm-lock.yaml') }}
+    # The frontend is built from the OpenAPI spec the backend writes first;
+    # zig is the C toolchain for the bundled SQLite and ring.
+    - run: mise run build:backend
+      shell: bash
+    # Static is what lets the one binary run on any Ubuntu or Debian (and
+    # in the distroless image): fail if a dependency ever links a libc.
+    - name: The binary is static
+      shell: bash
+      run: file packages/backend/target/dist/woodmouse | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'

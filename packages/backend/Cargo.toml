@@ -45,8 +45,9 @@ csv = "1.4.0"
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"
 
-# Smaller, faster release binaries; the release workflow and the image
-# both build with this profile.
+# Small release binaries (size matters more than build time): fat LTO and one
+# codegen unit. opt-level = "s" was tried and saved nothing here. The release
+# workflow and `mise run build:backend` both build with this profile.
 [profile.release]
 strip = true
 lto = true

@@ -11,7 +11,7 @@ version: 2
 updates:
   # The backend. Cargo.lock is bumped with the manifest.
   - package-ecosystem: cargo
-    directory: /backend
+    directory: /packages/backend
     schedule:
       interval: weekly
       day: monday
@@ -24,10 +24,9 @@ updates:
       cargo-major:
         update-types: [major]
 
-  # The frontend, a pnpm workspace (Dependabot reads pnpm-lock.yaml through
-  # this ecosystem).
+  # The frontend (Dependabot reads pnpm-lock.yaml through this ecosystem).
   - package-ecosystem: npm
-    directory: /frontend
+    directory: /packages/frontend
     schedule:
       interval: weekly
       day: monday
@@ -38,6 +37,22 @@ updates:
       npm-minor-and-patch:
         update-types: [minor, patch]
       npm-major:
+        update-types: [major]
+
+  # The generated API client is a package of its own, with its own lockfile
+  # (openapi-ts and the TypeScript it needs).
+  - package-ecosystem: npm
+    directory: /packages/frontend/src/client
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      client-minor-and-patch:
+        update-types: [minor, patch]
+      client-major:
         update-types: [major]
 
   # The versions of the actions the workflows use.
@@ -52,9 +67,9 @@ updates:
       actions:
         patterns: ["*"]
 
-  # The images of the Dockerfile. Node and Rust are left to a person: their
-  # versions are pinned in mise.toml too (and Node's must be an LTS), and
-  # the three places change together. alpine:3 follows its own tag.
+  # The image of the Dockerfile (alpine:3 follows its own tag). Node and
+  # Rust are pinned in mise.toml, which Dependabot does not read: a person
+  # bumps them (Node's must be an LTS).
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -63,6 +78,3 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    ignore:
-      - dependency-name: node
-      - dependency-name: rust

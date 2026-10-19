@@ -6,7 +6,7 @@
 //!   /                    - embedded CSR frontend (SPA fallback)
 //!   /swagger-ui         - Swagger UI (only with WOODMOUSE_SWAGGER_UI set)
 //!
-//! Commands: `woodmouse` serves; `woodmouse seed` fills an empty database with mock data; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
+//! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse seed` fills an empty database with mock data; `woodmouse check` reports orphaned rows; `woodmouse backup [DIR]` writes a
 //! consistent copy of the database (default `BACKUP_DIR`, or `backups`).
 
 // The embedded frontend bundle — a module of this binary, not the library,
@@ -26,6 +26,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
+
+    // The container healthcheck: no database, no server — only a request to the one already running.
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return run_healthcheck().await;
+    }
 
     // The URL scheme selects the driver; `sqlite:<path>` opens a file-backed
     // database. Use `sqlite::memory:` for a throwaway in-process database.
@@ -140,6 +145,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Leave the database file complete, with an empty write-ahead log.
     woodmouse::jobs::checkpoint(&state).await;
     Ok(())
+}
+
+/// `GET /api/health` on this machine, by hand (the runtime image ships no wget or curl).
+/// Succeeds on a 200, fails otherwise.
+async fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8000);
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+    stream
+        .write_all(b"GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n")
+        .await?;
+    let mut head = [0u8; 12];
+    stream.read_exact(&mut head).await?;
+    if &head == b"HTTP/1.1 200" || &head == b"HTTP/1.0 200" {
+        Ok(())
+    } else {
+        Err("the health endpoint did not answer 200".into())
+    }
 }
 
 async fn run_check(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {

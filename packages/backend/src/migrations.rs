@@ -1,5 +1,5 @@
 //! The database schema's history. Migrations are SQL files generated from the models by
-//! `cargo run --bin migrate -- generate <name>` into `toasty/` (the history, one SQL file and one schema
+//! `cargo run --bin toasty -- generate <name>` into `toasty/` (the history, one SQL file and one schema
 //! snapshot per migration) and embedded into the binary; the server applies the pending ones at startup.
 
 use std::path::PathBuf;

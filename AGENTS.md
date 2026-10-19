@@ -11,12 +11,16 @@
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
 - `mise run test` — each stack's tests (cargo test, vitest)
-- `mise run build:docker` — build the container image (`Dockerfile`)
+- `mise run build:backend` — the static (musl) release binary for this machine's
+  CPU architecture, frontend embedded (zig is the C toolchain, so on a Mac it
+  builds a Linux binary); CI and the release workflow run this same task
+- `mise run build:docker` — package that binary into the container image
+  (`Dockerfile`: distroless, nothing compiles in it)
 - `mise run fix` — each stack's auto-fixes
 - `mise run clean` — delete the local dev database and uploaded files; the
   schema is recreated from the migrations on next backend start (only needed
   for a database made before migrations existed, or to start over)
-- After changing `backend/src/models.rs`: `cargo run --bin migrate -- generate <name>`
+- After changing `backend/src/models.rs`: `cargo run --bin toasty -- generate <name>`
   in `backend/`, and commit `backend/toasty/`
 
 ## Structure
