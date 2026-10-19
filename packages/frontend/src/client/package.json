@@ -1,0 +1,26 @@
+{
+  "name": "woodmouse-client",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.gen.ts",
+    "./react-query": "./src/@tanstack/react-query.gen.ts",
+    "./sdk": "./src/@tanstack/sdk.gen.ts",
+    "./types": "./src/@tanstack/types.gen.ts",
+    "./zod": "./src/@tanstack/zod.gen.ts",
+    "./spec": "./src/source.json"
+  },
+  "scripts": {
+    "openapi-ts":"openapi-ts"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.104.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
+    "@types/node": "^26.6.5",
+    "typescript":"^6.0.3"
+  }
+}
