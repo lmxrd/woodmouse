@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/lmxrd/woodmouse/compare/v0.2.0...v0.3.0) (2026-10-20)
+
+
+### Bug Fixes
+
+* release ([f3ebd35](https://github.com/lmxrd/woodmouse/commit/f3ebd3511f46a1895a92daa729be7b1b35d6814b))
+
+
+### Miscellaneous Chores
+
+* release 0.3.0 ([dbbbc9e](https://github.com/lmxrd/woodmouse/commit/dbbbc9ecf932d39b5ebe6098080ce7d0377ee7eb))
+
 ## [0.2.0](https://github.com/lmxrd/woodmouse/compare/v0.1.0...v0.2.0) (2026-10-19)
 
 
