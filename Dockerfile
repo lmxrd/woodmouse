@@ -11,7 +11,8 @@
 FROM alpine:3
 RUN addgroup -S woodmouse && adduser -S -G woodmouse woodmouse \
   && mkdir /data && chown woodmouse /data
-COPY --from=bin /woodmouse /usr/local/bin/woodmouse
+# --chmod: the release workflow hands the binary over as a workflow artifact, which drops the executable bit.
+COPY --chmod=755 --from=bin /woodmouse /usr/local/bin/woodmouse
 ENV PORT=8000 \
     DATABASE_URL=sqlite:/data/woodmouse.db \
     DATA_DIR=/data
