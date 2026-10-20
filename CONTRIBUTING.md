@@ -26,8 +26,8 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 | `mise run dev`          | Runs the backend (restarts on changes) and the frontend dev server together                       |
 | `mise run dev:backend`  | The backend only, on :8000                                                                        |
 | `mise run dev:frontend` | The frontend dev server only                                                                      |
-| `mise run db:migrate`   | Applies the pending migrations to the dev database (the backend also does this when it starts)    |
-| `mise run gen:models`   | Regenerates the entities in `packages/backend/src/models` from the migrated schema (review the diff) |
+| `mise run migrate`      | Applies the pending migrations to the dev database (the backend also does this when it starts)    |
+| `mise run gen:models`   | Regenerates the entities in `packages/backend/entity/src` from the migrated schema (review the diff) |
 | `mise run seed`         | Fills an empty dev database with mock data                                                        |
 | `mise run clean`        | Deletes the local dev database and uploaded files; the schema is recreated on the next start      |
 | `mise run check`        | Formatting, lint and type checks for both stacks (rustfmt, clippy, tsc, oxlint, oxfmt)            |
@@ -56,18 +56,19 @@ mise.toml            the toolchain and every task
 Inside the backend:
 
 ```
-src/main.rs        entrypoint: startup, the commands (check, healthcheck), graceful stop
-src/bin/           tools that are not part of the release build: `migrate` (apply the migrations), `seed` (mock data), `specs` (the OpenAPI spec)
-src/lib.rs         the library crate the server and the tools share
-src/routes/        the HTTP handlers, one module per area
-src/models/       the database models: one generated SeaORM entity per table (`mise run gen:models`)
-src/content/       tasks, wiki pages, revisions, trash, ordering, search
-src/live/          live wiki editing (Yjs rooms over WebSockets)
-src/transfer/      import and export
-src/jobs.rs        the daily and periodic jobs
-src/db.rs          the pool, `Db` and the `prelude` of SeaORM traits
-src/migrations/   the schema: SeaORM migrations, each running a SQL file
-tests/it/          the end-to-end tests
+src/main.rs            the `woodmouse` binary: startup, the commands (check, healthcheck), graceful stop
+src/frontend.rs        the embedded frontend bundle (only this binary needs `packages/frontend/dist`)
+api/src/lib.rs         the `api` library crate the server and the tools share
+api/src/bin/           tools that are not part of the release build: `seed` (mock data), `specs` (the OpenAPI spec)
+api/src/routes/        the HTTP handlers, one module per area
+api/src/content/       tasks, wiki pages, revisions, trash, ordering, search
+api/src/live/          live wiki editing (Yjs rooms over WebSockets)
+api/src/transfer/      import and export
+api/src/jobs.rs        the daily and periodic jobs
+api/src/db.rs          the pool, `Db` and the `prelude` of SeaORM traits
+api/tests/it/          the end-to-end tests
+entity/src/            the database models: one generated SeaORM entity per table (`mise run gen:models`), and `DateTime`
+migration/src/         the schema: SeaORM migrations, each running a SQL file (`mise run migrate` applies them)
 ```
 
 Each stack has its own `AGENTS.md` with the detailed conventions: read
@@ -88,9 +89,9 @@ modules.
 
 ## Changing the schema
 
-The schema is a list of SeaORM migrations in `packages/backend/src/migrations/`. Add a
+The schema is a list of SeaORM migrations in `packages/backend/migration/src/`. Add a
 `mYYYYMMDD_HHMMSS_what_it_does.rs` (and its `.sql` file, which it runs), register it in
-`src/migrations/mod.rs`, run `mise run gen:models` to update the entities in `src/models/`. The server
+`migration/src/lib.rs`, run `mise run gen:models` to update the entities in `entity/src/`. The server
 applies pending migrations, in order, when it starts, and records each in
 `seaql_migrations`. The tables are plain SQL because the schema needs what the schema
 builder does not express (CHECK constraints, foreign key actions, FTS5, table rebuilds).

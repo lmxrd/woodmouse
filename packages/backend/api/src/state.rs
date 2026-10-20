@@ -78,7 +78,7 @@ impl AppState {
     /// development tools (`seed`) start from.
     pub async fn open(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let db = crate::db::orm(crate::db::connect(url).await?);
-        // The schema: the migrations in `src/migrations/`, each applied once.
+        // The schema: the migrations in the `migration` crate, each applied once.
         <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None).await?;
         crate::search::ensure_triggers(&db)
             .await

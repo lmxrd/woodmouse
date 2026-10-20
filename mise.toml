@@ -130,7 +130,10 @@ description = "Regenerate the entities in packages/backend/entity/src from the m
 dir = "packages/backend"
 env = { DATABASE_URL = "sqlite:woodmouse.db" }
 depends = ["migrate"]
-run = "sea-orm-cli generate entity --lib --output-dir entity/src --entity-format compact --with-prelude none --experimental-preserve-user-modifications --ignore-tables seaql_migrations,search_docs,search_fts,search_fts_data,search_fts_idx,search_fts_docsize,search_fts_config"
+run = """
+sea-orm-cli generate entity --lib --output-dir entity/src --entity-format compact --with-prelude none --experimental-preserve-user-modifications --ignore-tables seaql_migrations,search_docs,search_fts,search_fts_data,search_fts_idx,search_fts_docsize,search_fts_config
+cargo fmt --all
+"""
 
 # ---------------------------------------------------------------------------
 # Checks
