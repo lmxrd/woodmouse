@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/lmxrd/woodmouse/compare/v0.3.0...v0.3.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* oci chmod issue on copy ([c57558a](https://github.com/lmxrd/woodmouse/commit/c57558a33f9ec39dc7be8204b5db16cd0ddeb0be))
+
 ## [0.3.0](https://github.com/lmxrd/woodmouse/compare/v0.2.0...v0.3.0) (2026-10-20)
 
 
