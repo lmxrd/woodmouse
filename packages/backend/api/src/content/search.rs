@@ -2,7 +2,7 @@
 //!
 //! `search_docs` holds one row of searchable text per page, task and comment, and `search_fts` indexes it
 //! (an FTS5 external-content table); both, and the triggers that keep them current, are created by
-//! `src/migrations/m20260101_000001_init.sql`. Triggers on `tasks`, comments and page titles keep the text current without
+//! `migration/src/m20260101_000001_init.sql`. Triggers on `tasks`, comments and page titles keep the text current without
 //! any handler having to remember; a page's body is written by [`index_page_body`] when its blocks are
 //! saved. Which results a person may see is decided at query time, by joining the live pages, tasks,
 //! lists and projects of the workspaces they can access, so soft deletes, restores and moves never need
@@ -13,7 +13,7 @@ use crate::db::{Db, json_ids};
 use crate::error::ApiError;
 use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 
-/// The triggers that keep `search_docs` and the index current, as in `src/migrations/m20260101_000001_init.sql`. They are
+/// The triggers that keep `search_docs` and the index current, as in `migration/src/m20260101_000001_init.sql`. They are
 /// created again at startup (idempotent) because a migration that rebuilds `tasks`, `comments` or
 /// `wiki_pages` (SQLite drops a table's triggers with it) would otherwise leave search silently stale. The
 /// test `startup_triggers_match_the_migration` fails when this list and the migration drift apart.

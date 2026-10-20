@@ -1,5 +1,5 @@
 //! The database: the sqlx pool (WAL, foreign keys on) with SeaORM on top of it for
-//! queries. Reads and writes use the entities in [`models`](crate::models); the few statements an ORM does
+//! queries. Reads and writes use the entities in [`entity`]; the few statements an ORM does
 //! not express (full-text search, the integrity check, `json_each` filters) are raw SQL.
 //!
 //! Every function that touches the database takes `db: &impl Db`, which a connection, the
