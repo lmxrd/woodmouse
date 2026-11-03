@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/lmxrd/woodmouse/compare/v0.3.1...v0.4.0) (2026-11-03)
+
+
+### Features
+
+* **auth:** single sign-on through OpenID Connect ([#14](https://github.com/lmxrd/woodmouse/issues/14)) ([cd8b2a9](https://github.com/lmxrd/woodmouse/commit/cd8b2a9f74acd76926d8fb75e84338a845c0f689))
+
 ## [0.3.1](https://github.com/lmxrd/woodmouse/compare/v0.3.0...v0.3.1) (2026-10-20)
 
 
