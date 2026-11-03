@@ -51,9 +51,9 @@ updates:
       actions:
         patterns: ["*"]
 
-  # The image of the Dockerfile (alpine:3 follows its own tag). Node and
-  # Rust are pinned in mise.toml, which Dependabot does not read: a person
-  # bumps them (Node's must be an LTS).
+  # The image of the Dockerfile (alpine:3 follows its own tag). The image
+  # builds nothing, so the toolchains live only in mise.toml, which
+  # Dependabot does not read: a person bumps them (Node's must be an LTS).
   - package-ecosystem: docker
     directory: /
     schedule:

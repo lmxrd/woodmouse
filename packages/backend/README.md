@@ -21,7 +21,10 @@ Environment variables (see `src/main.rs`):
 
 ## Docker
 
+The image only copies the Linux binary built outside it (see the root
+`Dockerfile`), so build that first:
+
 ```sh
-docker build -t woodmouse .
+mise run build:docker   # or: mise run build:linux && docker build -t woodmouse .
 docker run -p 8000:8000 -v woodmouse-data:/data woodmouse
 ```

@@ -19,7 +19,7 @@ rust = { version = "1.99.0", components = [
 ] } # backend (rust-api); musl for the static release binary
 watchexec = "2.8.0" # backend hot reload (dev:backend)
 zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and static linking
-"cargo:cargo-zigbuild" = "0.23.4" # builds the static release binaries via zig cc (prebuilt, no cargo install)
+"github:rust-cross/cargo-zigbuild" = "0.24.0" # builds the static release binaries via zig cc (scripts/build-linux.sh)
 "cargo:sea-orm-cli" = "2.0.4" 
 
 [env]
@@ -31,8 +31,8 @@ DATABASE_URL = "sqlite:woodmouse.db?mode=rwc"
 # ---------------------------------------------------------------------------
 
 [tasks.build]
-description = "Build frontend (generates the SDK first), then backend with the bundle embedded"
-depends = ["build:backend"]
+description = "Build frontend (generates the SDK first), then the static Linux binary with the bundle embedded"
+depends = ["build:linux"]
 
 [tasks."build:frontend"]
 description = "Build the frontend bundle into frontend/dist"
@@ -40,28 +40,24 @@ dir = "packages/frontend"
 depends = ["gen:sdk"]
 run = "pnpm build"
 
-[tasks."build:backend"]
-description = "Build the static (musl) release binary for this machine's CPU architecture, with the frontend embedded"
-dir = "packages/backend"
+# The binary is written to dist/woodmouse-linux-<arch> (see the script for
+# ARCH, PROFILE and FEATURES). A variant image, e.g. a debug (dev profile) build:
+#   PROFILE=dev scripts/build-linux.sh
+#   podman build --build-arg BINARY=dist/woodmouse-linux-arm64-dev -t woodmouse:dev .
+[tasks."build:linux"]
+description = "Build the static (musl) Linux binary for this machine's CPU architecture into dist/, with the frontend embedded"
 depends = ["build:frontend"]
-# zig is the C toolchain (ring, bundled SQLite), so the same command works
-# on Linux and on a Mac, where it produces a Linux binary.
-run = """
-arch="$(uname -m)"; [ "$arch" = arm64 ] && arch=aarch64
-cargo zigbuild --release --target "$arch-unknown-linux-musl" --bin woodmouse
-mkdir -p target/dist
-cp "target/$arch-unknown-linux-musl/release/woodmouse" target/dist/woodmouse
-"""
+run = "scripts/build-linux.sh"
 
 [tasks."build:docker"]
-description = "Build the container image from the release binary (for this machine's architecture)"
-depends = ["build:backend"]
-run = "podman build --format docker --build-context bin=packages/backend/target/dist -t woodmouse ."
+description = "Build the container image from the Linux binary in dist/ (for this machine's architecture)"
+depends = ["build:linux"]
+run = "podman build --format docker -t woodmouse ."
 
 # rust-embed fails to compile when packages/frontend/dist does not exist, but
 # checks and tests never read the bundle, so an empty directory is enough:
 # they need not wait for the frontend build. Release builds
-# (build:backend) still depend on the real build:frontend.
+# (build:linux) still depend on the real build:frontend.
 [tasks."ensure:dist"]
 description = "Make sure packages/frontend/dist exists (rust-embed needs the folder to compile)"
 run = "mkdir -p packages/frontend/dist"
@@ -90,7 +86,7 @@ run = "pnpm dev"
 
 [tasks.clean]
 description = "Delete the local dev database and uploaded files (recreated from the migrations on next backend start)"
-run = "rm -rf node_modules packages/backend/target packages/frontend/node_modules packages/frontend/dist packages/sdk/node_modules packages/sdk/src"
+run = "rm -rf dist node_modules packages/backend/target packages/frontend/node_modules packages/frontend/dist packages/sdk/node_modules packages/sdk/src"
 
 [tasks.migrate]
 description = "Apply the pending migrations to the dev database (the backend also does this when it starts)"
