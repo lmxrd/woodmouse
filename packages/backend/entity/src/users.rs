@@ -31,9 +31,10 @@ pub struct Model {
     /// IANA timezone (`Europe/Oslo`), filled in from the browser the first time; `None` until then.
     #[sea_orm(column_type = "Text", nullable)]
     pub timezone: Option<String>,
-    /// Argon2id hash (PHC string format).
-    #[sea_orm(column_type = "Text")]
-    pub password_hash: String,
+    /// Argon2id hash (PHC string format); `None` for someone without a password (invited and not yet
+    /// signed in, or signing in only through single sign-on).
+    #[sea_orm(column_type = "Text", nullable)]
+    pub password_hash: Option<String>,
     /// The one site-wide super admin: the first registered user. Above every workspace role, gates the
     /// site admin page, never delegated.
     pub super_admin: bool,
@@ -63,6 +64,8 @@ pub enum Relation {
     Sessions,
     #[sea_orm(has_many = "super::task_assignees::Entity")]
     TaskAssignees,
+    #[sea_orm(has_many = "super::user_identities::Entity")]
+    UserIdentities,
     #[sea_orm(has_many = "super::user_invites::Entity")]
     UserInvites,
     #[sea_orm(has_many = "super::watches::Entity")]
@@ -122,6 +125,12 @@ impl Related<super::sessions::Entity> for Entity {
 impl Related<super::task_assignees::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::TaskAssignees.def()
+    }
+}
+
+impl Related<super::user_identities::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserIdentities.def()
     }
 }
 

@@ -8,13 +8,21 @@ import { AuthField as Field, AuthSheet, ErrorNote } from "../components/layout/A
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { finishLogin } from "../lib/auth";
+import { SSO_LOGIN_URL, ssoErrorMessage } from "../lib/sso";
+
+type Search = { error?: string };
 
 export const Route = createFileRoute("/login")({
+  // `error` is set by the single sign-on callback when it did not work.
+  validateSearch: (raw: Record<string, unknown>): Search => ({
+    error: typeof raw.error === "string" && raw.error ? raw.error : undefined,
+  }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const { data: status, isPending } = useQuery(authStatusOptions());
+  const { error } = Route.useSearch();
   const bootstrap = status?.bootstrap_required ?? false;
 
   return (
@@ -28,12 +36,15 @@ function LoginPage() {
       }
     >
       {isPending ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
-      {status && (bootstrap ? <BootstrapForm /> : <LoginForm />)}
+      {status && !bootstrap && ssoErrorMessage(error) ? (
+        <ErrorNote message={ssoErrorMessage(error) ?? ""} />
+      ) : null}
+      {status && (bootstrap ? <BootstrapForm /> : <LoginForm sso={status.sso ?? null} />)}
     </AuthSheet>
   );
 }
 
-function LoginForm() {
+function LoginForm({ sso }: { sso: string | null }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const login = useMutation({
@@ -50,9 +61,19 @@ function LoginForm() {
       className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
+        // A single sign-on error no longer applies once they try their password.
+        void navigate({ to: "/login", search: {}, replace: true });
         login.mutate({ body: { email, password } });
       }}
     >
+      {sso ? (
+        <>
+          <Button asChild variant="outline" size="lg">
+            <a href={SSO_LOGIN_URL}>Sign in with {sso}</a>
+          </Button>
+          <p className="label-mono text-center text-muted-foreground">or with your password</p>
+        </>
+      ) : null}
       {login.isError ? (
         <ErrorNote message="That did not work. Check your email and password." />
       ) : null}

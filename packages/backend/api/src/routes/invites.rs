@@ -104,7 +104,7 @@ pub async fn accept_invite(
     let tx = db.begin().await?;
     users::ActiveModel {
         id: Unchanged(user.id),
-        password_hash: Set(auth::hash_password(&input.password)?),
+        password_hash: Set(Some(auth::hash_password(&input.password)?)),
         ..Default::default()
     }
     .update(&tx)

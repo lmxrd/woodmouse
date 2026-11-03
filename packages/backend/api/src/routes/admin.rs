@@ -48,7 +48,7 @@ pub fn router() -> OpenApiRouter<AppState> {
 pub struct AdminUser {
     #[serde(flatten)]
     pub user: PublicUser,
-    /// Has not set a password yet: an invite link is waiting to be used.
+    /// Has never signed in (no password, no single sign-on account): an invite link is waiting to be used.
     pub pending: bool,
     /// The workspaces they are a member of (not deleted ones).
     pub memberships: Vec<AdminMembership>,
@@ -63,10 +63,10 @@ pub struct AdminMembership {
 }
 
 impl AdminUser {
-    fn new(user: &User, memberships: Vec<AdminMembership>) -> Self {
+    fn new(user: &User, pending: bool, memberships: Vec<AdminMembership>) -> Self {
         Self {
             user: PublicUser::from(user),
-            pending: user.password_hash.is_empty(),
+            pending,
             memberships,
         }
     }
@@ -117,9 +117,11 @@ pub async fn admin_list_users(
     let db = state.db();
     let mut users = users::Entity::find().all(db).await?;
     users.sort_by_key(|u| u.id);
+    let linked = auth::linked_users(db, users.iter().map(|u| u.id)).await?;
     let mut out = vec![];
     for u in &users {
-        out.push(AdminUser::new(u, memberships_of(db, u.id).await?));
+        let pending = u.password_hash.is_none() && !linked.contains(&u.id);
+        out.push(AdminUser::new(u, pending, memberships_of(db, u.id).await?));
     }
     Ok(Json(out))
 }
@@ -185,7 +187,7 @@ pub async fn admin_create_user(
         id: Set(uuid::Uuid::now_v7()),
         email: Set(email),
         name: Set(input.name.trim().to_string()),
-        password_hash: Set(String::new()),
+        password_hash: Set(None),
         super_admin: Set(false),
         active: Set(true),
         global_role: Set(input.global_role),
@@ -233,7 +235,7 @@ pub async fn admin_create_user(
     Ok((
         StatusCode::CREATED,
         Json(CreatedUser {
-            user: AdminUser::new(&created, memberships),
+            user: AdminUser::new(&created, true, memberships),
             invite_token,
         }),
     ))
@@ -254,7 +256,7 @@ pub struct Invite {
     responses(
         (status = 200, description = "A new invite", body = Invite),
         (status = 404, description = "Not the super admin, or no such user"),
-        (status = 409, description = "They already have a password")
+        (status = 409, description = "They already have a password or a single sign-on account")
     )
 )]
 pub async fn admin_reissue_invite(
@@ -265,8 +267,10 @@ pub async fn admin_reissue_invite(
     access::require_super_admin(&admin)?;
     let db = state.writer().await?;
     let target = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
-    if !target.password_hash.is_empty() {
-        return Err(ApiError::conflict("this person already has a password"));
+    if !auth::is_pending(&*db, &target).await? {
+        return Err(ApiError::conflict(
+            "this person already has a password or signs in with single sign-on",
+        ));
     }
     let tx = db.begin().await?;
     let invite_token = issue_invite(&tx, id).await?;
@@ -381,7 +385,8 @@ pub async fn admin_update_user(
     tx.commit().await?;
     let user = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
     let memberships = memberships_of(&*db, id).await?;
-    Ok(Json(AdminUser::new(&user, memberships)))
+    let pending = auth::is_pending(&*db, &user).await?;
+    Ok(Json(AdminUser::new(&user, pending, memberships)))
 }
 
 /// A workspace as the site admin sees it.

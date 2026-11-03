@@ -195,16 +195,18 @@ pub async fn send_pending_emails(state: &AppState, now: crate::time::DateTime) {
             .one_or_not_found(db)
             .await
             .ok();
+        let signed_in = match &user {
+            Some(u) => !auth::is_pending(db, u).await.unwrap_or(true),
+            None => false,
+        };
         let wants = match &user {
-            Some(u) if u.active && !u.password_hash.is_empty() => {
-                notification_settings::Entity::find()
-                    .filter(notification_settings::Column::UserId.eq(u.id))
-                    .one(db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some_and(|s| s.email_instant)
-            }
+            Some(u) if u.active && signed_in => notification_settings::Entity::find()
+                .filter(notification_settings::Column::UserId.eq(u.id))
+                .one(db)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|s| s.email_instant),
             _ => false,
         };
         if wants && let Some(user) = &user {
@@ -269,7 +271,7 @@ pub async fn send_digests(state: &AppState, now: crate::time::DateTime) {
         else {
             continue;
         };
-        if !user.active || user.password_hash.is_empty() {
+        if !user.active || auth::is_pending(db, &user).await.unwrap_or(true) {
             continue;
         }
         let local = local_now(&user, now);

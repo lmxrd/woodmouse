@@ -197,3 +197,106 @@ async fn week_start_preference() {
     .await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
+
+/// Someone without a password (signing in only through single sign-on): a session of theirs, made directly.
+async fn passwordless_session(db: &sea_orm::DatabaseConnection, email: &str) -> String {
+    use api::db::prelude::*;
+    let user = entity::users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set(email.to_string()),
+        name: Set(String::new()),
+        password_hash: Set(None),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .unwrap();
+    let (session, _) = api::auth::create_session(db, user.id, false).await.unwrap();
+    format!("{}={}", api::auth::SESSION_COOKIE, session.token)
+}
+
+#[tokio::test]
+async fn an_account_without_a_password_cannot_log_in_with_one() {
+    let (app, db) = app_with_db().await;
+    bootstrap_admin(&app).await;
+    passwordless_session(&db, "sso@home.io").await;
+    // The same answer as a wrong password: no way to tell the account has none.
+    for password in ["", "anything at all"] {
+        let res = request(
+            &app,
+            post_json(
+                "/api/auth/login",
+                &format!(r#"{{"email":"sso@home.io","password":"{password}"}}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
+async fn a_first_password_needs_no_current_one_and_then_works() {
+    let (app, db) = app_with_db().await;
+    bootstrap_admin(&app).await;
+    let cookie = passwordless_session(&db, "sso@home.io").await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/password",
+            r#"{"new_password":"my first password"}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        login(&app, "sso@home.io", "my first password").await.0,
+        StatusCode::OK
+    );
+    // Now that there is one, changing it needs it.
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/password",
+            r#"{"new_password":"another password"}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// Two requests setting a first password at once (neither needs a current one): only one may win, even
+/// when both checked before either wrote.
+#[tokio::test]
+async fn only_one_of_two_first_passwords_at_once_is_set() {
+    let (app, state) = app_with_state().await;
+    bootstrap_admin(&app).await;
+    let cookie = passwordless_session(state.db(), "sso@home.io").await;
+    let set = |password: &'static str| {
+        let (app, cookie) = (app.clone(), cookie.clone());
+        tokio::spawn(async move {
+            request(
+                &app,
+                post_json(
+                    "/api/auth/password",
+                    &format!(r#"{{"new_password":"{password}"}}"#),
+                    Some(&cookie),
+                ),
+            )
+            .await
+            .status()
+        })
+    };
+    // Both pass the check and wait for the write turn held here.
+    let turn = state.writer().await.unwrap();
+    let (a, b) = (set("first password a"), set("first password b"));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    drop(turn);
+    let mut statuses = [a.await.unwrap(), b.await.unwrap()];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::CONFLICT]);
+}

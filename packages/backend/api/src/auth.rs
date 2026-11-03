@@ -36,6 +36,29 @@ pub fn hash_password(password: &str) -> Result<String, ApiError> {
         .map_err(|_| ApiError::internal("password hashing failed"))
 }
 
+/// A hash of nothing anyone knows, checked when there is no real one (an unknown email, or an account
+/// without a password), so that answer takes as long as a wrong password.
+static DUMMY_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    hash_password(&uuid::Uuid::new_v4().to_string()).expect("hash a random password")
+});
+
+/// Make the dummy hash now (at start), so the first login it serves takes no longer than the rest.
+pub fn warm_up() {
+    std::sync::LazyLock::force(&DUMMY_HASH);
+}
+
+/// Verify a password against a user's stored hash. No hash never matches, after the same work as a wrong
+/// password.
+pub fn verify_user_password(password: &str, phc: Option<&str>) -> bool {
+    match phc {
+        Some(phc) => verify_password(password, phc),
+        None => {
+            verify_password(password, &DUMMY_HASH);
+            false
+        }
+    }
+}
+
 /// Verify a password against a stored PHC hash.
 pub fn verify_password(password: &str, phc: &str) -> bool {
     let Ok(parsed) = PasswordHash::new(phc) else {
@@ -109,6 +132,30 @@ pub async fn delete_sessions_of(
         }
     }
     Ok(())
+}
+
+/// The users among `ids` linked to an account at a single sign-on provider.
+pub async fn linked_users(
+    db: &impl Db,
+    ids: impl IntoIterator<Item = uuid::Uuid>,
+) -> Result<std::collections::HashSet<uuid::Uuid>, ApiError> {
+    let ids: Vec<_> = ids.into_iter().collect();
+    if ids.is_empty() {
+        return Ok(Default::default());
+    }
+    Ok(entity::user_identities::Entity::find()
+        .filter(entity::user_identities::Column::UserId.is_in(ids))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|i| i.user_id)
+        .collect())
+}
+
+/// Whether someone has never signed in: no password, and no single sign-on account. Their invite is
+/// still waiting, and they get no email.
+pub async fn is_pending(db: &impl Db, user: &User) -> Result<bool, ApiError> {
+    Ok(user.password_hash.is_none() && linked_users(db, [user.id]).await?.is_empty())
 }
 
 /// Remove sessions that have expired (a daily job).

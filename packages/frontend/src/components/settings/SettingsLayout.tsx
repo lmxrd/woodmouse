@@ -55,6 +55,9 @@ export function SettingsLayout() {
               <Link to="/settings/admin/email" className={link} activeProps={{ className: active }}>
                 Email
               </Link>
+              <Link to="/settings/admin/sso" className={link} activeProps={{ className: active }}>
+                Single sign-on
+              </Link>
               <Link to="/settings/admin/audit" className={link} activeProps={{ className: active }}>
                 Audit log
               </Link>

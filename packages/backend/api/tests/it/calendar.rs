@@ -55,7 +55,7 @@ impl Fx {
             id: Set(uuid::Uuid::now_v7()),
             email: Set(email.to_string()),
             name: Set("".to_string()),
-            password_hash: Set("x".to_string()),
+            password_hash: Set(Some("x".to_string())),
             super_admin: Set(false),
             active: Set(true),
             ..Default::default()

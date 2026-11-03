@@ -10,12 +10,15 @@ export async function requireLogin(queryClient: QueryClient) {
   });
 }
 
-/** After a successful login, bootstrap or invite acceptance: remember the user and go home. */
+/**
+ * After a successful login, bootstrap or invite acceptance: forget any earlier user and go home, where
+ * the route guard loads the new one (`/auth/me` says more about them than the login's answer).
+ */
 export function finishLogin(
   queryClient: QueryClient,
   navigate: ReturnType<typeof useNavigate>,
-  user: PublicUser,
+  _user: PublicUser,
 ) {
-  queryClient.setQueryData(meQueryKey(), user);
+  queryClient.removeQueries({ queryKey: meQueryKey() });
   void navigate({ to: "/" });
 }

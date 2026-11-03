@@ -13,6 +13,7 @@ const PAGE = 100;
 const ACTIONS = [
   "login",
   "login_failed",
+  "sso_linked",
   "logout",
   "password_changed",
   "role_changed",

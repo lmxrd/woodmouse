@@ -60,6 +60,25 @@ pub struct PublicUser {
     pub active: bool,
 }
 
+/// The signed-in user, with what only they may know about their own account.
+#[derive(Clone, Serialize, ToSchema)]
+pub struct Me {
+    #[serde(flatten)]
+    pub user: PublicUser,
+    /// Whether they have a password (someone signing in only through single sign-on may have none; then
+    /// setting one needs no current password). Not in `PublicUser`, so coworkers cannot see who has one.
+    pub has_password: bool,
+}
+
+impl From<&User> for Me {
+    fn from(user: &User) -> Self {
+        Self {
+            user: PublicUser::from(user),
+            has_password: user.password_hash.is_some(),
+        }
+    }
+}
+
 impl From<&User> for PublicUser {
     fn from(user: &User) -> Self {
         Self {
@@ -94,6 +113,8 @@ impl From<&User> for PublicUser {
 pub struct AuthStatus {
     /// True while the users table is empty: the first user must register.
     pub bootstrap_required: bool,
+    /// The single sign-on provider's name for the sign-in button; `null` while single sign-on is off.
+    pub sso: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -145,6 +166,7 @@ pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatu
     let users = users::Entity::find().all(db).await?;
     Ok(Json(AuthStatus {
         bootstrap_required: users.is_empty(),
+        sso: state.oidc.config().map(|c| c.display_name.clone()),
     }))
 }
 
@@ -180,7 +202,7 @@ pub async fn bootstrap(
         id: Set(uuid::Uuid::now_v7()),
         email: Set(input.email.trim().to_lowercase()),
         name: Set(input.name.trim().to_string()),
-        password_hash: Set(auth::hash_password(&input.password)?),
+        password_hash: Set(Some(auth::hash_password(&input.password)?)),
         super_admin: Set(true),
         active: Set(true),
         ..Default::default()
@@ -225,10 +247,13 @@ pub async fn login(
         .one_or_not_found(&*db)
         .await
         .ok();
-    // Generic error: never reveal whether the email exists or the account is disabled.
-    let ok = user
-        .as_ref()
-        .is_some_and(|u| u.active && auth::verify_password(&input.password, &u.password_hash));
+    // Generic error: never reveal whether the email exists, has a password, or the account is disabled.
+    // An unknown email or a missing password is checked against a dummy hash, so it takes as long.
+    let matches = auth::verify_user_password(
+        &input.password,
+        user.as_ref().and_then(|u| u.password_hash.as_deref()),
+    );
+    let ok = matches && user.as_ref().is_some_and(|u| u.active);
     let Some(user) = user.filter(|_| ok) else {
         state.login_limits.failed(&email, address.as_deref());
         let _ = audit::record(&*db, Entry::admin(None, "login_failed")).await;
@@ -286,12 +311,12 @@ pub async fn logout(
     tag = "auth",
     security(("session_cookie" = [])),
     responses(
-        (status = 200, description = "The current user", body = PublicUser),
+        (status = 200, description = "The current user", body = Me),
         (status = 401, description = "Not logged in")
     )
 )]
-pub async fn me(CurrentUser { user, .. }: CurrentUser) -> Json<PublicUser> {
-    Json(PublicUser::from(&user))
+pub async fn me(CurrentUser { user, .. }: CurrentUser) -> Json<Me> {
+    Json(Me::from(&user))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -319,7 +344,7 @@ pub struct UpdateMe {
     security(("session_cookie" = [])),
     request_body = UpdateMe,
     responses(
-        (status = 200, description = "The updated user", body = PublicUser),
+        (status = 200, description = "The updated user", body = Me),
         (status = 400, description = "Invalid input"),
         (status = 401, description = "Not logged in"),
         (status = 409, description = "That email is already taken")
@@ -329,7 +354,7 @@ pub async fn update_me(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<UpdateMe>,
-) -> Result<Json<PublicUser>, ApiError> {
+) -> Result<Json<Me>, ApiError> {
     if let Some(format) = &input.date_format
         && !DATE_FORMATS.contains(&format.as_str())
     {
@@ -405,16 +430,19 @@ pub async fn update_me(
         update.timezone = Set(Some(zone));
     }
     let current = update.update(db).await?;
-    Ok(Json(PublicUser::from(&current)))
+    Ok(Json(Me::from(&current)))
 }
 
 #[derive(Deserialize, ToSchema)]
 pub struct ChangePassword {
-    pub current_password: String,
+    /// Required while you have a password; leave it out to set a first one (an account that signs in
+    /// only through single sign-on).
+    #[serde(default)]
+    pub current_password: Option<String>,
     pub new_password: String,
 }
 
-/// Change your password. Other sessions of yours are signed out.
+/// Change your password, or set a first one. Other sessions of yours are signed out.
 #[utoipa::path(
     post,
     path = "/auth/password",
@@ -424,7 +452,8 @@ pub struct ChangePassword {
     responses(
         (status = 204, description = "Password changed"),
         (status = 400, description = "The new password is too short"),
-        (status = 401, description = "Not logged in, or the current password is wrong")
+        (status = 401, description = "Not logged in, or the current password is wrong"),
+        (status = 409, description = "The password changed meanwhile; try again")
     )
 )]
 pub async fn change_password(
@@ -436,23 +465,32 @@ pub async fn change_password(
     }: CurrentUser,
     Json(input): Json<ChangePassword>,
 ) -> Result<StatusCode, ApiError> {
-    if !auth::verify_password(&input.current_password, &user.password_hash) {
+    if let Some(current) = &user.password_hash
+        && !auth::verify_password(input.current_password.as_deref().unwrap_or(""), current)
+    {
         return Err(ApiError::unauthorized());
     }
     validate_password(&input.new_password)?;
+    let new_hash = auth::hash_password(&input.new_password)?;
 
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    let current = users::Entity::find_by_id(user.id)
-        .one_or_not_found(&tx)
-        .await?;
-    users::ActiveModel {
-        id: Unchanged(current.id),
-        password_hash: Set(auth::hash_password(&input.new_password)?),
-        ..Default::default()
+    // Only if the hash is still the one just checked: two requests setting a first password (which needs
+    // no current one) must not both succeed, and neither may replace a password set meanwhile.
+    let checked = match &user.password_hash {
+        Some(hash) => users::Column::PasswordHash.eq(hash.as_str()),
+        None => users::Column::PasswordHash.is_null(),
+    };
+    let updated = users::Entity::update_many()
+        .col_expr(users::Column::PasswordHash, Expr::value(new_hash))
+        .filter(users::Column::Id.eq(user.id))
+        .filter(checked)
+        .exec(&tx)
+        .await?
+        .rows_affected;
+    if updated != 1 {
+        return Err(ApiError::conflict("the password changed meanwhile"));
     }
-    .update(&tx)
-    .await?;
     auth::delete_sessions_of(&tx, user.id, Some(&session_token)).await?;
     audit::record(
         &tx,
