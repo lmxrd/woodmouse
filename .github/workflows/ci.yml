@@ -31,9 +31,9 @@ jobs:
   # The release binary for each architecture, natively on its own runner
   # (static musl, so it runs in the Alpine image and on any Ubuntu or
   # Debian), with the frontend embedded — the same task as locally. The image
-  # is the binary packaged by the Dockerfile through the `bin` build context
-  # (nothing compiles in it), started once to check its health check, so a
-  # packaging bug fails the PR, not the release.
+  # is that binary copied in by the Dockerfile (nothing compiles in it),
+  # started once to check its health check, so a packaging bug fails the PR,
+  # not the release.
   build:
     strategy:
       matrix:
@@ -44,13 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/build-binary
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          build-contexts: bin=./packages/backend/target/dist
-          load: true
-          tags: woodmouse:ci
+      # BuildKit (the default) sets TARGETARCH, which picks the binary.
+      - run: docker build -t woodmouse:ci .
       - name: Run the image and check its health check
         run: |
           docker run --rm -d --name woodmouse-ci woodmouse:ci

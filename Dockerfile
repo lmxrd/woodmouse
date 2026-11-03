@@ -1,18 +1,23 @@
 # The image only packages a prebuilt, static (musl) binary — nothing
-# compiles here. The binary comes from `mise run build:backend` (what CI
-# and the release workflow run too) through the `bin` build context:
+# compiles here. The binary comes from `mise run build:linux`
+# (scripts/build-linux.sh, what CI and the release workflow run too), which
+# writes dist/woodmouse-linux-<arch>:
 #
 #   mise run build:docker
-#   docker build --build-context bin=<dir holding "woodmouse"> .
+#   docker build .                       # BuildKit, buildx and podman set TARGETARCH
+#   docker build --build-arg BINARY=dist/woodmouse-linux-arm64-dev .
 #
 # The runtime is Alpine, for a shell (`docker exec -it <container> sh`)
 # and busybox tools when debugging in production. The binary itself is
 # static and needs nothing from the base.
 FROM alpine:3
-RUN addgroup -S woodmouse && adduser -S -G woodmouse woodmouse \
+ARG TARGETARCH
+ARG BINARY=dist/woodmouse-linux-${TARGETARCH}
+RUN apk add --no-cache ca-certificates \
+  && addgroup -S woodmouse && adduser -S -G woodmouse woodmouse \
   && mkdir /data && chown woodmouse /data
-# --chmod: the release workflow hands the binary over as a workflow artifact, which drops the executable bit.
-COPY --chmod=755 --from=bin /woodmouse /usr/local/bin/woodmouse
+# --chmod: the executable bit does not survive every way a binary reaches dist/.
+COPY --chmod=755 ${BINARY} /usr/local/bin/woodmouse
 ENV PORT=8000 \
     DATABASE_URL=sqlite:/data/woodmouse.db \
     DATA_DIR=/data

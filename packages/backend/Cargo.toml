@@ -52,7 +52,7 @@ utoipa-swagger-ui = { version = "10", features = ["axum"] }
 
 # Small release binaries (size matters more than build time): fat LTO and one
 # codegen unit. opt-level = "s" was tried and saved nothing here. The release
-# workflow and `mise run build:backend` both build with this profile.
+# workflow and `mise run build:linux` both build with this profile.
 [profile.release]
 strip = true
 lto = true

@@ -12,11 +12,13 @@
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
 - `mise run test` — each stack's tests (cargo test, vitest)
-- `mise run build:backend` — the static (musl) release binary for this machine's
-  CPU architecture, frontend embedded (zig is the C toolchain, so on a Mac it
-  builds a Linux binary); CI and the release workflow run this same task
+- `mise run build:linux` — the static (musl) release binary for this machine's
+  CPU architecture, frontend embedded, written to `dist/woodmouse-linux-<arch>`
+  (`scripts/build-linux.sh`, `ARCH`/`PROFILE`/`FEATURES` to vary it; cargo
+  zigbuild makes zig the C toolchain, so on a Mac it builds a Linux binary);
+  CI and the release workflow run this same task
 - `mise run build:docker` — package that binary into the container image
-  (`Dockerfile`: distroless, nothing compiles in it)
+  (`Dockerfile`: Alpine plus a `COPY` of the binary; the image builds nothing)
 - `mise run fix` — each stack's auto-fixes
 - `mise run clean` — delete the local dev database and uploaded files; the
   schema is recreated from the migrations on next backend start (only needed
@@ -31,4 +33,5 @@
 - One git repository at this root; `backend/` and `frontend/` are scaffolded
   stacks with their own AGENTS.md (follow those inside each directory).
 - Tool versions are pinned in `mise.toml`; keep the file pruned to the tools
-  actually used by the scaffolded stacks.
+  actually used by the scaffolded stacks. The toolchains live only there: the
+  image builds nothing, so the Dockerfile pins no Node or Rust.
