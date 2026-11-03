@@ -154,7 +154,7 @@ async fn resolve_users(
                             id: Set(uuid::Uuid::now_v7()),
                             email: Set(email.clone()),
                             name: Set(String::new()),
-                            password_hash: Set(String::new()),
+                            password_hash: Set(None),
                             super_admin: Set(false),
                             active: Set(true),
                             ..Default::default()

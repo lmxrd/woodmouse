@@ -32,7 +32,7 @@ async fn workspace_themes_personal_choices_and_mode() {
         id: Set(uuid::Uuid::now_v7()),
         email: Set("m@home.io".to_string()),
         name: Set("".to_string()),
-        password_hash: Set("x".to_string()),
+        password_hash: Set(Some("x".to_string())),
         super_admin: Set(false),
         active: Set(true),
         ..Default::default()

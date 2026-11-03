@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PublicUser } from "woodmouse-sdk";
+import type { Me, PublicUser } from "woodmouse-sdk";
 import {
   changePasswordMutation,
   meOptions,
@@ -64,7 +64,7 @@ function useUpdateMe() {
   return useMutation({
     ...updateMeMutation(),
     meta: { inline: true },
-    onSuccess: (user: PublicUser) => queryClient.setQueryData(meQueryKey(), user),
+    onSuccess: (user: Me) => queryClient.setQueryData(meQueryKey(), user),
   });
 }
 
@@ -216,6 +216,7 @@ function TimezoneField({ me, onChange }: { me: PublicUser; onChange: (timezone: 
 }
 
 export function PasswordSection() {
+  const { data: me } = useQuery(meOptions());
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const change = useMutation({
@@ -226,6 +227,9 @@ export function PasswordSection() {
       setNext("");
     },
   });
+  if (!me) return null;
+  // Someone who signs in only through single sign-on has none yet: they set a first one.
+  const hasPassword = me.has_password;
 
   return (
     <Section title="Password">
@@ -233,19 +237,28 @@ export function PasswordSection() {
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          change.mutate({ body: { current_password: current, new_password: next } });
+          change.mutate({
+            body: { current_password: hasPassword ? current : null, new_password: next },
+          });
         }}
       >
-        <Field label="Current password" htmlFor="account-current">
-          <Input
-            id="account-current"
-            type="password"
-            required
-            autoComplete="current-password"
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-          />
-        </Field>
+        {hasPassword ? (
+          <Field label="Current password" htmlFor="account-current">
+            <Input
+              id="account-current"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+            />
+          </Field>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            You sign in with single sign-on and have no password. Set one to also sign in with your
+            email.
+          </p>
+        )}
         <Field label="New password" htmlFor="account-new">
           <Input
             id="account-new"
@@ -262,11 +275,13 @@ export function PasswordSection() {
         </Field>
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={change.isPending}>
-            Change password
+            {hasPassword ? "Change password" : "Set password"}
           </Button>
           {change.isError ? (
             <span role="alert" className="text-sm text-destructive">
-              Couldn't change it. Check your current password.
+              {hasPassword
+                ? "Couldn't change it. Check your current password."
+                : "Couldn't set it."}
             </span>
           ) : null}
           {change.isSuccess ? <SaveStatus status="success" /> : null}

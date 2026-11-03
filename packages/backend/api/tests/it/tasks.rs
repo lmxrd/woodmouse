@@ -515,7 +515,7 @@ async fn access_isolation_and_roles() {
         id: Set(uuid::Uuid::now_v7()),
         email: Set("other@home.io".to_string()),
         name: Set("Other".to_string()),
-        password_hash: Set("not-a-login-hash".to_string()),
+        password_hash: Set(Some("not-a-login-hash".to_string())),
         super_admin: Set(false),
         active: Set(true),
         ..Default::default()
@@ -764,7 +764,7 @@ async fn workspace_members_listing() {
         id: Set(uuid::Uuid::now_v7()),
         email: Set("other@home.io".to_string()),
         name: Set("Alice".to_string()),
-        password_hash: Set("not-a-login-hash".to_string()),
+        password_hash: Set(Some("not-a-login-hash".to_string())),
         super_admin: Set(false),
         active: Set(true),
         ..Default::default()
@@ -806,7 +806,7 @@ async fn workspace_members_listing() {
         id: Set(uuid::Uuid::now_v7()),
         email: Set("stranger@x.io".to_string()),
         name: Set("Stranger".to_string()),
-        password_hash: Set("not-a-login-hash".to_string()),
+        password_hash: Set(Some("not-a-login-hash".to_string())),
         super_admin: Set(false),
         active: Set(true),
         ..Default::default()

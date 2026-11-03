@@ -82,7 +82,11 @@
   `GET /admin/integrity` and `woodmouse check` run SQLite's `foreign_key_check` plus the polymorphic targets.
   A migration that rebuilds a table (SQLite cannot alter a column or a constraint) runs inside a transaction,
   where `PRAGMA foreign_keys` has no effect: create the new table, copy, drop the old one and rename, and check
-  with `PRAGMA foreign_key_check` before the commit.
+  with `PRAGMA foreign_key_check` before the commit. Rebuilding a table that others reference with `ON DELETE
+  CASCADE` (`users`) needs `foreign_keys` OFF, or the drop deletes their rows: see
+  `m20261103_000001_single_sign_on.rs`, which takes one pooled connection (SeaORM spreads statements over the
+  pool), turns it off there, runs its own `BEGIN ... COMMIT`, and turns it back on. SeaORM records a SQLite
+  migration only after it ran, so a crash in between runs it again: make each step repeatable.
 - Ordering (tasks, lists, wiki pages): integer `position`s 20 apart (`src/content/ordering.rs`). The API takes
   `after_id` (`null` = first), never a number; neighbours are renumbered only when there is no room.
 
@@ -112,6 +116,18 @@
 - **Users.** `active` (disabled accounts cannot sign in; sessions are deleted; everything they made stays),
   `global_role` (access to every workspace), `timezone` (the browser's, editable). The super admin's site admin
   routes are in `routes/admin.rs` (users, deleted workspaces, audit log, redaction, integrity check).
+- **Single sign-on** (OpenID Connect; `src/oidc.rs` for the settings in force, the provider client and its
+  metadata cache, the login cookie; `routes/oidc.rs` for `/auth/oidc/login`, `/auth/oidc/callback` and
+  `/admin/oidc`). `password_hash` is `None` for someone without a password (invited, or single sign-on only);
+  someone is *pending* (invite waiting, no email) while they have no password and no `UserIdentity`
+  (`auth::is_pending`, `auth::linked_users`). The login in progress lives in a signed cookie (key made at
+  start), never in memory. The callback only redirects, to `/` or `/login?error=<code>`: the codes are the
+  `SsoError` enum and the frontend's `lib/sso.ts` messages; keep the two lists in step. Linking or creating
+  and the session are one writer transaction with no network call inside. `OIDC_*` env vars win over the
+  `OidcSettings` row field by field and lock it (400 from the API); a save holds `Oidc::save` and checks the
+  provider before writing. A refused sign-in that came back with our signed login cookie is audited as
+  `login_failed` (`data.method = "sso"`, `data.reason` = the code, the account as target when known). Tests: `tests/it/oidc.rs` runs a stand-in provider (real RS256 tokens, keys in
+  `tests/it/fixtures/oidc_key_*.pem`, PKCS#1 from `openssl genrsa -traditional 2048`).
 - **Login slow-down** (`auth::LoginLimits`): in memory, per email and per address, 1 s doubling up to a cap,
   no lockout; addresses are never stored.
 - **Jobs and operations**: `jobs.rs` runs daily (expired sessions) and sends notification email; there is no

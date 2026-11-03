@@ -84,9 +84,10 @@ optional:
 | `DATABASE_URL`             | `sqlite:woodmouse.db`   | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`)                  |
 | `DATA_DIR`                 | `data`                  | Where uploaded files live (the Docker image uses `/data`)                                |
 | `MAX_UPLOAD_MB`            | `25`                    | The largest accepted upload                                                              |
-| `WOODMOUSE_SECURE_COOKIES` | unset                   | Set to `1` when served over HTTPS, so login cookies are marked `Secure`                  |
+| `WOODMOUSE_SECURE_COOKIES` | unset                   | Set to `1` when served over HTTPS: login cookies get `Secure` and the `__Host-` prefix   |
 | `WOODMOUSE_SWAGGER_UI`     | unset                   | Set to `1` to browse the API at `/swagger-ui`                                            |
 | `SMTP_*`                   | unset                   | Email, see below                                                                         |
+| `OIDC_*`                   | unset                   | Single sign-on, see below                                                                |
 
 
 ### Backups
@@ -114,7 +115,9 @@ To copy the database while the server runs, use SQLite rather than `cp`:
   `proxy_set_header Connection "upgrade";`; Caddy and Traefik do it by default.
   Without it, pages still work with a Save button instead of live editing.
 - **Run one instance.** Live documents are kept in memory.
-- **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`.
+- **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`. The
+  session cookie is then `__Host-woodmouse_session`, which no other subdomain
+  can set. Turning the setting on or off signs everyone out once.
 
 ### Email
 
@@ -124,6 +127,53 @@ fill in the same fields on the super admin's **Site admin → Email** page, wher
 a field overrides the environment and there is a test button. With `PUBLIC_URL`
 set, invite links are emailed too. Without email, admins copy the invite link
 and share it by hand.
+
+### Single sign-on
+
+Besides passwords, people can sign in through any OpenID Connect provider
+(Keycloak, Authentik, Authelia, Google, ...). Set it up on the super admin's
+**Site admin → Single sign-on** page, or with these variables. A variable that
+is set wins over its field on that page, which then cannot be changed there.
+
+| Variable             | Meaning                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `OIDC_ISSUER`        | The provider's issuer URL (https), like `https://id.example.com/realms/home`                  |
+| `OIDC_CLIENT_ID`     | The client registered at the provider                                                         |
+| `OIDC_CLIENT_SECRET` | Its secret (leave unset for a public client)                                                  |
+| `OIDC_ENABLED`       | `1`/`0` (also `true`/`false`, `yes`/`no`, `on`/`off`); on by default when `OIDC_ISSUER` is set |
+| `OIDC_DISPLAY_NAME`  | The provider's name on the login button                                                       |
+| `OIDC_AUTO_CREATE`   | `1` to create an account for someone new whose provider confirms their email                  |
+| `OIDC_REDIRECT_URL`  | The callback URL, when the one from `PUBLIC_URL` is wrong                                     |
+
+A yes/no variable with any other value stops the server from starting.
+
+- **Register the callback URL** at the provider:
+  `<PUBLIC_URL>/api/auth/oidc/callback`. The settings page shows it.
+- **Over HTTPS, set `WOODMOUSE_SECURE_COOKIES=1`**; over plain HTTP, leave it
+  unset. When the callback URL and that setting disagree, single sign-on is
+  refused (the login page says it is misconfigured and the server log says why).
+- **How accounts are found.** The first time, by the email address, and only if
+  the provider says it is verified; from then on by the provider's user id, so
+  a changed email does not matter. Microsoft Entra ID never says an email is
+  verified, so its users cannot be matched to existing accounts by email.
+  **Only use a provider you trust to verify emails.** Any existing account,
+  the super admin's included, is linked to whoever first signs in with its
+  email. Two consequences:
+  - If the provider lets people claim an address it reports as verified (for
+    example self-registration with "trust email" in Keycloak), they can take
+    over the account with that address.
+  - People can change their own email in Woodmouse without confirming it. If
+    someone sets theirs to a colleague's address before that colleague's first
+    single sign-on, the colleague is linked to their account.
+- **Automatic accounts.** With `OIDC_AUTO_CREATE`, anyone the provider lets in
+  gets an account. It has no password, no admin rights and no workspaces until
+  an admin adds them. With a public provider (Google), that means anyone.
+- **Passwords keep working.** The first account is always made with a password.
+  Someone who signs in only through single sign-on can set a password under
+  **Settings → Password**.
+- Saving the settings checks the provider first and refuses what it cannot
+  reach. They apply at once, without a restart. The client secret is stored in
+  the database as typed and is never shown again.
 
 ### Docker notes
 

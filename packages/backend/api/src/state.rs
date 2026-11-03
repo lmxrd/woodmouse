@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, EntityTrait};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::error::ApiError;
@@ -32,6 +32,8 @@ pub struct AppState {
     pub login_limits: Arc<crate::auth::LoginLimits>,
     /// How email goes out (SMTP; tests record instead).
     pub mailer: Arc<dyn crate::mail::Mailer>,
+    /// Single sign-on: the settings in force, the provider's metadata, the login cookie's key.
+    pub oidc: Arc<crate::oidc::Oidc>,
 }
 
 /// The connection for a request that writes. Dropping it lets the next writer in.
@@ -70,6 +72,7 @@ impl AppState {
             presence: Arc::default(),
             rooms: Arc::default(),
             login_limits: Arc::default(),
+            oidc: Arc::new(crate::oidc::Oidc::new(Default::default())),
         }
     }
 
@@ -89,7 +92,21 @@ impl AppState {
             max_upload_bytes = files.max_upload_bytes,
             "file storage ready"
         );
-        Ok(Self::with_files(db, files))
+        let oidc = crate::oidc::Oidc::new(crate::oidc::EnvSettings::from_env()?);
+        crate::auth::warm_up();
+        oidc.apply(
+            entity::oidc_settings::Entity::find_by_id(1)
+                .one(&db)
+                .await?
+                .as_ref(),
+        );
+        Ok(Self::with_files(db, files).with_oidc(oidc))
+    }
+
+    /// The same state with other single sign-on settings (the server's from the environment; tests).
+    pub fn with_oidc(mut self, oidc: crate::oidc::Oidc) -> Self {
+        self.oidc = Arc::new(oidc);
+        self
     }
 
     /// The same state with another mailer (tests).

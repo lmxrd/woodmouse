@@ -14,6 +14,7 @@ pub mod lists;
 pub mod live;
 pub mod members;
 pub mod notifications;
+pub mod oidc;
 pub mod pages;
 pub mod projects;
 pub mod references;
@@ -80,6 +81,7 @@ fn public() -> OpenApiRouter<AppState> {
         .merge(auth::public_router())
         .merge(invites::public_router())
         .merge(calendar::public_router())
+        .merge(oidc::public_router())
 }
 
 /// Session required — enforced by the auth layer that [`api`] adds for
@@ -88,6 +90,7 @@ fn public() -> OpenApiRouter<AppState> {
 fn protected(max_upload_bytes: Option<u64>) -> OpenApiRouter<AppState> {
     auth::protected_router()
         .merge(admin::router())
+        .merge(oidc::protected_router())
         .merge(workspaces::router())
         .merge(members::router())
         .merge(projects::router())

@@ -197,3 +197,218 @@ async fn week_start_preference() {
     .await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
+
+/// Someone without a password (signing in only through single sign-on): a session of theirs, made directly.
+async fn passwordless_session(db: &sea_orm::DatabaseConnection, email: &str) -> String {
+    use api::db::prelude::*;
+    let user = entity::users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set(email.to_string()),
+        name: Set(String::new()),
+        password_hash: Set(None),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .unwrap();
+    let (session, _) = api::auth::create_session(db, user.id, false).await.unwrap();
+    format!("{}={}", api::auth::SESSION_COOKIE, session.token)
+}
+
+#[tokio::test]
+async fn an_account_without_a_password_cannot_log_in_with_one() {
+    let (app, db) = app_with_db().await;
+    bootstrap_admin(&app).await;
+    passwordless_session(&db, "sso@home.io").await;
+    // The same answer as a wrong password: no way to tell the account has none.
+    for password in ["", "anything at all"] {
+        let res = request(
+            &app,
+            post_json(
+                "/api/auth/login",
+                &format!(r#"{{"email":"sso@home.io","password":"{password}"}}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[tokio::test]
+async fn a_first_password_needs_no_current_one_and_then_works() {
+    let (app, db) = app_with_db().await;
+    bootstrap_admin(&app).await;
+    let cookie = passwordless_session(&db, "sso@home.io").await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/password",
+            r#"{"new_password":"my first password"}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        login(&app, "sso@home.io", "my first password").await.0,
+        StatusCode::OK
+    );
+    // Now that there is one, changing it needs it.
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/password",
+            r#"{"new_password":"another password"}"#,
+            Some(&cookie),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// Two requests setting a first password at once (neither needs a current one): only one may win, even
+/// when both checked before either wrote.
+#[tokio::test]
+async fn only_one_of_two_first_passwords_at_once_is_set() {
+    let (app, state) = app_with_state().await;
+    bootstrap_admin(&app).await;
+    let cookie = passwordless_session(state.db(), "sso@home.io").await;
+    let set = |password: &'static str| {
+        let (app, cookie) = (app.clone(), cookie.clone());
+        tokio::spawn(async move {
+            request(
+                &app,
+                post_json(
+                    "/api/auth/password",
+                    &format!(r#"{{"new_password":"{password}"}}"#),
+                    Some(&cookie),
+                ),
+            )
+            .await
+            .status()
+        })
+    };
+    // Both pass the check and wait for the write turn held here.
+    let turn = state.writer().await.unwrap();
+    let (a, b) = (set("first password a"), set("first password b"));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    drop(turn);
+    let mut statuses = [a.await.unwrap(), b.await.unwrap()];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::CONFLICT]);
+}
+
+/// The app as served over https (`WOODMOUSE_SECURE_COOKIES`), or not.
+async fn app_served(secure: bool) -> axum::Router {
+    let mut state = api::state::AppState::new(api::db::temporary().await);
+    state.secure_cookies = secure;
+    router(state)
+}
+
+fn set_cookies(res: &axum::http::Response<axum::body::Body>) -> Vec<String> {
+    res.headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|h| h.to_str().unwrap().to_string())
+        .collect()
+}
+
+fn has_parts(cookie: &str, parts: &[&str]) {
+    for part in parts {
+        assert!(format!("{cookie};").contains(part), "{cookie} lacks {part}");
+    }
+}
+
+/// Over https the session cookie is `__Host-` prefixed (a sibling subdomain cannot plant one), only that
+/// name is read, and logout clears it with the same attributes.
+#[tokio::test]
+async fn over_https_the_session_cookie_is_host_prefixed() {
+    let app = app_served(true).await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/bootstrap",
+            r#"{"email":"admin@home.io","name":"","password":"correct horse"}"#,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let cookies = set_cookies(&res);
+    let session = cookies
+        .iter()
+        .find(|c| c.starts_with("__Host-woodmouse_session="))
+        .expect("the prefixed session cookie");
+    has_parts(session, &["Secure", "HttpOnly", "SameSite=Lax", "Path=/;"]);
+    assert!(!session.contains("Domain"), "{session}");
+    // A plain one from before the prefix is let go.
+    let old = cookies
+        .iter()
+        .find(|c| c.starts_with("woodmouse_session=;"))
+        .expect("the plain cookie is cleared");
+    has_parts(old, &["Max-Age=0", "Path=/;"]);
+
+    let token = session
+        .split(';')
+        .next()
+        .unwrap()
+        .split_once('=')
+        .unwrap()
+        .1;
+    let prefixed = format!("__Host-woodmouse_session={token}");
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&prefixed)))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    // The same token under the plain name (planted by a sibling subdomain) is not read.
+    assert_eq!(
+        request(
+            &app,
+            get("/api/auth/me", Some(&format!("woodmouse_session={token}")))
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let res = request(&app, post_json("/api/auth/logout", "", Some(&prefixed))).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let removal = set_cookies(&res)
+        .into_iter()
+        .find(|c| c.starts_with("__Host-woodmouse_session=;"))
+        .expect("the session cookie is cleared");
+    has_parts(
+        &removal,
+        &["Secure", "HttpOnly", "SameSite=Lax", "Path=/;", "Max-Age=0"],
+    );
+}
+
+#[tokio::test]
+async fn over_http_the_session_cookie_is_plain() {
+    let app = app_served(false).await;
+    let cookie = bootstrap_admin(&app).await;
+    assert!(cookie.starts_with("woodmouse_session="), "{cookie}");
+    let token = cookie.split_once('=').unwrap().1;
+    assert_eq!(
+        request(
+            &app,
+            get(
+                "/api/auth/me",
+                Some(&format!("__Host-woodmouse_session={token}"))
+            )
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let res = request(&app, post_json("/api/auth/logout", "", Some(&cookie))).await;
+    let removal = &set_cookies(&res)[0];
+    assert!(removal.starts_with("woodmouse_session=;"), "{removal}");
+    has_parts(removal, &["Path=/;", "Max-Age=0"]);
+    assert!(!removal.contains("Secure"), "{removal}");
+}

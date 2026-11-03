@@ -12,6 +12,7 @@ pub mod jobs;
 pub mod live;
 pub mod mail;
 pub mod notify;
+pub mod oidc;
 pub mod openapi;
 pub mod routes;
 pub mod state;

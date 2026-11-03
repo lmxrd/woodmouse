@@ -26,6 +26,7 @@ import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
 import { Route as SettingsAdminAuditRouteImport } from './routes/settings.admin.audit'
 import { Route as SettingsAdminEmailRouteImport } from './routes/settings.admin.email'
 import { Route as SettingsAdminMaintenanceRouteImport } from './routes/settings.admin.maintenance'
+import { Route as SettingsAdminSsoRouteImport } from './routes/settings.admin.sso'
 import { Route as SettingsAdminUsersRouteImport } from './routes/settings.admin.users'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
 import { Route as WWorkspaceIdActivityRouteImport } from './routes/w.$workspaceId.activity'
@@ -127,6 +128,11 @@ const SettingsAdminMaintenanceRoute =
     path: '/maintenance',
     getParentRoute: () => SettingsAdminRoute,
   } as any)
+const SettingsAdminSsoRoute = SettingsAdminSsoRouteImport.update({
+  id: '/sso',
+  path: '/sso',
+  getParentRoute: () => SettingsAdminRoute,
+} as any)
 const SettingsAdminUsersRoute = SettingsAdminUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -219,6 +225,7 @@ export interface FileRoutesByFullPath {
   '/settings/admin/audit': typeof SettingsAdminAuditRoute
   '/settings/admin/email': typeof SettingsAdminEmailRoute
   '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
+  '/settings/admin/sso': typeof SettingsAdminSsoRoute
   '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
   '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
@@ -250,6 +257,7 @@ export interface FileRoutesByTo {
   '/settings/admin/audit': typeof SettingsAdminAuditRoute
   '/settings/admin/email': typeof SettingsAdminEmailRoute
   '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
+  '/settings/admin/sso': typeof SettingsAdminSsoRoute
   '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
   '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
@@ -284,6 +292,7 @@ export interface FileRoutesById {
   '/settings/admin/audit': typeof SettingsAdminAuditRoute
   '/settings/admin/email': typeof SettingsAdminEmailRoute
   '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
+  '/settings/admin/sso': typeof SettingsAdminSsoRoute
   '/settings/admin/users': typeof SettingsAdminUsersRoute
   '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
   '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
@@ -319,6 +328,7 @@ export interface FileRouteTypes {
     | '/settings/admin/audit'
     | '/settings/admin/email'
     | '/settings/admin/maintenance'
+    | '/settings/admin/sso'
     | '/settings/admin/users'
     | '/w/$workspaceId/activity'
     | '/w/$workspaceId/files'
@@ -350,6 +360,7 @@ export interface FileRouteTypes {
     | '/settings/admin/audit'
     | '/settings/admin/email'
     | '/settings/admin/maintenance'
+    | '/settings/admin/sso'
     | '/settings/admin/users'
     | '/w/$workspaceId/activity'
     | '/w/$workspaceId/files'
@@ -383,6 +394,7 @@ export interface FileRouteTypes {
     | '/settings/admin/audit'
     | '/settings/admin/email'
     | '/settings/admin/maintenance'
+    | '/settings/admin/sso'
     | '/settings/admin/users'
     | '/w/$workspaceId/activity'
     | '/w/$workspaceId/files'
@@ -530,6 +542,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAdminMaintenanceRouteImport
       parentRoute: typeof SettingsAdminRoute
     }
+    '/settings/admin/sso': {
+      id: '/settings/admin/sso'
+      path: '/sso'
+      fullPath: '/settings/admin/sso'
+      preLoaderRoute: typeof SettingsAdminSsoRouteImport
+      parentRoute: typeof SettingsAdminRoute
+    }
     '/settings/admin/users': {
       id: '/settings/admin/users'
       path: '/users'
@@ -635,6 +654,7 @@ interface SettingsAdminRouteChildren {
   SettingsAdminAuditRoute: typeof SettingsAdminAuditRoute
   SettingsAdminEmailRoute: typeof SettingsAdminEmailRoute
   SettingsAdminMaintenanceRoute: typeof SettingsAdminMaintenanceRoute
+  SettingsAdminSsoRoute: typeof SettingsAdminSsoRoute
   SettingsAdminUsersRoute: typeof SettingsAdminUsersRoute
   SettingsAdminWorkspacesWorkspaceIdRoute: typeof SettingsAdminWorkspacesWorkspaceIdRoute
   SettingsAdminWorkspacesIndexRoute: typeof SettingsAdminWorkspacesIndexRoute
@@ -644,6 +664,7 @@ const SettingsAdminRouteChildren: SettingsAdminRouteChildren = {
   SettingsAdminAuditRoute: SettingsAdminAuditRoute,
   SettingsAdminEmailRoute: SettingsAdminEmailRoute,
   SettingsAdminMaintenanceRoute: SettingsAdminMaintenanceRoute,
+  SettingsAdminSsoRoute: SettingsAdminSsoRoute,
   SettingsAdminUsersRoute: SettingsAdminUsersRoute,
   SettingsAdminWorkspacesWorkspaceIdRoute:
     SettingsAdminWorkspacesWorkspaceIdRoute,

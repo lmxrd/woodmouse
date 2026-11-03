@@ -15,7 +15,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::audit::{self, Entry};
-use crate::auth::CurrentUser;
+use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::state::AppState;
@@ -67,11 +67,11 @@ pub struct InviteToken {
     pub invite_token: String,
 }
 
-fn member_of(user: &User, role: Role) -> Member {
+fn member_of(user: &User, role: Role, pending: bool) -> Member {
     Member {
         user: PublicUser::from(user),
         role,
-        pending: user.password_hash.is_empty(),
+        pending,
     }
 }
 
@@ -136,11 +136,17 @@ pub async fn list_members(
         return Ok(Json(vec![]));
     }
     let users = memberships.load_one(users::Entity, db).await?;
+    let linked = auth::linked_users(db, users.iter().flatten().map(|u| u.id)).await?;
 
     let mut members: Vec<Member> = memberships
         .into_iter()
         .zip(users)
-        .filter_map(|(m, u)| u.map(|u| member_of(&u, m.role)))
+        .filter_map(|(m, u)| {
+            u.map(|u| {
+                let pending = u.password_hash.is_none() && !linked.contains(&u.id);
+                member_of(&u, m.role, pending)
+            })
+        })
         .collect();
     members.sort_by_key(|m| m.user.name.to_lowercase());
     Ok(Json(members))
@@ -192,7 +198,7 @@ pub async fn add_member(
                 id: Set(uuid::Uuid::now_v7()),
                 email: Set(email),
                 name: Set(input.name.trim().to_string()),
-                password_hash: Set(String::new()),
+                password_hash: Set(None),
                 super_admin: Set(false),
                 active: Set(true),
                 ..Default::default()
@@ -227,7 +233,8 @@ pub async fn add_member(
     )
     .await?;
 
-    let invite_token = if invitee.password_hash.is_empty() {
+    let pending = auth::is_pending(&tx, &invitee).await?;
+    let invite_token = if pending {
         Some(issue_invite(&tx, invitee.id).await?)
     } else {
         None
@@ -244,7 +251,7 @@ pub async fn add_member(
     Ok((
         StatusCode::CREATED,
         Json(AddMemberResponse {
-            member: member_of(&invitee, input.role),
+            member: member_of(&invitee, input.role, pending),
             invite_token,
         }),
     ))
@@ -313,7 +320,8 @@ pub async fn update_member(
     let target = users::Entity::find_by_id(user_id)
         .one_or_not_found(&*db)
         .await?;
-    Ok(Json(member_of(&target, input.role)))
+    let pending = auth::is_pending(&*db, &target).await?;
+    Ok(Json(member_of(&target, input.role, pending)))
 }
 
 /// Remove a member and unassign them from the workspace's tasks. The last
@@ -428,8 +436,10 @@ pub async fn reissue_invite(
     let target = users::Entity::find_by_id(user_id)
         .one_or_not_found(&*db)
         .await?;
-    if !target.password_hash.is_empty() {
-        return Err(ApiError::conflict("this member has already set a password"));
+    if !auth::is_pending(&*db, &target).await? {
+        return Err(ApiError::conflict(
+            "this member has already set a password or signs in with single sign-on",
+        ));
     }
     let invite_token = issue_invite(&*db, user_id).await?;
     Ok((StatusCode::CREATED, Json(InviteToken { invite_token })))

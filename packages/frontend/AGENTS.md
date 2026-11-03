@@ -66,6 +66,12 @@
   Mentions and page links save only `id` and `label`; their current titles come from `useReferences` via the
   `References` extension storage, never from node attributes (attributes sync to everyone and are saved).
 
+- Single sign-on: the button is a plain `<a href={SSO_LOGIN_URL}>` (`lib/sso.ts`), not a generated-client
+  call, because the browser itself has to go to the provider; it is the one exception to using the SDK. The
+  callback comes back to `/login?error=<code>`; the messages in `lib/sso.ts` must cover the backend's
+  `SsoError` codes (`routes/oidc.rs`), so keep the two lists in step.
+- Rules of Hooks: call every hook before any early `return` (the lint has no react-hooks plugin to catch it).
+
 - Themes: colours live in `src/lib/themes.ts` (palettes in light and dark, turned into CSS at startup) and are
   read through the semantic tokens in `index.css`; never hardcode colours in components. `useTheme` (in
   `RootLayout`) applies the person's own choice for the workspace or else the workspace's, plus their light/dark

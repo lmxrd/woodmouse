@@ -61,7 +61,7 @@ async fn user(db: &impl Db, email: &str, name: &str, admin: bool) -> Result<User
         id: Set(Id::now_v7()),
         email: Set(email.to_string()),
         name: Set(name.to_string()),
-        password_hash: Set(hash_password(PASSWORD)?),
+        password_hash: Set(Some(hash_password(PASSWORD)?)),
         super_admin: Set(admin),
         active: Set(true),
         ..Default::default()

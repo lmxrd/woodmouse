@@ -226,7 +226,7 @@ async fn workspaces_access_is_enforced() {
         id: Set(uuid::Uuid::now_v7()),
         email: Set("other@home.io".to_string()),
         name: Set("Other".to_string()),
-        password_hash: Set("not-a-login-hash".to_string()),
+        password_hash: Set(Some("not-a-login-hash".to_string())),
         super_admin: Set(false),
         active: Set(true),
         ..Default::default()

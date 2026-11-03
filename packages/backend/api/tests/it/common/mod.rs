@@ -25,7 +25,7 @@ async fn database() -> sea_orm::DatabaseConnection {
     api::db::temporary().await
 }
 
-fn router(state: AppState) -> axum::Router {
+pub fn router(state: AppState) -> axum::Router {
     api::routes::api(state.clone())
         .with_state(state)
         .split_for_parts()
@@ -47,6 +47,12 @@ pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, sea_orm::Da
 pub async fn app_with_db() -> (axum::Router, sea_orm::DatabaseConnection) {
     let db = database().await;
     (router(AppState::new(db.clone())), db)
+}
+
+/// The router and its state, to hold the write turn (`state.writer()`) and so line up concurrent requests.
+pub async fn app_with_state() -> (axum::Router, AppState) {
+    let state = AppState::new(database().await);
+    (router(state.clone()), state)
 }
 
 pub async fn body_string(body: Body) -> String {
