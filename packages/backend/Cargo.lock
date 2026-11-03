@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "api"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "entity"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "jiff",
  "sea-orm",
@@ -2295,7 +2295,7 @@ dependencies = [
 
 [[package]]
 name = "migration"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "sea-orm-migration",
@@ -4914,7 +4914,7 @@ dependencies = [
 
 [[package]]
 name = "woodmouse"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "api",
  "axum",
