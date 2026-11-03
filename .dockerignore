@@ -1,4 +1,5 @@
-# The image is built from a prebuilt binary handed over as the `bin` build
-# context (see the Dockerfile), so nothing in this repository belongs in the
-# main build context.
+# The image only copies the prebuilt binary from dist/ (see the Dockerfile),
+# and the Dockerfile is the only one in this repository, so nothing else
+# belongs in the build context.
 *
+!dist/woodmouse-linux-*

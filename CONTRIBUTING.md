@@ -35,7 +35,7 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 | `mise run test`         | The backend tests (integration tests over the API, and unit tests) and the frontend tests (vitest)  |
 | `mise run gen:spec`     | Writes the OpenAPI spec to `packages/backend/target/specs/`                                       |
 | `mise run gen:sdk`      | Generates the frontend's SDK in `packages/sdk` from the spec (not committed)                      |
-| `mise run build`        | Builds the frontend and the static release binary for your machine's CPU architecture             |
+| `mise run build:linux`  | Builds the frontend and the static Linux binary for your machine's CPU architecture, into `dist/` |
 | `mise run build:docker` | Builds the container image from that binary (podman), for your machine's architecture             |
 
 `mise run check` and `mise run test` must pass before a change can land. They
@@ -146,7 +146,19 @@ release.
 
 ### Building a release binary yourself
 
-`mise run build` produces a static `musl` binary for your machine's CPU
+`mise run build:linux` produces a static `musl` binary for your machine's CPU
 architecture, with the frontend built in. zig is the C toolchain for the bundled
-SQLite, so the same command works on Linux and on a Mac, where it produces a
-Linux binary. The result is `packages/backend/target/dist/woodmouse`.
+SQLite (through cargo zigbuild), so the same command works on Linux and on a
+Mac, where it produces a Linux binary. It builds in cargo's own target
+directory, a central one too, and copies the result to
+`dist/woodmouse-linux-<arch>`. `ARCH=amd64` (or `arm64`) builds for the other
+architecture, and `PROFILE` and `FEATURES` pick a cargo profile and features
+(a profile other than release adds a `-<profile>` suffix):
+
+```bash
+PROFILE=dev scripts/build-linux.sh
+podman build --build-arg BINARY=dist/woodmouse-linux-arm64-dev -t woodmouse:dev .
+```
+
+`mise run build:docker` packages the binary into the image: the Dockerfile is
+Alpine plus a `COPY` of it, and nothing compiles inside.
