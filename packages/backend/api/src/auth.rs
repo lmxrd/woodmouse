@@ -2,7 +2,7 @@
 //! logins.
 //!
 //! The session token is an opaque UUID stored in an httpOnly, SameSite=Lax
-//! cookie. Sessions live in the `sessions` table with an expiry; the
+//! cookie ([`session_cookie_name`]: `__Host-` prefixed over https). Sessions live in the `sessions` table with an expiry; the
 //! [`CurrentUser`] extractor validates them on every request.
 
 use crate::db::Db;
@@ -23,7 +23,42 @@ use crate::state::AppState;
 use crate::time;
 use entity::{Session, User};
 
+/// The session cookie's name over plain http (development); see [`session_cookie_name`].
 pub const SESSION_COOKIE: &str = "woodmouse_session";
+/// Its name over https: browsers accept a `__Host-` cookie only with `Secure`, `Path=/` and no `Domain`,
+/// so a sibling subdomain cannot plant a session of its own (login CSRF, cookie tossing).
+pub const SECURE_SESSION_COOKIE: &str = "__Host-woodmouse_session";
+
+/// The session cookie's name: prefixed when the site is https (`WOODMOUSE_SECURE_COOKIES`). Over https
+/// only the prefixed one is read, or a planted plain one would still count.
+pub fn session_cookie_name(secure: bool) -> &'static str {
+    if secure {
+        SECURE_SESSION_COOKIE
+    } else {
+        SESSION_COOKIE
+    }
+}
+
+/// The session cookie. Its removal ([`session_cookie_removal`]) has the same attributes: a browser
+/// ignores a `__Host-` removal without `Secure`.
+fn session_cookie(name: &'static str, token: String, secure: bool) -> Cookie<'static> {
+    let mut cookie = Cookie::new(name, token);
+    cookie.set_path("/");
+    cookie.set_http_only(true);
+    cookie.set_same_site(SameSite::Lax);
+    cookie.set_max_age(::time::Duration::seconds(SESSION_TTL_SECS));
+    if secure {
+        cookie.set_secure(true);
+    }
+    cookie
+}
+
+/// The Set-Cookie that ends the session cookie in the browser (logout).
+pub fn session_cookie_removal(secure: bool) -> CookieJar {
+    let mut cookie = session_cookie(session_cookie_name(secure), String::new(), secure);
+    cookie.make_removal();
+    CookieJar::new().add(cookie)
+}
 const SESSION_TTL_SECS: i64 = 30 * 24 * 60 * 60;
 
 /// Hash a password with Argon2id and the crate's default (OWASP-recommended)
@@ -85,16 +120,14 @@ pub async fn create_session(
     .insert(db)
     .await?;
 
-    let mut cookie = Cookie::new(SESSION_COOKIE, session.token.clone());
-    cookie.set_path("/");
-    cookie.set_http_only(true);
-    cookie.set_same_site(SameSite::Lax);
-    cookie.set_max_age(::time::Duration::seconds(SESSION_TTL_SECS));
+    let name = session_cookie_name(secure_cookies);
+    let mut jar = CookieJar::new().add(session_cookie(name, session.token.clone(), secure_cookies));
     if secure_cookies {
-        cookie.set_secure(true);
+        // A plain one from before the site used the prefix is never read again; let it go.
+        let mut old = session_cookie(SESSION_COOKIE, String::new(), true);
+        old.make_removal();
+        jar = jar.add(old);
     }
-
-    let jar = CookieJar::new().add(cookie);
     Ok((session, jar))
 }
 
@@ -185,7 +218,8 @@ impl FromRequestParts<AppState> for CurrentUser {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let jar = CookieJar::from_headers(&parts.headers);
-        let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) else {
+        let name = session_cookie_name(state.secure_cookies);
+        let Some(token) = jar.get(name).map(|c| c.value().to_string()) else {
             return Err(ApiError::unauthorized());
         };
 

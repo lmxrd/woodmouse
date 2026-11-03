@@ -4,7 +4,7 @@ use entity::users;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum_extra::extract::cookie::{Cookie, CookieJar};
+use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -298,10 +298,10 @@ pub async fn logout(
     .await?;
     tx.commit().await?;
 
-    // Removing from the jar marks the cookie for expiry in the response.
-    let removal = Cookie::build((auth::SESSION_COOKIE, "")).path("/").build();
-    let jar = CookieJar::new().remove(removal);
-    Ok((StatusCode::NO_CONTENT, jar))
+    Ok((
+        StatusCode::NO_CONTENT,
+        auth::session_cookie_removal(state.secure_cookies),
+    ))
 }
 
 /// The current user.

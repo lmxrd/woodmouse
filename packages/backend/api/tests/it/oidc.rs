@@ -876,7 +876,7 @@ async fn the_cookies_are_scoped_and_cleared_with_the_same_attributes() {
     // The session cookie is set on the redirect itself.
     let session = cookies
         .iter()
-        .find(|c| c.starts_with(api::auth::SESSION_COOKIE))
+        .find(|c| c.starts_with(&format!("{}=", api::auth::SECURE_SESSION_COOKIE)))
         .unwrap();
     assert!(session.contains("Secure"), "{session}");
     drop(state);

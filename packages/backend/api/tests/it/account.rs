@@ -300,3 +300,115 @@ async fn only_one_of_two_first_passwords_at_once_is_set() {
     statuses.sort();
     assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::CONFLICT]);
 }
+
+/// The app as served over https (`WOODMOUSE_SECURE_COOKIES`), or not.
+async fn app_served(secure: bool) -> axum::Router {
+    let mut state = api::state::AppState::new(api::db::temporary().await);
+    state.secure_cookies = secure;
+    router(state)
+}
+
+fn set_cookies(res: &axum::http::Response<axum::body::Body>) -> Vec<String> {
+    res.headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|h| h.to_str().unwrap().to_string())
+        .collect()
+}
+
+fn has_parts(cookie: &str, parts: &[&str]) {
+    for part in parts {
+        assert!(format!("{cookie};").contains(part), "{cookie} lacks {part}");
+    }
+}
+
+/// Over https the session cookie is `__Host-` prefixed (a sibling subdomain cannot plant one), only that
+/// name is read, and logout clears it with the same attributes.
+#[tokio::test]
+async fn over_https_the_session_cookie_is_host_prefixed() {
+    let app = app_served(true).await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/bootstrap",
+            r#"{"email":"admin@home.io","name":"","password":"correct horse"}"#,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let cookies = set_cookies(&res);
+    let session = cookies
+        .iter()
+        .find(|c| c.starts_with("__Host-woodmouse_session="))
+        .expect("the prefixed session cookie");
+    has_parts(session, &["Secure", "HttpOnly", "SameSite=Lax", "Path=/;"]);
+    assert!(!session.contains("Domain"), "{session}");
+    // A plain one from before the prefix is let go.
+    let old = cookies
+        .iter()
+        .find(|c| c.starts_with("woodmouse_session=;"))
+        .expect("the plain cookie is cleared");
+    has_parts(old, &["Max-Age=0", "Path=/;"]);
+
+    let token = session
+        .split(';')
+        .next()
+        .unwrap()
+        .split_once('=')
+        .unwrap()
+        .1;
+    let prefixed = format!("__Host-woodmouse_session={token}");
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&prefixed)))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    // The same token under the plain name (planted by a sibling subdomain) is not read.
+    assert_eq!(
+        request(
+            &app,
+            get("/api/auth/me", Some(&format!("woodmouse_session={token}")))
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let res = request(&app, post_json("/api/auth/logout", "", Some(&prefixed))).await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let removal = set_cookies(&res)
+        .into_iter()
+        .find(|c| c.starts_with("__Host-woodmouse_session=;"))
+        .expect("the session cookie is cleared");
+    has_parts(
+        &removal,
+        &["Secure", "HttpOnly", "SameSite=Lax", "Path=/;", "Max-Age=0"],
+    );
+}
+
+#[tokio::test]
+async fn over_http_the_session_cookie_is_plain() {
+    let app = app_served(false).await;
+    let cookie = bootstrap_admin(&app).await;
+    assert!(cookie.starts_with("woodmouse_session="), "{cookie}");
+    let token = cookie.split_once('=').unwrap().1;
+    assert_eq!(
+        request(
+            &app,
+            get(
+                "/api/auth/me",
+                Some(&format!("__Host-woodmouse_session={token}"))
+            )
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let res = request(&app, post_json("/api/auth/logout", "", Some(&cookie))).await;
+    let removal = &set_cookies(&res)[0];
+    assert!(removal.starts_with("woodmouse_session=;"), "{removal}");
+    has_parts(removal, &["Path=/;", "Max-Age=0"]);
+    assert!(!removal.contains("Secure"), "{removal}");
+}

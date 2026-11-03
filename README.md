@@ -84,7 +84,7 @@ optional:
 | `DATABASE_URL`             | `sqlite:woodmouse.db`   | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`)                  |
 | `DATA_DIR`                 | `data`                  | Where uploaded files live (the Docker image uses `/data`)                                |
 | `MAX_UPLOAD_MB`            | `25`                    | The largest accepted upload                                                              |
-| `WOODMOUSE_SECURE_COOKIES` | unset                   | Set to `1` when served over HTTPS, so login cookies are marked `Secure`                  |
+| `WOODMOUSE_SECURE_COOKIES` | unset                   | Set to `1` when served over HTTPS: login cookies get `Secure` and the `__Host-` prefix   |
 | `WOODMOUSE_SWAGGER_UI`     | unset                   | Set to `1` to browse the API at `/swagger-ui`                                            |
 | `SMTP_*`                   | unset                   | Email, see below                                                                         |
 | `OIDC_*`                   | unset                   | Single sign-on, see below                                                                |
@@ -115,7 +115,9 @@ To copy the database while the server runs, use SQLite rather than `cp`:
   `proxy_set_header Connection "upgrade";`; Caddy and Traefik do it by default.
   Without it, pages still work with a Save button instead of live editing.
 - **Run one instance.** Live documents are kept in memory.
-- **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`.
+- **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`. The
+  session cookie is then `__Host-woodmouse_session`, which no other subdomain
+  can set. Turning the setting on or off signs everyone out once.
 
 ### Email
 
