@@ -15,6 +15,7 @@
 mod enums;
 mod relations;
 
+pub mod api_keys;
 pub mod audit_logs;
 pub mod calendar_links;
 pub mod comments;
@@ -52,6 +53,7 @@ pub mod workspaces;
 pub use enums::*;
 pub use time::DateTime;
 
+pub use api_keys::Model as ApiKey;
 pub use audit_logs::Model as AuditLog;
 pub use calendar_links::Model as CalendarLink;
 pub use comments::Model as Comment;

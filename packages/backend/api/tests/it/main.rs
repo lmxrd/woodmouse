@@ -4,6 +4,7 @@ mod account;
 mod activity;
 mod admin;
 mod api;
+mod api_keys;
 mod calendar;
 mod comments;
 mod common;

@@ -21,6 +21,8 @@ const ACTIONS = [
   "totp_reset",
   "recovery_code_used",
   "recovery_codes_renewed",
+  "api_key_created",
+  "api_key_revoked",
   "role_changed",
   "user_enabled",
   "user_disabled",

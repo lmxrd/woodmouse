@@ -36,10 +36,15 @@ pub async fn role_in(
         .await?
         .map(|m| m.role);
     let super_admin = user.super_admin.then_some(Role::Admin);
-    Ok([super_admin, user.global_role, membership]
+    let role = [super_admin, user.global_role, membership]
         .into_iter()
         .flatten()
-        .max())
+        .max();
+    // An API key acts with at most its scope (`auth::role_cap`).
+    Ok(match crate::auth::role_cap() {
+        Some(cap) => role.map(|r| r.min(cap)),
+        None => role,
+    })
 }
 
 /// Whether the user can see the workspace (any role). Used to validate task assignees.

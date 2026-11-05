@@ -14,6 +14,7 @@ pub mod mail;
 pub mod notify;
 pub mod oidc;
 pub mod openapi;
+pub mod random;
 pub mod routes;
 pub mod state;
 pub mod storage;

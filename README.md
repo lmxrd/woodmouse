@@ -209,6 +209,14 @@ named volume, make it writable by that user.
 Every route lives under `/api`. Run with `WOODMOUSE_SWAGGER_UI=1` to browse the
 API, or load the `openapi.json` attached to each release into any OpenAPI tool.
 
+Scripts and integrations use an **API key** from **Settings → Account**, sent
+as `Authorization: Bearer wm_...`. It acts as you, capped at its permission:
+**Read** only reads, **Read & write** also changes things but never
+administers (site or workspace), and **Admin** (for site and global admins
+only) does what you may. A key can never manage API keys, two-factor sign-in,
+your password, email or sessions. It stops working when it is revoked, when it
+expires, or when your account is disabled. The key is shown once, when made.
+
 ## Contributing
 
 To run it from source or change it, see [CONTRIBUTING.md](CONTRIBUTING.md).

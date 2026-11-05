@@ -3,11 +3,12 @@
 //!
 //! The session token is an opaque UUID stored in an httpOnly, SameSite=Lax
 //! cookie ([`session_cookie_name`]: `__Host-` prefixed over https). Sessions live in the `sessions` table with an expiry; the
-//! [`CurrentUser`] extractor validates them on every request.
+//! [`CurrentUser`] extractor validates them on every request. It also takes an API key
+//! (`Authorization: Bearer wm_...`, see [`api_key_scope_allows`] and [`role_cap`]) wherever a session works.
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use entity::{sessions, users};
+use entity::{api_keys, sessions, users};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -21,7 +22,8 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::time;
-use entity::{Session, User};
+use entity::{ApiKey, Role, Session, User};
+use sha2::{Digest, Sha256};
 
 /// The session cookie's name over plain http (development); see [`session_cookie_name`].
 pub const SESSION_COOKIE: &str = "woodmouse_session";
@@ -202,12 +204,131 @@ pub async fn delete_expired_sessions(db: &impl Db) -> Result<usize, ApiError> {
     Ok(deleted as usize)
 }
 
-/// The authenticated user, extracted from the session cookie. Rejects with
-/// 401 when the request carries no valid (unexpired) session, or the account is disabled.
+/// The authenticated user, from the session cookie or else an API key. Rejects with 401 when the request
+/// carries no valid (unexpired, unrevoked) session or key, or the account is disabled, and with 403 when an
+/// API key's scope does not allow the request ([`api_key_scope_allows`]).
 pub struct CurrentUser {
     pub user: User,
-    /// Session token, so handlers (logout) can invalidate it.
+    /// Session token, so handlers (logout) can invalidate it. Empty for an API key, which never reaches
+    /// the session's own routes.
     pub session_token: String,
+    /// The API key the request was made with, if not a session.
+    pub api_key: Option<ApiKey>,
+}
+
+/// The prefix of every API key token.
+pub const API_KEY_PREFIX: &str = "wm_";
+/// How often an API key's `last_used_at` is written, at most.
+const LAST_USED_EVERY_SECS: i64 = 60;
+
+/// The stored form of an API key token: its SHA-256, hex.
+pub fn api_key_hash(token: &str) -> String {
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Whether an API key with `scope` may make this request. Never the account's own routes (`/api/auth/*`:
+/// API keys, two-factor, password, email, sessions) except reading `/api/auth/me`; `read` only reads
+/// (GET, HEAD); `write` anything but the site admin (`/api/admin/*`); `admin` anything. Within that, the
+/// person's role per workspace is capped at the scope ([`role_cap`]), so a key never does more than they
+/// may, nor more than its scope.
+pub fn api_key_scope_allows(scope: Role, method: &axum::http::Method, path: &str) -> bool {
+    let reads = matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD);
+    if path.starts_with("/api/auth/") && !(reads && path == "/api/auth/me") {
+        return false;
+    }
+    match scope {
+        Role::Read => reads,
+        Role::Write => !path.starts_with("/api/admin/"),
+        Role::Admin => true,
+    }
+}
+
+tokio::task_local! {
+    /// The highest workspace role the request may act with: an API key's scope. Set around the handler by
+    /// [`authenticate`]; read by `access::role_in`.
+    static ROLE_CAP: Role;
+}
+
+/// The highest role the current request may use in a workspace, if capped (an API key).
+pub fn role_cap() -> Option<Role> {
+    ROLE_CAP.try_with(|cap| *cap).ok()
+}
+
+/// The auth layer on every protected route: rejects requests without a valid session or key, and runs an
+/// API key's request under its [`role_cap`].
+pub async fn authenticate(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let (mut parts, body) = request.into_parts();
+    let current = match CurrentUser::from_request_parts(&mut parts, &state).await {
+        Ok(current) => current,
+        Err(error) => return error.into_response(),
+    };
+    let request = axum::extract::Request::from_parts(parts, body);
+    match current.api_key {
+        Some(key) => ROLE_CAP.scope(key.scope, next.run(request)).await,
+        None => next.run(request).await,
+    }
+}
+
+/// The user behind an API key, if the key is current and its scope allows the request.
+async fn from_api_key(
+    parts: &Parts,
+    state: &AppState,
+    token: &str,
+) -> Result<CurrentUser, ApiError> {
+    let db = state.db();
+    let key = api_keys::Entity::find()
+        .filter(api_keys::Column::TokenHash.eq(api_key_hash(token)))
+        .filter(api_keys::Column::RevokedAt.is_null())
+        .one(db)
+        .await?
+        .ok_or_else(ApiError::unauthorized)?;
+    let now = time::now();
+    if key.expires_at.is_some_and(|expires| now >= expires) {
+        return Err(ApiError::unauthorized());
+    }
+    let user = users::Entity::find_by_id(key.user_id)
+        .one_or_not_found(db)
+        .await
+        .map_err(|_| ApiError::unauthorized())?;
+    if !user.active {
+        return Err(ApiError::unauthorized());
+    }
+    // Behind `nest("/api", ..)` the URI has lost its prefix; the original one has it.
+    let path = parts
+        .extensions
+        .get::<axum::extract::OriginalUri>()
+        .map(|uri| uri.path().to_string())
+        .unwrap_or_else(|| parts.uri.path().to_string());
+    if !api_key_scope_allows(key.scope, &parts.method, &path) {
+        return Err(ApiError::new(
+            axum::http::StatusCode::FORBIDDEN,
+            "this API key may not do that",
+        ));
+    }
+    let stale = key
+        .last_used_at
+        .is_none_or(|at| time::seconds_between(at, now) >= LAST_USED_EVERY_SECS);
+    if stale {
+        let writer = state.writer().await?;
+        api_keys::Entity::update_many()
+            .col_expr(api_keys::Column::LastUsedAt, Expr::value(now))
+            .filter(api_keys::Column::Id.eq(key.id))
+            .exec(&*writer)
+            .await?;
+    }
+    Ok(CurrentUser {
+        user,
+        session_token: String::new(),
+        api_key: Some(key),
+    })
 }
 
 impl FromRequestParts<AppState> for CurrentUser {
@@ -220,7 +341,17 @@ impl FromRequestParts<AppState> for CurrentUser {
         let jar = CookieJar::from_headers(&parts.headers);
         let name = session_cookie_name(state.secure_cookies);
         let Some(token) = jar.get(name).map(|c| c.value().to_string()) else {
-            return Err(ApiError::unauthorized());
+            let bearer = parts
+                .headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|h| h.strip_prefix("Bearer "))
+                .map(str::trim)
+                .filter(|t| t.starts_with(API_KEY_PREFIX));
+            return match bearer {
+                Some(token) => from_api_key(parts, state, token).await,
+                None => Err(ApiError::unauthorized()),
+            };
         };
 
         let db = state.db();
@@ -245,6 +376,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         Ok(CurrentUser {
             user,
             session_token: token,
+            api_key: None,
         })
     }
 }

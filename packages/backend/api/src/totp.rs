@@ -82,21 +82,9 @@ pub fn matching_step(secret: &str, code: &str, unix: u64, last_step: Option<i64>
         .then_some(step)
 }
 
-/// Random bytes from the system: `uuid`'s v4 ids come from the operating system's generator, and SHA-256
-/// spreads their 244 random bits evenly over the output (no other random source is a direct dependency).
-fn random_bytes<const N: usize>() -> [u8; N] {
-    let hash = Sha256::new()
-        .chain_update(uuid::Uuid::new_v4().as_bytes())
-        .chain_update(uuid::Uuid::new_v4().as_bytes())
-        .finalize();
-    let mut bytes = [0u8; N];
-    bytes.copy_from_slice(&hash[..N]);
-    bytes
-}
-
 /// A new secret, base32.
 pub fn new_secret() -> String {
-    Secret::from(random_bytes::<SECRET_BYTES>().to_vec()).to_base32()
+    Secret::from(crate::random::bytes::<SECRET_BYTES>().to_vec()).to_base32()
 }
 
 /// The `otpauth://` URI an authenticator app reads from the QR code.
@@ -112,7 +100,7 @@ pub fn otpauth_uri(secret: &str, account: &str) -> Result<String, ApiError> {
 
 /// A new recovery code: 80 random bits as sixteen base32 characters, `abcd-efgh-ijkl-mnop`.
 pub fn new_recovery_code() -> String {
-    let text = Secret::from(random_bytes::<10>().to_vec())
+    let text = Secret::from(crate::random::bytes::<10>().to_vec())
         .to_base32()
         .to_lowercase();
     text.as_bytes()

@@ -140,6 +140,13 @@
   session; the second step goes through `LoginLimits`, and a right password alone does not clear the email's
   failures. Single sign-on never asks for a code. Random bytes come from `uuid` v4 through SHA-256 (no other
   random source is a direct dependency). `totp_enabled` is on `Me` and `AdminUser`, never on `PublicUser`.
+- **API keys** (`routes/api_keys.rs`, `ApiKey`; `auth::from_api_key`): `wm_` + 32 random bytes (base64url), only
+  the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes a session
+  cookie, else `Authorization: Bearer`. `auth::api_key_scope_allows` gates by method and path (never `/api/auth/*`
+  but `GET /api/auth/me`; read = GET/HEAD; write = no `/api/admin/*`), and the auth layer (`auth::authenticate`)
+  runs the handler under `auth::role_cap`, which `access::role_in` applies, so a key's workspace role is the lower
+  of its scope and the person's. Code that checks roles without `role_in`, or that spawns a task, does not see the
+  cap. `last_used_at` is written at most once a minute. Admin keys only for the super admin or a global admin.
 - **Login slow-down** (`auth::LoginLimits`): in memory, per email and per address, 1 s doubling up to a cap,
   no lockout; addresses are never stored.
 - **Jobs and operations**: `jobs.rs` runs daily (expired sessions) and sends notification email; there is no
