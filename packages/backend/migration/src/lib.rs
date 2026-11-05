@@ -4,6 +4,7 @@ mod m20260101_000001_init;
 mod m20261103_000001_single_sign_on;
 mod m20261105_000001_two_factor;
 mod m20261105_000002_api_keys;
+mod m20261106_000001_totp_replace;
 
 pub struct Migrator;
 
@@ -15,6 +16,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261103_000001_single_sign_on::Migration),
             Box::new(m20261105_000001_two_factor::Migration),
             Box::new(m20261105_000002_api_keys::Migration),
+            Box::new(m20261106_000001_totp_replace::Migration),
         ]
     }
 }

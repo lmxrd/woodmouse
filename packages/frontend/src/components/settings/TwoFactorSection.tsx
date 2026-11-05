@@ -9,6 +9,8 @@ import {
   totpDisableMutation,
   totpEnableMutation,
   totpRecoveryCodesMutation,
+  totpReplaceConfirmMutation,
+  totpReplaceMutation,
   totpSetupMutation,
 } from "woodmouse-sdk/react-query";
 
@@ -172,7 +174,19 @@ function Enabled({
       onNewCodes(data.codes);
     },
   });
-  const failed = disable.isError || renew.isError;
+  // A new secret while replacing the app: the old one works until the new one is confirmed.
+  const [replacing, setReplacing] = useState<TotpSetup | null>(null);
+  const replace = useMutation({
+    ...totpReplaceMutation(),
+    meta: { inline: true, invalidate: false },
+    onSuccess: (data) => {
+      setCode("");
+      setReplacing(data);
+    },
+  });
+  const failed = disable.isError || renew.isError || replace.isError;
+
+  if (replacing) return <ReplaceConfirm setup={replacing} onDone={() => setReplacing(null)} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -196,6 +210,13 @@ function Enabled({
         >
           New recovery codes
         </Button>
+        <Button
+          variant="outline"
+          disabled={!code.trim() || replace.isPending}
+          onClick={() => replace.mutate({ body: { code: code.trim() } })}
+        >
+          Replace authenticator
+        </Button>
         {/* Where it is required (`TOTP_REQUIRED`) it cannot be turned off. */}
         {required ? null : (
           <Button
@@ -213,6 +234,56 @@ function Enabled({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** Replacing the app: scan the new secret, then confirm with a code from the new app. */
+function ReplaceConfirm({ setup, onDone }: { setup: TotpSetup; onDone: () => void }) {
+  const [code, setCode] = useState("");
+  const confirm = useMutation({
+    ...totpReplaceConfirmMutation(),
+    meta: { inline: true, invalidate: false },
+    onSuccess: onDone,
+  });
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        confirm.mutate({ body: { code: code.trim() } });
+      }}
+    >
+      <p className="text-sm text-muted-foreground">
+        Scan this with the new authenticator app, or type the key into it. Your current app keeps
+        working until you enter a code from the new one.
+      </p>
+      <SetupQr setup={setup} />
+      <Field label="Code from the new app" htmlFor="totp-replace-code">
+        <Input
+          id="totp-replace-code"
+          required
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          className="w-40 font-mono"
+        />
+      </Field>
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={confirm.isPending}>
+          Use the new app
+        </Button>
+        <Button type="button" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+        {confirm.isError ? (
+          <span role="alert" className="text-sm text-destructive">
+            That code did not work. Check the new app's clock and try the next code.
+          </span>
+        ) : null}
+      </div>
+    </form>
   );
 }
 

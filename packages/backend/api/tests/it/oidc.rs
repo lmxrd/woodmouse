@@ -475,6 +475,7 @@ async fn single_sign_on_asks_for_the_two_factor_code_too() {
         enabled_at: Set(Some(api::time::now())),
         last_step: Set(None),
         created_at: Set(api::time::now()),
+        pending_secret: Set(None),
     }
     .insert(state.db())
     .await

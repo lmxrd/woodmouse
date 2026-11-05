@@ -39,6 +39,8 @@ pub fn protected_router() -> OpenApiRouter<AppState> {
         .routes(routes!(totp_enable))
         .routes(routes!(totp_disable))
         .routes(routes!(totp_recovery_codes))
+        .routes(routes!(totp_replace))
+        .routes(routes!(totp_replace_confirm))
 }
 
 pub const DATE_FORMATS: [&str; 4] = ["YYYY-MM-DD", "DD.MM.YYYY", "MM/DD/YYYY", "D MMM YYYY"];
@@ -719,6 +721,7 @@ async fn start_setup(state: &AppState, user: &User) -> Result<TotpSetup, ApiErro
         enabled_at: Set(None),
         last_step: Set(None),
         created_at: Set(crate::time::now()),
+        pending_secret: Set(None),
     }
     .insert(&tx)
     .await?;
@@ -984,4 +987,116 @@ pub async fn login_totp_enable(
             codes,
         }),
     ))
+}
+
+/// Start replacing the authenticator app while two-factor stays on (also where it is required): with a
+/// current code from the old app or a recovery code (spent), a new secret to scan. The old app keeps
+/// working until a code from the new one confirms it (`POST /auth/totp/replace/confirm`); starting again
+/// replaces the unconfirmed secret.
+#[utoipa::path(
+    post,
+    path = "/auth/totp/replace",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = TotpCode,
+    responses(
+        (status = 200, description = "The new secret", body = TotpSetup),
+        (status = 400, description = "Wrong code, or two-factor is off"),
+        (status = 401, description = "Not logged in"),
+        (status = 403, description = "Made with an API key")
+    )
+)]
+pub async fn totp_replace(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<TotpCode>,
+) -> Result<Json<TotpSetup>, ApiError> {
+    slow_down(&state, &user, address.as_deref()).await;
+    let secret = totp::new_secret();
+    let otpauth_uri = totp::otpauth_uri(&secret, &user.email)?;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    require_code(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    entity::user_totp::ActiveModel {
+        user_id: Unchanged(user.id),
+        pending_secret: Set(Some(secret.clone())),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(TotpSetup {
+        secret,
+        otpauth_uri,
+    }))
+}
+
+/// Finish replacing the authenticator app with a code from the new one: the new secret takes over (the
+/// old app stops working); the recovery codes stay. A wrong code changes nothing.
+#[utoipa::path(
+    post,
+    path = "/auth/totp/replace/confirm",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = TotpCode,
+    responses(
+        (status = 204, description = "The new app is the one in use"),
+        (status = 400, description = "Wrong code, or no replacement started"),
+        (status = 401, description = "Not logged in"),
+        (status = 403, description = "Made with an API key"),
+        (status = 409, description = "Another replacement started meanwhile")
+    )
+)]
+pub async fn totp_replace_confirm(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<TotpCode>,
+) -> Result<StatusCode, ApiError> {
+    slow_down(&state, &user, address.as_deref()).await;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    let (row, pending) = totp::enabled(&tx, user.id)
+        .await?
+        .and_then(|row| row.pending_secret.clone().map(|p| (row, p)))
+        .ok_or_else(|| ApiError::bad_request("start the replacement first"))?;
+    // A new secret: the old one's used steps say nothing about it.
+    let Some(step) = totp::matching_step(&pending, input.code.trim(), totp::now_unix(), None)
+    else {
+        drop(tx);
+        state.login_limits.failed(&user.email, address.as_deref());
+        return Err(ApiError::bad_request("that code is not right"));
+    };
+    // Only if it is still the secret just checked (another replacement may have started meanwhile).
+    let replaced = entity::user_totp::Entity::update_many()
+        .col_expr(
+            entity::user_totp::Column::Secret,
+            Expr::value(pending.clone()),
+        )
+        .col_expr(
+            entity::user_totp::Column::PendingSecret,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            entity::user_totp::Column::LastStep,
+            Expr::value(step as i64),
+        )
+        .filter(entity::user_totp::Column::UserId.eq(row.user_id))
+        .filter(entity::user_totp::Column::PendingSecret.eq(pending))
+        .exec(&tx)
+        .await?
+        .rows_affected;
+    if replaced != 1 {
+        return Err(ApiError::conflict(
+            "the replacement changed meanwhile; start again",
+        ));
+    }
+    audit::record(
+        &tx,
+        Entry::admin(Some(user.id), "totp_replaced").target("user", user.id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
 }

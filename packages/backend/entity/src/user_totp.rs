@@ -5,6 +5,7 @@ use sea_orm::entity::prelude::*;
 
 /// A user's authenticator secret for two-factor sign-in (TOTP, RFC 6238). `enabled_at` is `None` while it is
 /// being set up; `last_step` is the newest time step a code was accepted for (a code works once).
+/// `pending_secret` holds a replacement app's secret until it is confirmed.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "user_totp")]
 pub struct Model {
@@ -15,6 +16,9 @@ pub struct Model {
     pub enabled_at: Option<DateTime>,
     pub last_step: Option<i64>,
     pub created_at: DateTime,
+    /// A new secret replacing this one once a code from the new app confirms it; `None` otherwise.
+    #[sea_orm(column_type = "Text", nullable)]
+    pub pending_secret: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

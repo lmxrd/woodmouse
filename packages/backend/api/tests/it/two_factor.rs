@@ -553,3 +553,182 @@ async fn where_it_is_required_it_cannot_be_turned_off_but_can_be_reset() {
     let challenge = enroll_challenge(&app, ADMIN, PASSWORD).await;
     enroll(&app, &challenge).await;
 }
+
+async fn replace(app: &axum::Router, session: &str, code: &str) -> axum::http::Response<Body> {
+    request(
+        app,
+        post_json(
+            "/api/auth/totp/replace",
+            &format!(r#"{{"code":"{code}"}}"#),
+            Some(session),
+        ),
+    )
+    .await
+}
+
+async fn confirm(app: &axum::Router, session: &str, code: &str) -> axum::http::Response<Body> {
+    request(
+        app,
+        post_json(
+            "/api/auth/totp/replace/confirm",
+            &format!(r#"{{"code":"{code}"}}"#),
+            Some(session),
+        ),
+    )
+    .await
+}
+
+/// A code from well outside the window: never right.
+fn wrong_code(secret: &str) -> String {
+    totp::code_at(secret, totp::current_step() + 5).unwrap()
+}
+
+/// Sign in with the password and `code`: the status of the second step.
+async fn signs_in_with(app: &axum::Router, code: &str) -> StatusCode {
+    let pending = challenge(app, ADMIN, PASSWORD).await;
+    second_step(app, &pending, code).await.status()
+}
+
+#[tokio::test]
+async fn replacing_the_app_keeps_the_old_one_until_the_new_one_is_confirmed() {
+    let (app, state) = app_with_state().await;
+    let admin = bootstrap_admin(&app).await;
+
+    // Nothing to replace while it is off.
+    assert_eq!(
+        replace(&app, &admin, "123456").await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    let (old, codes) = enable(&app, &state, &admin).await;
+
+    // A wrong current code is refused.
+    assert_eq!(
+        replace(&app, &admin, &wrong_code(&old)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    // No replacement started yet.
+    assert_eq!(
+        confirm(&app, &admin, "123456").await.status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let res = replace(&app, &admin, &code_now(&old)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let setup = json(res).await;
+    let new = setup["secret"].as_str().unwrap().to_string();
+    assert_ne!(new, old);
+    assert!(
+        setup["otpauth_uri"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("secret={new}"))
+    );
+
+    // The old app still signs in; the new one does not yet.
+    forget_used_steps(&state).await;
+    assert_eq!(
+        signs_in_with(&app, &code_now(&new)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(signs_in_with(&app, &code_now(&old)).await, StatusCode::OK);
+
+    // A wrong new code changes nothing.
+    assert_eq!(
+        confirm(&app, &admin, &wrong_code(&new)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    forget_used_steps(&state).await;
+    assert_eq!(signs_in_with(&app, &code_now(&old)).await, StatusCode::OK);
+
+    assert_eq!(
+        confirm(&app, &admin, &code_now(&new)).await.status(),
+        StatusCode::NO_CONTENT
+    );
+    // The new app's code just confirmed it, so that step is used; the old app no longer works.
+    assert_eq!(
+        signs_in_with(&app, &code_now(&new)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    forget_used_steps(&state).await;
+    assert_eq!(
+        signs_in_with(&app, &code_now(&old)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(signs_in_with(&app, &code_now(&new)).await, StatusCode::OK);
+    // The recovery codes are kept.
+    assert_eq!(signs_in_with(&app, &codes[0]).await, StatusCode::OK);
+    // Nothing waiting to confirm any more.
+    assert_eq!(
+        confirm(&app, &admin, &code_now(&new)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert!(
+        audit_actions(&app, &admin)
+            .await
+            .contains(&"totp_replaced".to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_recovery_code_starts_a_replacement_and_is_spent() {
+    let (app, state) = app_with_state().await;
+    let admin = bootstrap_admin(&app).await;
+    let (_, codes) = enable(&app, &state, &admin).await;
+    assert_eq!(
+        replace(&app, &admin, &codes[1]).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        replace(&app, &admin, &codes[1]).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn the_app_can_be_replaced_where_two_factor_is_required() {
+    let (app, state) = required_app().await;
+    bootstrap_admin(&app).await;
+    let enrolling = enroll_challenge(&app, ADMIN, PASSWORD).await;
+    let (session, old) = enroll(&app, &enrolling).await;
+    forget_used_steps(&state).await;
+
+    let res = replace(&app, &session, &code_now(&old)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let new = json(res).await["secret"].as_str().unwrap().to_string();
+    assert_eq!(
+        confirm(&app, &session, &code_now(&new)).await.status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(json(me(&app, &session).await).await["totp_enabled"], true);
+}
+
+#[tokio::test]
+async fn an_api_key_cannot_replace_the_app() {
+    let (app, state) = app_with_state().await;
+    let admin = bootstrap_admin(&app).await;
+    let (secret, _) = enable(&app, &state, &admin).await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/api-keys",
+            r#"{"name":"script","scope":"admin"}"#,
+            Some(&admin),
+        ),
+    )
+    .await;
+    let token = json(res).await["token"].as_str().unwrap().to_string();
+    for uri in ["/api/auth/totp/replace", "/api/auth/totp/replace/confirm"] {
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(format!(r#"{{"code":"{}"}}"#, code_now(&secret))))
+            .unwrap();
+        assert_eq!(
+            request(&app, req).await.status(),
+            StatusCode::FORBIDDEN,
+            "{uri}"
+        );
+    }
+}

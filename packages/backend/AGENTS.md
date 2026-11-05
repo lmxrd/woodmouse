@@ -141,7 +141,9 @@
   failures. Single sign-on asks for it too: the callback sets the same challenge and redirects to
   `/login?step=totp` (`totp::second_step` decides for both). `TOTP_REQUIRED` (`AppState::totp_required`): someone
   without it gets an `Enroll` challenge (15 minutes; `/login?step=totp-setup`, `POST /auth/login/totp/setup` and
-  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched. Random bytes come from `uuid` v4 through SHA-256 (no other
+  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched.
+  Replacing the app (`/auth/totp/replace`, then `/confirm`) keeps the new secret in `pending_secret` until a code
+  from it arrives; the old secret works until then, the recovery codes stay. Random bytes come from `uuid` v4 through SHA-256 (no other
   random source is a direct dependency). `totp_enabled` is on `Me` and `AdminUser`, never on `PublicUser`.
 - **API keys** (`routes/api_keys.rs`, `ApiKey`; `auth::from_api_key`): `wm_` + 32 random bytes (base64url), only
   the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes a session

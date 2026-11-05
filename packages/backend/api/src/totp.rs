@@ -60,7 +60,7 @@ fn stored(secret: &str) -> Option<Totp> {
     generator(bytes, "").ok()
 }
 
-fn now_unix() -> u64 {
+pub fn now_unix() -> u64 {
     jiff::Timestamp::now().as_second().max(0) as u64
 }
 
