@@ -1,12 +1,17 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { acceptInviteMutation, getInviteOptions } from "woodmouse-sdk/react-query";
+import {
+  acceptInviteMutation,
+  authStatusOptions,
+  getInviteOptions,
+} from "woodmouse-sdk/react-query";
 
 import { AuthField, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { finishLogin } from "../lib/auth";
+import { SSO_LOGIN_URL } from "../lib/sso";
 
 /** Public: where an invite link lands. The invitee sets a password and is logged in. */
 export const Route = createFileRoute("/invite/$token")({
@@ -23,6 +28,7 @@ function InvitePage() {
     ...getInviteOptions({ path: { token } }),
     retry: false, // a dead link will not come back
   });
+  const { data: status } = useQuery(authStatusOptions());
 
   if (isError) {
     return (
@@ -37,10 +43,26 @@ function InvitePage() {
       </AuthSheet>
     );
   }
-  if (isPending) {
+  if (isPending || !status) {
     return (
       <AuthSheet tag="Invite" title="Welcome">
         <p className="text-sm text-muted-foreground">Loading...</p>
+      </AuthSheet>
+    );
+  }
+
+  // Single sign-on only: no password to choose. Signing in with the provider account that has this
+  // (verified) email links it to the invited account.
+  if (!status.password_login) {
+    return (
+      <AuthSheet
+        tag="Invite"
+        title={`Welcome, ${invite.name || invite.email}`}
+        description={`Sign in with ${status.sso ?? "single sign-on"} using ${invite.email} to join Woodmouse.`}
+      >
+        <Button asChild size="lg">
+          <a href={SSO_LOGIN_URL}>Sign in with {status.sso ?? "single sign-on"}</a>
+        </Button>
       </AuthSheet>
     );
   }

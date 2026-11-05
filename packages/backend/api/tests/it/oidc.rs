@@ -1540,3 +1540,153 @@ async fn refused_sign_ins_are_audited() {
         ]
     );
 }
+
+/// `OIDC_ONLY`: the provider is the only way in.
+async fn setup_only(provider: &Provider) -> (axum::Router, AppState) {
+    let env = EnvSettings {
+        only: Some(true),
+        ..env_for(provider)
+    }
+    .checked()
+    .expect("a complete provider");
+    setup_with(Oidc::new(env), false).await
+}
+
+#[tokio::test]
+async fn sso_only_needs_the_provider_from_the_environment_and_keeps_it_on() {
+    let only = |env: EnvSettings| EnvSettings {
+        only: Some(true),
+        ..env
+    };
+    assert!(only(EnvSettings::default()).checked().is_err());
+    assert!(
+        only(EnvSettings {
+            issuer: Some("https://id.example.com".into()),
+            ..Default::default()
+        })
+        .checked()
+        .is_err()
+    );
+    let complete = EnvSettings {
+        issuer: Some("https://id.example.com".into()),
+        client_id: Some(CLIENT_ID.into()),
+        ..Default::default()
+    };
+    assert!(
+        only(EnvSettings {
+            enabled: Some(false),
+            ..complete.clone()
+        })
+        .checked()
+        .is_err()
+    );
+    // On, and locked on: the admin page cannot turn it off.
+    assert_eq!(only(complete).checked().unwrap().enabled, Some(true));
+    assert_eq!(
+        api::config::parse_flag("OIDC_ONLY", "maybe").map_err(|_| ()),
+        Err(())
+    );
+}
+
+#[tokio::test]
+async fn sso_only_refuses_every_password_way_in() {
+    let provider = Provider::start().await;
+    let (app, _) = setup_only(&provider).await;
+
+    // The first account is still made here (with a password nobody can use while this is set).
+    let status: Value = serde_json::from_str(
+        &body_string(
+            request(&app, get("/api/auth/status", None))
+                .await
+                .into_body(),
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(status["password_login"], false);
+    assert_eq!(status["bootstrap_required"], true);
+    let admin = bootstrap_admin(&app).await;
+
+    let forbidden = |res: axum::http::Response<Body>| async move {
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let body = body_string(res.into_body()).await;
+        assert!(body.contains("use single sign-on"), "{body}");
+    };
+    forbidden(
+        request(
+            &app,
+            post_json(
+                "/api/auth/login",
+                r#"{"email":"admin@home.io","password":"correct horse"}"#,
+                None,
+            ),
+        )
+        .await,
+    )
+    .await;
+    forbidden(
+        request(
+            &app,
+            post_json("/api/auth/login/totp", r#"{"code":"123456"}"#, None),
+        )
+        .await,
+    )
+    .await;
+    forbidden(
+        request(
+            &app,
+            post_json(
+                "/api/auth/password",
+                r#"{"current_password":"correct horse","new_password":"another one"}"#,
+                Some(&admin),
+            ),
+        )
+        .await,
+    )
+    .await;
+
+    // The super admin signs in through the provider, by their verified email.
+    let (to, session) = sign_in(&app, &provider, "sub-1", Some("admin@home.io")).await;
+    assert_eq!(to, "/");
+    assert!(session.is_some());
+}
+
+#[tokio::test]
+async fn with_sso_only_an_invited_person_comes_in_through_the_provider() {
+    let provider = Provider::start().await;
+    let (app, _) = setup_only(&provider).await;
+    let admin = bootstrap_admin(&app).await;
+    let res = request(
+        &app,
+        post_json(
+            "/api/admin/users",
+            r#"{"email":"invited@home.io","name":"","memberships":[]}"#,
+            Some(&admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let token = created["invite_token"].as_str().unwrap();
+
+    // The invite link still shows who it is for, but sets no password.
+    let res = request(&app, get(&format!("/api/invites/{token}"), None)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = request(
+        &app,
+        post_json(
+            &format!("/api/invites/{token}/accept"),
+            r#"{"password":"a fine password"}"#,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // Their provider account with that verified email is linked to the invited account.
+    let (to, session) = sign_in(&app, &provider, "sub-7", Some("invited@home.io")).await;
+    assert_eq!(to, "/");
+    let user = me(&app, &session.unwrap()).await;
+    assert_eq!(user["email"], "invited@home.io");
+    assert_eq!(user["has_password"], false);
+}

@@ -144,6 +144,7 @@ is set wins over its field on that page, which then cannot be changed there.
 | `OIDC_DISPLAY_NAME`  | The provider's name on the login button                                                       |
 | `OIDC_AUTO_CREATE`   | `1` to create an account for someone new whose provider confirms their email                  |
 | `OIDC_REDIRECT_URL`  | The callback URL, when the one from `PUBLIC_URL` is wrong                                     |
+| `OIDC_ONLY`          | `1` to turn password sign-in off: single sign-on is the only way in (see below)               |
 
 A yes/no variable with any other value stops the server from starting.
 
@@ -171,6 +172,17 @@ A yes/no variable with any other value stops the server from starting.
 - **Passwords keep working.** The first account is always made with a password.
   Someone who signs in only through single sign-on can set a password under
   **Settings → Password & two-factor**.
+- **Single sign-on only.** With `OIDC_ONLY=1`, signing in with a password, the
+  two-factor code step, choosing a password from an invite link and changing a
+  password are all refused (403), and the login page shows only the provider's
+  button. `OIDC_ISSUER` and `OIDC_CLIENT_ID` must then be set as variables too,
+  and single sign-on cannot be turned off on the settings page; otherwise the
+  server does not start. The first account is still created on the login page
+  (with a password that cannot be used while this is set): use the email your
+  provider confirms for you, since that is how your provider account is linked
+  to it. Invited people open their invite link and sign in with the provider
+  using the invited email; that links their account (or, with
+  `OIDC_AUTO_CREATE`, anyone the provider lets in gets an account).
 - Saving the settings checks the provider first and refuses what it cannot
   reach. They apply at once, without a restart. The client secret is stored in
   the database as typed and is never shown again.

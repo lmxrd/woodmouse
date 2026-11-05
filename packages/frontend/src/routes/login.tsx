@@ -44,7 +44,14 @@ function LoginPage() {
       {status && !bootstrap && ssoErrorMessage(error) ? (
         <ErrorNote message={ssoErrorMessage(error) ?? ""} />
       ) : null}
-      {status && (bootstrap ? <BootstrapForm /> : <LoginForm sso={status.sso ?? null} />)}
+      {status &&
+        (bootstrap ? (
+          <BootstrapForm />
+        ) : status.password_login ? (
+          <LoginForm sso={status.sso ?? null} />
+        ) : (
+          <SsoOnly sso={status.sso ?? "single sign-on"} />
+        ))}
     </AuthSheet>
   );
 }
@@ -121,6 +128,20 @@ function LoginForm({ sso }: { sso: string | null }) {
         No account? Ask a workspace admin to invite you.
       </p>
     </form>
+  );
+}
+
+/** Single sign-on is the only way in (`OIDC_ONLY`): no password form. */
+function SsoOnly({ sso }: { sso: string }) {
+  return (
+    <div className="flex flex-col gap-5">
+      <Button asChild size="lg">
+        <a href={SSO_LOGIN_URL}>Sign in with {sso}</a>
+      </Button>
+      <p className="text-sm text-muted-foreground">
+        No account? Ask a workspace admin to invite you.
+      </p>
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet } from "@tanstack/react-router";
-import { meOptions } from "woodmouse-sdk/react-query";
+import { authStatusOptions, meOptions } from "woodmouse-sdk/react-query";
 
 import { cn } from "../../lib/utils";
 
@@ -14,6 +14,7 @@ const active = "bg-accent font-medium text-foreground";
  */
 export function SettingsLayout() {
   const { data: me } = useQuery(meOptions());
+  const { data: status } = useQuery(authStatusOptions());
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)]">
       <aside className="flex flex-col gap-3 border-b border-border bg-card p-4 md:border-r md:border-b-0">
@@ -34,9 +35,12 @@ export function SettingsLayout() {
           <Link to="/settings/calendar" className={link} activeProps={{ className: active }}>
             Calendar links
           </Link>
-          <Link to="/settings/password" className={link} activeProps={{ className: active }}>
-            Password & two-factor
-          </Link>
+          {/* No passwords at all with single sign-on only (`OIDC_ONLY`). */}
+          {status?.password_login === false ? null : (
+            <Link to="/settings/password" className={link} activeProps={{ className: active }}>
+              Password & two-factor
+            </Link>
+          )}
           {me?.super_admin ? (
             <>
               <p className={cn("label-mono px-3 pt-3 text-muted-foreground max-md:hidden")}>

@@ -47,6 +47,9 @@ pub struct EnvSettings {
     pub display_name: Option<String>,
     pub redirect_url: Option<String>,
     pub auto_create: Option<bool>,
+    /// `OIDC_ONLY`: single sign-on is the only way in; password sign-in, invites by password and password
+    /// changes are refused. Needs the provider from the environment, and keeps single sign-on on.
+    pub only: Option<bool>,
 }
 
 impl EnvSettings {
@@ -60,6 +63,7 @@ impl EnvSettings {
             display_name: config::var("OIDC_DISPLAY_NAME"),
             redirect_url: config::var("OIDC_REDIRECT_URL"),
             auto_create: config::flag("OIDC_AUTO_CREATE")?,
+            only: config::flag("OIDC_ONLY")?,
         };
         env.checked()
     }
@@ -67,7 +71,20 @@ impl EnvSettings {
     /// Refuse what cannot be safely put in force. The secret goes to the issuer's token endpoint: with
     /// only the secret from the environment, an issuer stored on the admin page (now or earlier) would
     /// receive it.
-    pub fn checked(self) -> Result<Self, String> {
+    pub fn checked(mut self) -> Result<Self, String> {
+        if self.only == Some(true) {
+            // Nobody could sign in if single sign-on were off or half set up, so with OIDC_ONLY the
+            // provider comes from the environment (the admin page cannot change it) and it stays on.
+            if self.issuer.is_none() || self.client_id.is_none() {
+                return Err(
+                    "OIDC_ONLY needs OIDC_ISSUER and OIDC_CLIENT_ID to be set too".to_string(),
+                );
+            }
+            if self.enabled == Some(false) {
+                return Err("OIDC_ONLY cannot be set with OIDC_ENABLED off".to_string());
+            }
+            self.enabled = Some(true);
+        }
         if self.client_secret.is_some() && self.issuer.is_none() {
             return Err("OIDC_CLIENT_SECRET needs OIDC_ISSUER to be set too".to_string());
         }
@@ -298,6 +315,23 @@ impl Oidc {
 
     pub fn env(&self) -> &EnvSettings {
         &self.env
+    }
+
+    /// Whether signing in with a password is allowed (it is not with `OIDC_ONLY`).
+    pub fn password_login(&self) -> bool {
+        self.env.only != Some(true)
+    }
+
+    /// Refuse a password sign-in, invite or change while `OIDC_ONLY` is set.
+    pub fn require_password_login(&self) -> Result<(), crate::error::ApiError> {
+        if self.password_login() {
+            Ok(())
+        } else {
+            Err(crate::error::ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "Password sign-in is turned off; use single sign-on",
+            ))
+        }
     }
 
     pub fn key(&self) -> &Key {

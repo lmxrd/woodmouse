@@ -128,6 +128,10 @@
   provider before writing. A refused sign-in that came back with our signed login cookie is audited as
   `login_failed` (`data.method = "sso"`, `data.reason` = the code, the account as target when known). Tests: `tests/it/oidc.rs` runs a stand-in provider (real RS256 tokens, keys in
   `tests/it/fixtures/oidc_key_*.pem`, PKCS#1 from `openssl genrsa -traditional 2048`).
+- **Single sign-on only** (`OIDC_ONLY`, `EnvSettings::only`): `Oidc::require_password_login` (403) guards password
+  login, the TOTP step, invite acceptance and password changes; `AuthStatus.password_login` tells the frontend.
+  It needs `OIDC_ISSUER` and `OIDC_CLIENT_ID` from the environment and forces `enabled` on (so the admin page cannot
+  lock everyone out); bootstrap still works, and invited people get in through the provider by verified email.
 - **Two-factor sign-in** (`src/totp.rs`, the `/auth/totp/*` and `/auth/login/totp` routes): TOTP through
   `totp-rs` (SHA-1, 6 digits, 30 s, one step of skew), the secret base32 in `UserTotp` (`enabled_at` `None` while
   being set up), `last_step` refusing a code's step a second time (totp-rs leaves replay to its caller), and ten

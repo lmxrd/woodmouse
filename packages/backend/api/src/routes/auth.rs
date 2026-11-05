@@ -125,6 +125,8 @@ pub struct AuthStatus {
     pub bootstrap_required: bool,
     /// The single sign-on provider's name for the sign-in button; `null` while single sign-on is off.
     pub sso: Option<String>,
+    /// False when single sign-on is the only way in (`OIDC_ONLY`): no password form, invite or change.
+    pub password_login: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -177,6 +179,7 @@ pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatu
     Ok(Json(AuthStatus {
         bootstrap_required: users.is_empty(),
         sso: state.oidc.config().map(|c| c.display_name.clone()),
+        password_login: state.oidc.password_login(),
     }))
 }
 
@@ -247,7 +250,8 @@ pub struct TotpChallenge {
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
         (status = 202, description = "The password is right; a two-factor code is needed", body = TotpChallenge),
-        (status = 401, description = "Invalid credentials")
+        (status = 401, description = "Invalid credentials"),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)")
     )
 )]
 pub async fn login(
@@ -255,6 +259,7 @@ pub async fn login(
     ClientAddr(address): ClientAddr,
     Json(input): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
+    state.oidc.require_password_login()?;
     let email = input.email.trim().to_lowercase();
     // Repeated failures wait longer (never a lockout).
     let delay = state.login_limits.delay(&email, address.as_deref());
@@ -324,7 +329,8 @@ pub struct TotpCode {
     request_body = TotpCode,
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
-        (status = 401, description = "Wrong code, or no current challenge (start again from the password)")
+        (status = 401, description = "Wrong code, or no current challenge (start again from the password)"),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)")
     )
 )]
 pub async fn login_totp(
@@ -333,6 +339,7 @@ pub async fn login_totp(
     headers: axum::http::HeaderMap,
     Json(input): Json<TotpCode>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
+    state.oidc.require_password_login()?;
     // A cookie whose signature does not verify (forged, or from before a restart) is not there at all.
     let challenge: totp::Challenge =
         SignedCookieJar::from_headers(&headers, state.challenge_key.clone())
@@ -576,6 +583,7 @@ pub struct ChangePassword {
         (status = 204, description = "Password changed"),
         (status = 400, description = "The new password is too short"),
         (status = 401, description = "Not logged in, or the current password is wrong"),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)"),
         (status = 409, description = "The password changed meanwhile; try again")
     )
 )]
@@ -588,6 +596,7 @@ pub async fn change_password(
     }: CurrentUser,
     Json(input): Json<ChangePassword>,
 ) -> Result<StatusCode, ApiError> {
+    state.oidc.require_password_login()?;
     if let Some(current) = &user.password_hash
         && !auth::verify_password(input.current_password.as_deref().unwrap_or(""), current)
     {
