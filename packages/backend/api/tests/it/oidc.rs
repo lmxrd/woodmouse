@@ -411,19 +411,67 @@ async fn an_account_is_matched_by_verified_email_then_by_subject() {
     assert_eq!(me(&app, &session.unwrap()).await["email"], "admin@home.io");
 }
 
+/// Sign in at the provider and come back with a two-factor challenge instead of a session: where the
+/// callback sends the browser, and the challenge cookie.
+async fn sign_in_to_challenge(
+    app: &axum::Router,
+    provider: &Provider,
+    sub: &str,
+    email: &str,
+) -> (String, String) {
+    let login = login(app).await;
+    let code = provider.authorize(&login, provider.claims(&login, sub, Some(email)));
+    let res = callback(
+        app,
+        &format!("code={code}&state={}", login.state),
+        Some(&login.cookie),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let cookies = set_cookies(&res);
+    assert!(
+        !cookies
+            .iter()
+            .any(|c| c.starts_with(&format!("{}=", api::auth::SESSION_COOKIE))),
+        "no session before the second step: {cookies:?}"
+    );
+    let challenge = cookies
+        .iter()
+        .find(|c| c.starts_with("woodmouse_2fa=") && !c.contains("Max-Age=0"))
+        .expect("a challenge cookie")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    (location(&res), challenge)
+}
+
+fn session_of(res: &axum::http::Response<Body>) -> String {
+    set_cookies(res)
+        .iter()
+        .find(|c| c.starts_with(&format!("{}=", api::auth::SESSION_COOKIE)))
+        .expect("a session")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
 #[tokio::test]
-async fn single_sign_on_does_not_ask_for_a_two_factor_code() {
+async fn single_sign_on_asks_for_the_two_factor_code_too() {
     let provider = Provider::start().await;
-    let (app, state) = setup(&provider).await;
+    // With single sign-on as the only way in, too.
+    let (app, state) = setup_only(&provider).await;
     let admin = bootstrap_admin(&app).await;
     let id = me(&app, &admin).await["id"]
         .as_str()
         .unwrap()
         .parse()
         .unwrap();
+    let secret = api::totp::new_secret();
     entity::user_totp::ActiveModel {
         user_id: Set(id),
-        secret: Set(api::totp::new_secret()),
+        secret: Set(secret.clone()),
         enabled_at: Set(Some(api::time::now())),
         last_step: Set(None),
         created_at: Set(api::time::now()),
@@ -432,11 +480,69 @@ async fn single_sign_on_does_not_ask_for_a_two_factor_code() {
     .await
     .unwrap();
 
-    // The provider is where its second factor belongs.
-    let (to, session) = sign_in(&app, &provider, "sub-1", Some("admin@home.io")).await;
-    assert_eq!(to, "/");
-    let user = me(&app, &session.unwrap()).await;
+    let (to, challenge) = sign_in_to_challenge(&app, &provider, "sub-1", "admin@home.io").await;
+    assert_eq!(to, "/login?step=totp");
+    let code = api::totp::code_at(&secret, api::totp::current_step()).unwrap();
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/login/totp",
+            &format!(r#"{{"code":"{code}"}}"#),
+            Some(&challenge),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let user = me(&app, &session_of(&res)).await;
     assert_eq!(user["totp_enabled"], true);
+}
+
+#[tokio::test]
+async fn single_sign_on_sets_up_two_factor_where_it_is_required() {
+    let provider = Provider::start().await;
+    let mut state =
+        AppState::new(api::db::temporary().await).with_oidc(Oidc::new(env_for(&provider)));
+    state.totp_required = true;
+    let app = router(state.clone());
+    bootstrap_admin(&app).await;
+
+    let (to, challenge) = sign_in_to_challenge(&app, &provider, "sub-1", "admin@home.io").await;
+    assert_eq!(to, "/login?step=totp-setup");
+    // Not a code challenge.
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/login/totp",
+            r#"{"code":"123456"}"#,
+            Some(&challenge),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let res = request(
+        &app,
+        post_json("/api/auth/login/totp/setup", "{}", Some(&challenge)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let setup: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let code =
+        api::totp::code_at(setup["secret"].as_str().unwrap(), api::totp::current_step()).unwrap();
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/login/totp/enable",
+            &format!(r#"{{"code":"{code}"}}"#),
+            Some(&challenge),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let session = session_of(&res);
+    let enrolled: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    assert_eq!(enrolled["codes"].as_array().unwrap().len(), 10);
+    assert_eq!(me(&app, &session).await["totp_enabled"], true);
 }
 
 #[tokio::test]
@@ -1624,14 +1730,13 @@ async fn sso_only_refuses_every_password_way_in() {
         .await,
     )
     .await;
-    forbidden(
-        request(
-            &app,
-            post_json("/api/auth/login/totp", r#"{"code":"123456"}"#, None),
-        )
-        .await,
+    // The code step stays open (a challenge exists only after single sign-on), but needs one.
+    let res = request(
+        &app,
+        post_json("/api/auth/login/totp", r#"{"code":"123456"}"#, None),
     )
     .await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     forbidden(
         request(
             &app,

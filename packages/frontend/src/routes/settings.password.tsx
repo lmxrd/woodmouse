@@ -9,19 +9,13 @@ export const Route = createFileRoute("/settings/password")({
   component: PasswordSettings,
 });
 
+/** The password (not with single sign-on only) and two-factor sign-in (always). */
 function PasswordSettings() {
   const { data: status } = useQuery(authStatusOptions());
   if (!status) return null;
-  if (!status.password_login) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        You sign in with {status.sso ?? "single sign-on"}; passwords are turned off on this site.
-      </p>
-    );
-  }
   return (
     <>
-      <PasswordSection />
+      {status.password_login ? <PasswordSection /> : null}
       <TwoFactorSection />
     </>
   );

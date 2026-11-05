@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum_extra::extract::cookie::{CookieJar, SignedCookieJar};
+use axum_extra::extract::cookie::CookieJar;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -24,6 +24,8 @@ pub fn public_router() -> OpenApiRouter<AppState> {
         .routes(routes!(bootstrap))
         .routes(routes!(login))
         .routes(routes!(login_totp))
+        .routes(routes!(login_totp_setup))
+        .routes(routes!(login_totp_enable))
 }
 
 /// Routes requiring a session (the auth layer in `routes::mod` enforces it;
@@ -127,6 +129,8 @@ pub struct AuthStatus {
     pub sso: Option<String>,
     /// False when single sign-on is the only way in (`OIDC_ONLY`): no password form, invite or change.
     pub password_login: bool,
+    /// Every sign-in asks for two-factor (`TOTP_REQUIRED`), and someone without it sets it up first.
+    pub totp_required: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -180,6 +184,7 @@ pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatu
         bootstrap_required: users.is_empty(),
         sso: state.oidc.config().map(|c| c.display_name.clone()),
         password_login: state.oidc.password_login(),
+        totp_required: state.totp_required,
     }))
 }
 
@@ -232,12 +237,24 @@ pub async fn bootstrap(
     Ok((StatusCode::CREATED, jar, Json(PublicUser::from(&user))))
 }
 
-/// The password was right, and a code from the authenticator app (or a recovery code) is needed too:
-/// send it to `POST /auth/login/totp` within five minutes.
+/// The password was right, and a second step is needed before the session (one of the two is true).
 #[derive(Serialize, ToSchema)]
 pub struct TotpChallenge {
-    /// Always true.
+    /// A code from the authenticator app (or a recovery code): send it to `POST /auth/login/totp` within
+    /// five minutes.
     pub totp_required: bool,
+    /// The site requires two-factor and they have none: set it up with `POST /auth/login/totp/setup` and
+    /// `/enable` within fifteen minutes.
+    pub totp_setup_required: bool,
+}
+
+impl TotpChallenge {
+    fn new(mode: totp::ChallengeMode) -> Self {
+        Self {
+            totp_required: mode == totp::ChallengeMode::Code,
+            totp_setup_required: mode == totp::ChallengeMode::Enroll,
+        }
+    }
 }
 
 /// Log in with email + password; sets the session cookie. Someone with two-factor on gets a 202 and a
@@ -249,7 +266,7 @@ pub struct TotpChallenge {
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
-        (status = 202, description = "The password is right; a two-factor code is needed", body = TotpChallenge),
+        (status = 202, description = "The password is right; a two-factor code, or setting it up, is needed", body = TotpChallenge),
         (status = 401, description = "Invalid credentials"),
         (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)")
     )
@@ -285,21 +302,11 @@ pub async fn login(
         return Err(ApiError::unauthorized());
     };
 
-    if totp::enabled(&*db, user.id).await?.is_some() {
+    if let Some(mode) = totp::second_step(&*db, state.totp_required, user.id).await? {
         // Not `succeeded` yet: the failures for this email keep counting until the code is right too, or
         // the password alone would buy fresh guesses at the code.
-        let challenge = serde_json::to_string(&totp::Challenge::new(user.id))
-            .map_err(|_| ApiError::internal("could not make the challenge"))?;
-        let jar = SignedCookieJar::new(state.challenge_key.clone())
-            .add(totp::challenge_cookie(challenge, state.secure_cookies));
-        return Ok((
-            StatusCode::ACCEPTED,
-            jar,
-            Json(TotpChallenge {
-                totp_required: true,
-            }),
-        )
-            .into_response());
+        let jar = totp::challenge_jar(&state.challenge_key, state.secure_cookies, user.id, mode)?;
+        return Ok((StatusCode::ACCEPTED, jar, Json(TotpChallenge::new(mode))).into_response());
     }
     state.login_limits.succeeded(&email);
 
@@ -320,8 +327,8 @@ pub struct TotpCode {
     pub code: String,
 }
 
-/// The second step of a password sign-in with two-factor on: the code, with the challenge cookie from
-/// `POST /auth/login`. Sets the session cookie.
+/// The second step of a sign-in with two-factor on: the code, with the challenge cookie from
+/// `POST /auth/login` or the single sign-on callback. Sets the session cookie.
 #[utoipa::path(
     post,
     path = "/auth/login/totp",
@@ -329,8 +336,7 @@ pub struct TotpCode {
     request_body = TotpCode,
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
-        (status = 401, description = "Wrong code, or no current challenge (start again from the password)"),
-        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)")
+        (status = 401, description = "Wrong code, or no current challenge (start again from the password)")
     )
 )]
 pub async fn login_totp(
@@ -339,14 +345,14 @@ pub async fn login_totp(
     headers: axum::http::HeaderMap,
     Json(input): Json<TotpCode>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
-    state.oidc.require_password_login()?;
-    // A cookie whose signature does not verify (forged, or from before a restart) is not there at all.
-    let challenge: totp::Challenge =
-        SignedCookieJar::from_headers(&headers, state.challenge_key.clone())
-            .get(totp::challenge_cookie_name(state.secure_cookies))
-            .and_then(|c| serde_json::from_str(c.value()).ok())
-            .filter(totp::Challenge::is_current)
-            .ok_or_else(ApiError::unauthorized)?;
+    // No `OIDC_ONLY` check: a challenge exists only after a first factor, single sign-on's included.
+    let challenge = totp::read_challenge(
+        &headers,
+        &state.challenge_key,
+        state.secure_cookies,
+        totp::ChallengeMode::Code,
+    )
+    .ok_or_else(ApiError::unauthorized)?;
     let user = users::Entity::find_by_id(challenge.user_id)
         .one_or_not_found(state.db())
         .await
@@ -690,12 +696,19 @@ pub async fn totp_setup(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
 ) -> Result<Json<TotpSetup>, ApiError> {
+    Ok(Json(start_setup(&state, &user).await?))
+}
+
+/// A new, unconfirmed secret for `user` (replacing an unconfirmed one).
+async fn start_setup(state: &AppState, user: &User) -> Result<TotpSetup, ApiError> {
     let db = state.writer().await?;
     let tx = db.begin().await?;
     if totp::enabled(&tx, user.id).await?.is_some() {
         return Err(ApiError::conflict("two-factor sign-in is already on"));
     }
     let secret = totp::new_secret();
+    // Before anything is stored: an email an authenticator app cannot take is refused here.
+    let otpauth_uri = totp::otpauth_uri(&secret, &user.email)?;
     entity::user_totp::Entity::delete_many()
         .filter(entity::user_totp::Column::UserId.eq(user.id))
         .exec(&tx)
@@ -710,10 +723,10 @@ pub async fn totp_setup(
     .insert(&tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(TotpSetup {
-        otpauth_uri: totp::otpauth_uri(&secret, &user.email)?,
+    Ok(TotpSetup {
         secret,
-    }))
+        otpauth_uri,
+    })
 }
 
 /// Wait out the slow-down for repeated wrong codes, as at sign-in.
@@ -748,16 +761,28 @@ pub async fn totp_enable(
     slow_down(&state, &user, address.as_deref()).await;
     let db = state.writer().await?;
     let tx = db.begin().await?;
+    let codes = finish_setup(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    tx.commit().await?;
+    Ok(Json(RecoveryCodes { codes }))
+}
+
+/// Turn two-factor on with the first code for the secret from [`start_setup`]: the recovery codes.
+async fn finish_setup(
+    state: &AppState,
+    tx: &sea_orm::DatabaseTransaction,
+    user: &User,
+    address: Option<&str>,
+    code: &str,
+) -> Result<Vec<String>, ApiError> {
     let row = entity::user_totp::Entity::find_by_id(user.id)
-        .one(&tx)
+        .one(tx)
         .await?
         .ok_or_else(|| ApiError::bad_request("start the setup first"))?;
     if row.enabled_at.is_some() {
         return Err(ApiError::conflict("two-factor sign-in is already on"));
     }
-    if !totp::accept_app_code(&tx, &row, input.code.trim()).await? {
-        drop(tx);
-        state.login_limits.failed(&user.email, address.as_deref());
+    if !totp::accept_app_code(tx, &row, code.trim()).await? {
+        state.login_limits.failed(&user.email, address);
         return Err(ApiError::bad_request("that code is not right"));
     }
     entity::user_totp::ActiveModel {
@@ -765,16 +790,15 @@ pub async fn totp_enable(
         enabled_at: Set(Some(crate::time::now())),
         ..Default::default()
     }
-    .update(&tx)
+    .update(tx)
     .await?;
-    let codes = totp::new_recovery_codes(&tx, user.id).await?;
+    let codes = totp::new_recovery_codes(tx, user.id).await?;
     audit::record(
-        &tx,
+        tx,
         Entry::admin(Some(user.id), "totp_enabled").target("user", user.id),
     )
     .await?;
-    tx.commit().await?;
-    Ok(Json(RecoveryCodes { codes }))
+    Ok(codes)
 }
 
 /// Check a code of someone with two-factor on, for turning it off or making new recovery codes.
@@ -807,7 +831,8 @@ async fn require_code(
     responses(
         (status = 204, description = "Two-factor is off"),
         (status = 400, description = "Wrong code, or two-factor is off already"),
-        (status = 401, description = "Not logged in")
+        (status = 401, description = "Not logged in"),
+        (status = 403, description = "The site requires two-factor (`TOTP_REQUIRED`)")
     )
 )]
 pub async fn totp_disable(
@@ -816,6 +841,12 @@ pub async fn totp_disable(
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<TotpCode>,
 ) -> Result<StatusCode, ApiError> {
+    if state.totp_required {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "two-factor sign-in is required on this site",
+        ));
+    }
     slow_down(&state, &user, address.as_deref()).await;
     let db = state.writer().await?;
     let tx = db.begin().await?;
@@ -862,4 +893,95 @@ pub async fn totp_recovery_codes(
     .await?;
     tx.commit().await?;
     Ok(Json(RecoveryCodes { codes }))
+}
+
+/// The challenge of a sign-in that must set up two-factor first (`TOTP_REQUIRED`), and its user.
+async fn enroll_challenge(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<User, ApiError> {
+    let challenge = totp::read_challenge(
+        headers,
+        &state.challenge_key,
+        state.secure_cookies,
+        totp::ChallengeMode::Enroll,
+    )
+    .ok_or_else(ApiError::unauthorized)?;
+    users::Entity::find_by_id(challenge.user_id)
+        .one(state.db())
+        .await?
+        .filter(|u| u.active)
+        .ok_or_else(ApiError::unauthorized)
+}
+
+/// Signing in where two-factor is required (`TOTP_REQUIRED`) and they have none: a new secret, with the
+/// challenge cookie from `POST /auth/login` or the single sign-on callback.
+#[utoipa::path(
+    post,
+    path = "/auth/login/totp/setup",
+    tag = "auth",
+    responses(
+        (status = 200, description = "The new secret", body = TotpSetup),
+        (status = 401, description = "No current setup challenge (start again from the sign-in)"),
+        (status = 409, description = "Two-factor is already on")
+    )
+)]
+pub async fn login_totp_setup(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<TotpSetup>, ApiError> {
+    let user = enroll_challenge(&state, &headers).await?;
+    Ok(Json(start_setup(&state, &user).await?))
+}
+
+/// Signed in, with two-factor just set up, and the recovery codes to keep.
+#[derive(Serialize, ToSchema)]
+pub struct EnrolledLogin {
+    pub user: PublicUser,
+    /// Shown this once: each signs in once in place of a code from the app.
+    pub codes: Vec<String>,
+}
+
+/// Turn two-factor on with the first code from the app, and sign in. Sets the session cookie.
+#[utoipa::path(
+    post,
+    path = "/auth/login/totp/enable",
+    tag = "auth",
+    request_body = TotpCode,
+    responses(
+        (status = 200, description = "Two-factor is on and you are signed in", body = EnrolledLogin),
+        (status = 400, description = "Wrong code, or no setup started"),
+        (status = 401, description = "No current setup challenge (start again from the sign-in)"),
+        (status = 409, description = "Two-factor is already on")
+    )
+)]
+pub async fn login_totp_enable(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    headers: axum::http::HeaderMap,
+    Json(input): Json<TotpCode>,
+) -> Result<(StatusCode, CookieJar, Json<EnrolledLogin>), ApiError> {
+    let user = enroll_challenge(&state, &headers).await?;
+    slow_down(&state, &user, address.as_deref()).await;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    let codes = finish_setup(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    state.login_limits.succeeded(&user.email);
+    audit::record(
+        &tx,
+        Entry::admin(Some(user.id), "login")
+            .target("user", user.id)
+            .data(serde_json::json!({ "totp": "enrolled" })),
+    )
+    .await?;
+    let (_, session) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
+    tx.commit().await?;
+    Ok((
+        StatusCode::OK,
+        session.add(totp::challenge_cookie_removal(state.secure_cookies)),
+        Json(EnrolledLogin {
+            user: PublicUser::from(&user),
+            codes,
+        }),
+    ))
 }

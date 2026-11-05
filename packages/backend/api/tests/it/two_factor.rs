@@ -206,7 +206,11 @@ async fn the_second_step_needs_this_servers_current_challenge() {
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     let forged = format!(
         r#"woodmouse_2fa={}"#,
-        serde_json::to_string(&totp::Challenge::new(uuid::Uuid::nil())).unwrap()
+        serde_json::to_string(&totp::Challenge::new(
+            uuid::Uuid::nil(),
+            totp::ChallengeMode::Code
+        ))
+        .unwrap()
     );
     let res = second_step(&app, &forged, &code_now(&secret)).await;
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
@@ -420,4 +424,132 @@ async fn a_disabled_account_cannot_finish_signing_in() {
     assert_eq!(res.status(), StatusCode::OK);
     let res = second_step(&app, &pending, &code_now(&secret)).await;
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// A site with `TOTP_REQUIRED`.
+async fn required_app() -> (axum::Router, AppState) {
+    let mut state = AppState::new(api::db::temporary().await);
+    state.totp_required = true;
+    (router(state.clone()), state)
+}
+
+/// The password step where two-factor is required and not set up: the enrollment challenge.
+async fn enroll_challenge(app: &axum::Router, email: &str, password: &str) -> String {
+    let res = login(app, email, password).await;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    assert!(cookie_named(&res, api::auth::SESSION_COOKIE).is_none());
+    let cookie = cookie_named(&res, "woodmouse_2fa").expect("a challenge cookie");
+    let body = json(res).await;
+    assert_eq!(body["totp_setup_required"], true);
+    assert_eq!(body["totp_required"], false);
+    cookie
+}
+
+/// Set up two-factor from the sign-in: the session and the secret.
+async fn enroll(app: &axum::Router, challenge: &str) -> (String, String) {
+    let res = request(
+        app,
+        post_json("/api/auth/login/totp/setup", "{}", Some(challenge)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let secret = json(res).await["secret"].as_str().unwrap().to_string();
+    let wrong = totp::code_at(&secret, totp::current_step() + 5).unwrap();
+    let body = |code: &str| format!(r#"{{"code":"{code}"}}"#);
+    let res = request(
+        app,
+        post_json(
+            "/api/auth/login/totp/enable",
+            &body(&wrong),
+            Some(challenge),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = request(
+        app,
+        post_json(
+            "/api/auth/login/totp/enable",
+            &body(&code_now(&secret)),
+            Some(challenge),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let session = cookie_named(&res, api::auth::SESSION_COOKIE).expect("a session");
+    let enrolled = json(res).await;
+    assert_eq!(
+        enrolled["codes"].as_array().unwrap().len(),
+        totp::RECOVERY_CODES
+    );
+    assert_eq!(enrolled["user"]["email"], ADMIN);
+    (session, secret)
+}
+
+#[tokio::test]
+async fn where_it_is_required_the_password_sign_in_sets_it_up_first() {
+    let (app, state) = required_app().await;
+    let first = bootstrap_admin(&app).await;
+    let status = json(request(&app, get("/api/auth/status", None)).await).await;
+    assert_eq!(status["totp_required"], true);
+
+    let enrolling = enroll_challenge(&app, ADMIN, PASSWORD).await;
+    // Not a code challenge, and not a session.
+    assert_eq!(
+        second_step(&app, &enrolling, "123456").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        me(&app, &enrolling).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    // No setup without the challenge.
+    let res = request(&app, post_json("/api/auth/login/totp/setup", "{}", None)).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let (session, secret) = enroll(&app, &enrolling).await;
+    assert_eq!(json(me(&app, &session).await).await["totp_enabled"], true);
+    // The session from before it was required is left alone.
+    assert_eq!(me(&app, &first).await.status(), StatusCode::OK);
+
+    // Next time: the code.
+    forget_used_steps(&state).await;
+    let pending = challenge(&app, ADMIN, PASSWORD).await;
+    let res = second_step(&app, &pending, &code_now(&secret)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn where_it_is_required_it_cannot_be_turned_off_but_can_be_reset() {
+    let (app, state) = required_app().await;
+    let admin = bootstrap_admin(&app).await;
+    let challenge = enroll_challenge(&app, ADMIN, PASSWORD).await;
+    let (session, secret) = enroll(&app, &challenge).await;
+    forget_used_steps(&state).await;
+
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/totp/disable",
+            &format!(r#"{{"code":"{}"}}"#, code_now(&secret)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    assert_eq!(json(me(&app, &session).await).await["totp_enabled"], true);
+
+    // The super admin resets it (here their own): the next sign-in sets it up again.
+    let id = json(me(&app, &admin).await).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let res = request(
+        &app,
+        delete(&format!("/api/admin/users/{id}/totp"), Some(&admin)),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let challenge = enroll_challenge(&app, ADMIN, PASSWORD).await;
+    enroll(&app, &challenge).await;
 }

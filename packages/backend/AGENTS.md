@@ -138,7 +138,10 @@
   single-use recovery codes stored as SHA-256 (`UserRecoveryCode`). A password login of someone with it on answers
   202 `{totp_required}` and a signed 5-minute challenge cookie (`AppState::challenge_key`, made at start), not a
   session; the second step goes through `LoginLimits`, and a right password alone does not clear the email's
-  failures. Single sign-on never asks for a code. Random bytes come from `uuid` v4 through SHA-256 (no other
+  failures. Single sign-on asks for it too: the callback sets the same challenge and redirects to
+  `/login?step=totp` (`totp::second_step` decides for both). `TOTP_REQUIRED` (`AppState::totp_required`): someone
+  without it gets an `Enroll` challenge (15 minutes; `/login?step=totp-setup`, `POST /auth/login/totp/setup` and
+  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched. Random bytes come from `uuid` v4 through SHA-256 (no other
   random source is a direct dependency). `totp_enabled` is on `Me` and `AdminUser`, never on `PublicUser`.
 - **API keys** (`routes/api_keys.rs`, `ApiKey`; `auth::from_api_key`): `wm_` + 32 random bytes (base64url), only
   the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes a session

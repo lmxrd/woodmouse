@@ -31,6 +31,7 @@ use crate::error::ApiError;
 use crate::oidc::{self, CALLBACK_PATH, Config, LOGIN_TTL_SECS, Pending};
 use crate::state::AppState;
 use crate::time;
+use crate::totp;
 use entity::{User, oidc_settings, user_identities, user_invites, users};
 
 /// The round trip to the provider; no session.
@@ -227,7 +228,11 @@ pub async fn oidc_callback(
     };
     let removal = oidc::login_cookie_removal(secure);
     match outcome {
-        Ok(session) => (session.add(removal), Redirect::to("/")).into_response(),
+        Ok(SignedIn::Session(session)) => (session.add(removal), Redirect::to("/")).into_response(),
+        // Two-factor first: the challenge cookie, and the login page's code (or setup) step.
+        Ok(SignedIn::Challenge(challenge, to)) => {
+            (challenge, CookieJar::new().add(removal), Redirect::to(to)).into_response()
+        }
         Err(refused) => {
             if refused.audited {
                 record_refusal(&state, &refused).await;
@@ -277,7 +282,7 @@ async fn finish_login(
     state: &AppState,
     params: CallbackParams,
     cookie: Option<String>,
-) -> Result<CookieJar, Refused> {
+) -> Result<SignedIn, Refused> {
     let pending: Pending = cookie
         .and_then(|value| serde_json::from_str(&value).ok())
         .ok_or(unaudited(SsoError::State))?;
@@ -414,13 +419,22 @@ impl From<sea_orm::DbErr> for SignInError {
     }
 }
 
+/// How a single sign-on ends.
+enum SignedIn {
+    /// With a session.
+    Session(CookieJar),
+    /// With a two-factor challenge, and where the login page asks for the code or the setup.
+    Challenge(SignedCookieJar, &'static str),
+}
+
 /// Find the account linked to the identity, or link the one with its verified email, or create one;
-/// then start a session. One transaction, and no network call inside it.
+/// then start a session, or a two-factor challenge (`totp::second_step`). One transaction, and no network
+/// call inside it.
 async fn sign_in(
     state: &AppState,
     config: &Config,
     identity: Identity,
-) -> Result<CookieJar, SignInError> {
+) -> Result<SignedIn, SignInError> {
     let db = state.writer().await?;
     let tx = db.begin().await?;
     // Before setup, an account made here would be a regular one, setup would then be closed ("a user
@@ -472,6 +486,16 @@ async fn sign_in(
     if !user.active {
         return Err(SignInError::Sso(SsoError::Disabled, Some(user.id)));
     }
+    if let Some(mode) = totp::second_step(&tx, state.totp_required, user.id).await? {
+        // The link (if just made) is kept; the session waits for the code, which records the login.
+        let jar = totp::challenge_jar(&state.challenge_key, state.secure_cookies, user.id, mode)?;
+        tx.commit().await?;
+        let to = match mode {
+            totp::ChallengeMode::Code => "/login?step=totp",
+            totp::ChallengeMode::Enroll => "/login?step=totp-setup",
+        };
+        return Ok(SignedIn::Challenge(jar, to));
+    }
     audit::record(
         &tx,
         Entry::admin(Some(user.id), "login")
@@ -481,7 +505,7 @@ async fn sign_in(
     .await?;
     let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
-    Ok(jar)
+    Ok(SignedIn::Session(jar))
 }
 
 async fn create_user(

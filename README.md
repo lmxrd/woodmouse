@@ -88,6 +88,7 @@ optional:
 | `WOODMOUSE_SWAGGER_UI`     | unset                   | Set to `1` to browse the API at `/swagger-ui`                                            |
 | `SMTP_*`                   | unset                   | Email, see below                                                                         |
 | `OIDC_*`                   | unset                   | Single sign-on, see below                                                                |
+| `TOTP_REQUIRED`            | unset                   | `1` to require two-factor sign-in: anyone without it sets it up at their next sign-in    |
 
 
 ### Backups
@@ -189,14 +190,18 @@ A yes/no variable with any other value stops the server from starting.
 
 ### Two-factor sign-in
 
-Anyone who signs in with a password can also require a code from an
-authenticator app (any TOTP app: Aegis, 1Password, Google Authenticator, ...)
+Anyone can also require a code from an authenticator app at every sign-in,
+password or single sign-on (any TOTP app: Aegis, 1Password, Google Authenticator, ...)
 under **Settings → Password & two-factor**: scan the QR code, enter the code it
 shows, and keep the ten recovery codes, each of which signs in once in place of
-a code. Turning it off or making new recovery codes needs a code. Single
-sign-on does not ask for one: the provider is where its second factor belongs.
+a code. Turning it off or making new recovery codes needs a code.
 Someone who lost both their app and their recovery codes asks the super admin,
 who can reset it under **Site admin → Users**.
+
+With `TOTP_REQUIRED=1`, every sign-in (password or single sign-on) of someone
+without two-factor sets it up before going in, and nobody can turn it off.
+Sessions that already exist are left alone. After the super admin resets
+someone's two-factor, they set it up again at their next sign-in.
 
 ### Docker notes
 

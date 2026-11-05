@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import type { TotpSetup } from "woodmouse-sdk";
 import {
+  authStatusOptions,
   meOptions,
   meQueryKey,
   totpDisableMutation,
@@ -17,12 +18,13 @@ import { Input } from "../ui/input";
 import { Section } from "./AccountPage";
 
 /**
- * Two-factor sign-in: a code from an authenticator app on top of the password. Off: set it up (scan,
- * confirm a code, keep the recovery codes). On: new recovery codes, or turn it off; both need a code.
- * Single sign-on never asks for it.
+ * Two-factor sign-in: a code from an authenticator app at every sign-in, password or single sign-on. Off:
+ * set it up (scan, confirm a code, keep the recovery codes). On: new recovery codes, or turn it off (not
+ * where the site requires it); both need a code.
  */
 export function TwoFactorSection() {
   const { data: me } = useQuery(meOptions());
+  const { data: status } = useQuery(authStatusOptions());
   // Recovery codes just made: shown once, until dismissed.
   const [codes, setCodes] = useState<string[] | null>(null);
   if (!me) return null;
@@ -32,7 +34,7 @@ export function TwoFactorSection() {
       {codes ? (
         <RecoveryCodes codes={codes} onDone={() => setCodes(null)} />
       ) : me.totp_enabled ? (
-        <Enabled onNewCodes={setCodes} />
+        <Enabled required={status?.totp_required ?? false} onNewCodes={setCodes} />
       ) : (
         <Setup onEnabled={setCodes} />
       )}
@@ -67,8 +69,7 @@ function Setup({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
-          Off. Turn it on to also ask for a code from an authenticator app when you sign in with
-          your password.
+          Off. Turn it on to also ask for a code from an authenticator app when you sign in.
         </p>
         <div className="flex items-center gap-3">
           <Button onClick={() => start.mutate({})} disabled={start.isPending}>
@@ -96,21 +97,7 @@ function Setup({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
         Scan this with your authenticator app, or type the key into it. Then enter the code it
         shows.
       </p>
-      <div className="flex flex-wrap items-start gap-4">
-        {/* White behind the code whatever the theme: scanners want dark on light. */}
-        <div className="border border-border bg-white p-3">
-          <QRCodeSVG value={setup.otpauth_uri} size={160} bgColor="#ffffff" fgColor="#000000" />
-        </div>
-        <Field label="Key" htmlFor="totp-secret">
-          <Input
-            id="totp-secret"
-            readOnly
-            value={setup.secret}
-            onFocus={(e) => e.target.select()}
-            className="w-80 max-w-full font-mono"
-          />
-        </Field>
-      </div>
+      <SetupQr setup={setup} />
       <Field label="Code from the app" htmlFor="totp-confirm">
         <Input
           id="totp-confirm"
@@ -139,7 +126,34 @@ function Setup({ onEnabled }: { onEnabled: (codes: string[]) => void }) {
   );
 }
 
-function Enabled({ onNewCodes }: { onNewCodes: (codes: string[]) => void }) {
+/** The QR code an authenticator app scans, and the key to type in instead. */
+export function SetupQr({ setup }: { setup: TotpSetup }) {
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      {/* White behind the code whatever the theme: scanners want dark on light. */}
+      <div className="border border-border bg-white p-3">
+        <QRCodeSVG value={setup.otpauth_uri} size={160} bgColor="#ffffff" fgColor="#000000" />
+      </div>
+      <Field label="Key" htmlFor="totp-secret">
+        <Input
+          id="totp-secret"
+          readOnly
+          value={setup.secret}
+          onFocus={(e) => e.target.select()}
+          className="w-80 max-w-full font-mono"
+        />
+      </Field>
+    </div>
+  );
+}
+
+function Enabled({
+  required,
+  onNewCodes,
+}: {
+  required: boolean;
+  onNewCodes: (codes: string[]) => void;
+}) {
   const refresh = useRefreshMe();
   const [code, setCode] = useState("");
   const disable = useMutation({
@@ -163,7 +177,7 @@ function Enabled({ onNewCodes }: { onNewCodes: (codes: string[]) => void }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        On. Signing in with your password also asks for a code from your authenticator app.
+        On. Signing in also asks for a code from your authenticator app.
       </p>
       <Field label="Code from the app, or a recovery code" htmlFor="totp-code">
         <Input
@@ -182,13 +196,16 @@ function Enabled({ onNewCodes }: { onNewCodes: (codes: string[]) => void }) {
         >
           New recovery codes
         </Button>
-        <Button
-          variant="destructive"
-          disabled={!code.trim() || disable.isPending}
-          onClick={() => disable.mutate({ body: { code: code.trim() } })}
-        >
-          Turn off
-        </Button>
+        {/* Where it is required (`TOTP_REQUIRED`) it cannot be turned off. */}
+        {required ? null : (
+          <Button
+            variant="destructive"
+            disabled={!code.trim() || disable.isPending}
+            onClick={() => disable.mutate({ body: { code: code.trim() } })}
+          >
+            Turn off
+          </Button>
+        )}
         {failed ? (
           <span role="alert" className="text-sm text-destructive">
             That code did not work.
@@ -199,7 +216,15 @@ function Enabled({ onNewCodes }: { onNewCodes: (codes: string[]) => void }) {
   );
 }
 
-function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+export function RecoveryCodes({
+  codes,
+  onDone,
+  doneLabel = "I have saved them",
+}: {
+  codes: string[];
+  onDone: () => void;
+  doneLabel?: string;
+}) {
   const [copied, setCopied] = useState(false);
   return (
     <div role="status" className="flex flex-col gap-3 border border-primary bg-accent p-3">
@@ -222,7 +247,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
           {copied ? "Copied" : "Copy"}
         </Button>
         <Button type="button" variant="ghost" onClick={onDone}>
-          I have saved them
+          {doneLabel}
         </Button>
       </div>
     </div>

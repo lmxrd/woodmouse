@@ -35,12 +35,10 @@ export function SettingsLayout() {
           <Link to="/settings/calendar" className={link} activeProps={{ className: active }}>
             Calendar links
           </Link>
-          {/* No passwords at all with single sign-on only (`OIDC_ONLY`). */}
-          {status?.password_login === false ? null : (
-            <Link to="/settings/password" className={link} activeProps={{ className: active }}>
-              Password & two-factor
-            </Link>
-          )}
+          <Link to="/settings/password" className={link} activeProps={{ className: active }}>
+            {/* No passwords with single sign-on only (`OIDC_ONLY`); two-factor is there either way. */}
+            {status?.password_login === false ? "Two-factor" : "Password & two-factor"}
+          </Link>
           {me?.super_admin ? (
             <>
               <p className={cn("label-mono px-3 pt-3 text-muted-foreground max-md:hidden")}>
