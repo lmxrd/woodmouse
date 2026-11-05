@@ -412,6 +412,34 @@ async fn an_account_is_matched_by_verified_email_then_by_subject() {
 }
 
 #[tokio::test]
+async fn single_sign_on_does_not_ask_for_a_two_factor_code() {
+    let provider = Provider::start().await;
+    let (app, state) = setup(&provider).await;
+    let admin = bootstrap_admin(&app).await;
+    let id = me(&app, &admin).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    entity::user_totp::ActiveModel {
+        user_id: Set(id),
+        secret: Set(api::totp::new_secret()),
+        enabled_at: Set(Some(api::time::now())),
+        last_step: Set(None),
+        created_at: Set(api::time::now()),
+    }
+    .insert(state.db())
+    .await
+    .unwrap();
+
+    // The provider is where its second factor belongs.
+    let (to, session) = sign_in(&app, &provider, "sub-1", Some("admin@home.io")).await;
+    assert_eq!(to, "/");
+    let user = me(&app, &session.unwrap()).await;
+    assert_eq!(user["totp_enabled"], true);
+}
+
+#[tokio::test]
 async fn an_email_the_provider_does_not_vouch_for_matches_nobody() {
     let provider = Provider::start().await;
     let (app, _) = setup(&provider).await;

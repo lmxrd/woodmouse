@@ -381,6 +381,8 @@ async fn entities_match_the_tables() {
         tasks,
         user_identities,
         user_invites,
+        user_recovery_codes,
+        user_totp,
         users,
         watches,
         wiki_pages,

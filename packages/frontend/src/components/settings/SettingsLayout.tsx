@@ -35,7 +35,7 @@ export function SettingsLayout() {
             Calendar links
           </Link>
           <Link to="/settings/password" className={link} activeProps={{ className: active }}>
-            Password
+            Password & two-factor
           </Link>
           {me?.super_admin ? (
             <>

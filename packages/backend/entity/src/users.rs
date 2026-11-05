@@ -68,6 +68,10 @@ pub enum Relation {
     UserIdentities,
     #[sea_orm(has_many = "super::user_invites::Entity")]
     UserInvites,
+    #[sea_orm(has_many = "super::user_recovery_codes::Entity")]
+    UserRecoveryCodes,
+    #[sea_orm(has_one = "super::user_totp::Entity")]
+    UserTotp,
     #[sea_orm(has_many = "super::watches::Entity")]
     Watches,
     #[sea_orm(has_many = "super::workspace_members::Entity")]
@@ -137,6 +141,18 @@ impl Related<super::user_identities::Entity> for Entity {
 impl Related<super::user_invites::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::UserInvites.def()
+    }
+}
+
+impl Related<super::user_recovery_codes::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserRecoveryCodes.def()
+    }
+}
+
+impl Related<super::user_totp::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserTotp.def()
     }
 }
 

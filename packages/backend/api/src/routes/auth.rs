@@ -4,7 +4,8 @@ use entity::users;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum_extra::extract::cookie::CookieJar;
+use axum::response::{IntoResponse, Response};
+use axum_extra::extract::cookie::{CookieJar, SignedCookieJar};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -13,6 +14,7 @@ use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
 use crate::state::AppState;
+use crate::totp;
 use entity::{Role, User};
 
 /// Routes reachable without a session.
@@ -21,6 +23,7 @@ pub fn public_router() -> OpenApiRouter<AppState> {
         .routes(routes!(auth_status))
         .routes(routes!(bootstrap))
         .routes(routes!(login))
+        .routes(routes!(login_totp))
 }
 
 /// Routes requiring a session (the auth layer in `routes::mod` enforces it;
@@ -30,6 +33,10 @@ pub fn protected_router() -> OpenApiRouter<AppState> {
         .routes(routes!(logout))
         .routes(routes!(me, update_me))
         .routes(routes!(change_password))
+        .routes(routes!(totp_setup))
+        .routes(routes!(totp_enable))
+        .routes(routes!(totp_disable))
+        .routes(routes!(totp_recovery_codes))
 }
 
 pub const DATE_FORMATS: [&str; 4] = ["YYYY-MM-DD", "DD.MM.YYYY", "MM/DD/YYYY", "D MMM YYYY"];
@@ -68,14 +75,17 @@ pub struct Me {
     /// Whether they have a password (someone signing in only through single sign-on may have none; then
     /// setting one needs no current password). Not in `PublicUser`, so coworkers cannot see who has one.
     pub has_password: bool,
+    /// Whether signing in with the password also asks for a code from an authenticator app.
+    pub totp_enabled: bool,
 }
 
-impl From<&User> for Me {
-    fn from(user: &User) -> Self {
-        Self {
+impl Me {
+    pub async fn load(db: &impl crate::db::Db, user: &User) -> Result<Self, ApiError> {
+        Ok(Self {
             user: PublicUser::from(user),
             has_password: user.password_hash.is_some(),
-        }
+            totp_enabled: totp::enabled(db, user.id).await?.is_some(),
+        })
     }
 }
 
@@ -219,7 +229,16 @@ pub async fn bootstrap(
     Ok((StatusCode::CREATED, jar, Json(PublicUser::from(&user))))
 }
 
-/// Log in with email + password; sets the session cookie.
+/// The password was right, and a code from the authenticator app (or a recovery code) is needed too:
+/// send it to `POST /auth/login/totp` within five minutes.
+#[derive(Serialize, ToSchema)]
+pub struct TotpChallenge {
+    /// Always true.
+    pub totp_required: bool,
+}
+
+/// Log in with email + password; sets the session cookie. Someone with two-factor on gets a 202 and a
+/// short-lived challenge cookie instead, and the session from `POST /auth/login/totp`.
 #[utoipa::path(
     post,
     path = "/auth/login",
@@ -227,6 +246,7 @@ pub async fn bootstrap(
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
+        (status = 202, description = "The password is right; a two-factor code is needed", body = TotpChallenge),
         (status = 401, description = "Invalid credentials")
     )
 )]
@@ -234,7 +254,7 @@ pub async fn login(
     State(state): State<AppState>,
     ClientAddr(address): ClientAddr,
     Json(input): Json<LoginRequest>,
-) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
+) -> Result<Response, ApiError> {
     let email = input.email.trim().to_lowercase();
     // Repeated failures wait longer (never a lockout).
     let delay = state.login_limits.delay(&email, address.as_deref());
@@ -259,6 +279,23 @@ pub async fn login(
         let _ = audit::record(&*db, Entry::admin(None, "login_failed")).await;
         return Err(ApiError::unauthorized());
     };
+
+    if totp::enabled(&*db, user.id).await?.is_some() {
+        // Not `succeeded` yet: the failures for this email keep counting until the code is right too, or
+        // the password alone would buy fresh guesses at the code.
+        let challenge = serde_json::to_string(&totp::Challenge::new(user.id))
+            .map_err(|_| ApiError::internal("could not make the challenge"))?;
+        let jar = SignedCookieJar::new(state.challenge_key.clone())
+            .add(totp::challenge_cookie(challenge, state.secure_cookies));
+        return Ok((
+            StatusCode::ACCEPTED,
+            jar,
+            Json(TotpChallenge {
+                totp_required: true,
+            }),
+        )
+            .into_response());
+    }
     state.login_limits.succeeded(&email);
 
     let tx = db.begin().await?;
@@ -269,7 +306,90 @@ pub async fn login(
     .await?;
     let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
-    Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
+    Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))).into_response())
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct TotpCode {
+    /// Six digits from the authenticator app, or one of the recovery codes.
+    pub code: String,
+}
+
+/// The second step of a password sign-in with two-factor on: the code, with the challenge cookie from
+/// `POST /auth/login`. Sets the session cookie.
+#[utoipa::path(
+    post,
+    path = "/auth/login/totp",
+    tag = "auth",
+    request_body = TotpCode,
+    responses(
+        (status = 200, description = "Logged in", body = PublicUser),
+        (status = 401, description = "Wrong code, or no current challenge (start again from the password)")
+    )
+)]
+pub async fn login_totp(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    headers: axum::http::HeaderMap,
+    Json(input): Json<TotpCode>,
+) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
+    // A cookie whose signature does not verify (forged, or from before a restart) is not there at all.
+    let challenge: totp::Challenge =
+        SignedCookieJar::from_headers(&headers, state.challenge_key.clone())
+            .get(totp::challenge_cookie_name(state.secure_cookies))
+            .and_then(|c| serde_json::from_str(c.value()).ok())
+            .filter(totp::Challenge::is_current)
+            .ok_or_else(ApiError::unauthorized)?;
+    let user = users::Entity::find_by_id(challenge.user_id)
+        .one_or_not_found(state.db())
+        .await
+        .map_err(|_| ApiError::unauthorized())?;
+    let delay = state.login_limits.delay(&user.email, address.as_deref());
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    let row = totp::enabled(&tx, user.id).await?;
+    let proof = match (&row, user.active) {
+        (Some(row), true) => totp::verify(&tx, row, &input.code).await?,
+        _ => None,
+    };
+    let Some(proof) = proof else {
+        drop(tx);
+        state.login_limits.failed(&user.email, address.as_deref());
+        let _ = audit::record(
+            &*db,
+            Entry::admin(None, "login_failed")
+                .target("user", user.id)
+                .data(serde_json::json!({ "method": "password", "reason": "totp" })),
+        )
+        .await;
+        return Err(ApiError::unauthorized());
+    };
+    state.login_limits.succeeded(&user.email);
+    if proof == totp::Proof::RecoveryCode {
+        audit::record(
+            &tx,
+            Entry::admin(Some(user.id), "recovery_code_used").target("user", user.id),
+        )
+        .await?;
+    }
+    audit::record(
+        &tx,
+        Entry::admin(Some(user.id), "login")
+            .target("user", user.id)
+            .data(serde_json::json!({ "totp": true })),
+    )
+    .await?;
+    let (_, session) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
+    tx.commit().await?;
+    Ok((
+        StatusCode::OK,
+        session.add(totp::challenge_cookie_removal(state.secure_cookies)),
+        Json(PublicUser::from(&user)),
+    ))
 }
 
 /// Log out: delete the session and clear the cookie.
@@ -315,8 +435,11 @@ pub async fn logout(
         (status = 401, description = "Not logged in")
     )
 )]
-pub async fn me(CurrentUser { user, .. }: CurrentUser) -> Json<Me> {
-    Json(Me::from(&user))
+pub async fn me(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+) -> Result<Json<Me>, ApiError> {
+    Ok(Json(Me::load(state.db(), &user).await?))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -430,7 +553,7 @@ pub async fn update_me(
         update.timezone = Set(Some(zone));
     }
     let current = update.update(db).await?;
-    Ok(Json(Me::from(&current)))
+    Ok(Json(Me::load(db, &current).await?))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -524,4 +647,210 @@ impl axum::extract::FromRequestParts<AppState> for ClientAddr {
             .map(|v| v.trim().to_string());
         Ok(ClientAddr(forwarded.or(from_connection)))
     }
+}
+
+/// A new authenticator secret, to show as a QR code (`otpauth_uri`) and as text (`secret`).
+#[derive(Serialize, ToSchema)]
+pub struct TotpSetup {
+    /// Base32, for typing into the app.
+    pub secret: String,
+    /// `otpauth://totp/...`, for the QR code.
+    pub otpauth_uri: String,
+}
+
+/// Recovery codes, shown this once: each signs in once in place of a code from the app.
+#[derive(Serialize, ToSchema)]
+pub struct RecoveryCodes {
+    pub codes: Vec<String>,
+}
+
+/// Start setting up two-factor sign-in: a new secret for the authenticator app. Nothing changes until it
+/// is confirmed with a code (`POST /auth/totp/enable`); starting again replaces an unconfirmed secret.
+#[utoipa::path(
+    post,
+    path = "/auth/totp/setup",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "The new secret", body = TotpSetup),
+        (status = 401, description = "Not logged in"),
+        (status = 409, description = "Two-factor is already on (turn it off first)")
+    )
+)]
+pub async fn totp_setup(
+    State(state): State<AppState>,
+    CurrentUser { user, .. }: CurrentUser,
+) -> Result<Json<TotpSetup>, ApiError> {
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    if totp::enabled(&tx, user.id).await?.is_some() {
+        return Err(ApiError::conflict("two-factor sign-in is already on"));
+    }
+    let secret = totp::new_secret();
+    entity::user_totp::Entity::delete_many()
+        .filter(entity::user_totp::Column::UserId.eq(user.id))
+        .exec(&tx)
+        .await?;
+    entity::user_totp::ActiveModel {
+        user_id: Set(user.id),
+        secret: Set(secret.clone()),
+        enabled_at: Set(None),
+        last_step: Set(None),
+        created_at: Set(crate::time::now()),
+    }
+    .insert(&tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(TotpSetup {
+        otpauth_uri: totp::otpauth_uri(&secret, &user.email)?,
+        secret,
+    }))
+}
+
+/// Wait out the slow-down for repeated wrong codes, as at sign-in.
+async fn slow_down(state: &AppState, user: &User, address: Option<&str>) {
+    let delay = state.login_limits.delay(&user.email, address);
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+}
+
+/// Turn two-factor on with the first code from the app. Answers the recovery codes, which are not shown
+/// again.
+#[utoipa::path(
+    post,
+    path = "/auth/totp/enable",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = TotpCode,
+    responses(
+        (status = 200, description = "Two-factor is on", body = RecoveryCodes),
+        (status = 400, description = "Wrong code, or no setup started"),
+        (status = 401, description = "Not logged in"),
+        (status = 409, description = "Two-factor is already on")
+    )
+)]
+pub async fn totp_enable(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<TotpCode>,
+) -> Result<Json<RecoveryCodes>, ApiError> {
+    slow_down(&state, &user, address.as_deref()).await;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    let row = entity::user_totp::Entity::find_by_id(user.id)
+        .one(&tx)
+        .await?
+        .ok_or_else(|| ApiError::bad_request("start the setup first"))?;
+    if row.enabled_at.is_some() {
+        return Err(ApiError::conflict("two-factor sign-in is already on"));
+    }
+    if !totp::accept_app_code(&tx, &row, input.code.trim()).await? {
+        drop(tx);
+        state.login_limits.failed(&user.email, address.as_deref());
+        return Err(ApiError::bad_request("that code is not right"));
+    }
+    entity::user_totp::ActiveModel {
+        user_id: Unchanged(user.id),
+        enabled_at: Set(Some(crate::time::now())),
+        ..Default::default()
+    }
+    .update(&tx)
+    .await?;
+    let codes = totp::new_recovery_codes(&tx, user.id).await?;
+    audit::record(
+        &tx,
+        Entry::admin(Some(user.id), "totp_enabled").target("user", user.id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(RecoveryCodes { codes }))
+}
+
+/// Check a code of someone with two-factor on, for turning it off or making new recovery codes.
+async fn require_code(
+    state: &AppState,
+    tx: &sea_orm::DatabaseTransaction,
+    user: &User,
+    address: Option<&str>,
+    code: &str,
+) -> Result<totp::Proof, ApiError> {
+    let row = totp::enabled(tx, user.id)
+        .await?
+        .ok_or_else(|| ApiError::bad_request("two-factor sign-in is off"))?;
+    match totp::verify(tx, &row, code).await? {
+        Some(proof) => Ok(proof),
+        None => {
+            state.login_limits.failed(&user.email, address);
+            Err(ApiError::bad_request("that code is not right"))
+        }
+    }
+}
+
+/// Turn two-factor off, with a code from the app or a recovery code.
+#[utoipa::path(
+    post,
+    path = "/auth/totp/disable",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = TotpCode,
+    responses(
+        (status = 204, description = "Two-factor is off"),
+        (status = 400, description = "Wrong code, or two-factor is off already"),
+        (status = 401, description = "Not logged in")
+    )
+)]
+pub async fn totp_disable(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<TotpCode>,
+) -> Result<StatusCode, ApiError> {
+    slow_down(&state, &user, address.as_deref()).await;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    require_code(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    totp::remove(&tx, user.id).await?;
+    audit::record(
+        &tx,
+        Entry::admin(Some(user.id), "totp_disabled").target("user", user.id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Replace the recovery codes with new ones (the old ones stop working), with a code from the app or a
+/// recovery code.
+#[utoipa::path(
+    post,
+    path = "/auth/totp/recovery-codes",
+    tag = "auth",
+    security(("session_cookie" = [])),
+    request_body = TotpCode,
+    responses(
+        (status = 200, description = "The new recovery codes", body = RecoveryCodes),
+        (status = 400, description = "Wrong code, or two-factor is off"),
+        (status = 401, description = "Not logged in")
+    )
+)]
+pub async fn totp_recovery_codes(
+    State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
+    CurrentUser { user, .. }: CurrentUser,
+    Json(input): Json<TotpCode>,
+) -> Result<Json<RecoveryCodes>, ApiError> {
+    slow_down(&state, &user, address.as_deref()).await;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    require_code(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    let codes = totp::new_recovery_codes(&tx, user.id).await?;
+    audit::record(
+        &tx,
+        Entry::admin(Some(user.id), "recovery_codes_renewed").target("user", user.id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(RecoveryCodes { codes }))
 }

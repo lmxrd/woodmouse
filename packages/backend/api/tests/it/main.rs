@@ -22,4 +22,5 @@ mod tasks;
 mod themes;
 mod transfer;
 mod trash;
+mod two_factor;
 mod views;

@@ -170,10 +170,21 @@ A yes/no variable with any other value stops the server from starting.
   an admin adds them. With a public provider (Google), that means anyone.
 - **Passwords keep working.** The first account is always made with a password.
   Someone who signs in only through single sign-on can set a password under
-  **Settings → Password**.
+  **Settings → Password & two-factor**.
 - Saving the settings checks the provider first and refuses what it cannot
   reach. They apply at once, without a restart. The client secret is stored in
   the database as typed and is never shown again.
+
+### Two-factor sign-in
+
+Anyone who signs in with a password can also require a code from an
+authenticator app (any TOTP app: Aegis, 1Password, Google Authenticator, ...)
+under **Settings → Password & two-factor**: scan the QR code, enter the code it
+shows, and keep the ten recovery codes, each of which signs in once in place of
+a code. Turning it off or making new recovery codes needs a code. Single
+sign-on does not ask for one: the provider is where its second factor belongs.
+Someone who lost both their app and their recovery codes asks the super admin,
+who can reset it under **Site admin → Users**.
 
 ### Docker notes
 
