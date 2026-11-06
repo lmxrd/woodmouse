@@ -63,7 +63,7 @@
   transaction (`tx.commit().await?`). There is no global DB mutex. Never hold the writer while calling `Rooms`
   (they take it themselves).
 - Shared route helpers (PATCH `double_option`, text validation, downloads) are in `src/api.rs`; env settings go through `src/config.rs`:
-  variables are unprefixed (`DATABASE_PATH`, `SWAGGER_UI`, `TRUST_PROXY`, `OIDC_*`, `TOTP_REQUIRED`; the README's
+  variables are unprefixed (`DATABASE_URL`, a database URL, `SWAGGER_UI`, `TRUST_PROXY`, `OIDC_*`, `TOTP_REQUIRED`; the README's
   table lists them), every yes/no one goes through `config::flag` (a bad value stops the start), and logging
   follows `RUST_LOG` (`info` by default).
 - Handlers live in `src/routes/`; every handler carries a `#[utoipa::path]`

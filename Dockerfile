@@ -23,7 +23,7 @@ RUN apk upgrade --no-cache \
 # --chmod: the executable bit does not survive every way a binary reaches dist/.
 COPY --chmod=755 ${BINARY} /usr/local/bin/woodmouse
 ENV PORT=8000 \
-    DATABASE_PATH=/data/woodmouse.db \
+    DATABASE_URL=sqlite:/data/woodmouse.db \
     DATA_DIR=/data
 VOLUME /data
 EXPOSE 8000

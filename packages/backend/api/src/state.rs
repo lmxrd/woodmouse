@@ -90,19 +90,19 @@ impl AppState {
         }
     }
 
-    /// Open the database file at `path` (created when missing): apply the migrations, restore
+    /// Open the database at `url` (`sqlite:<path>`, created when missing): apply the migrations, restore
     /// the search triggers, and set up the file storage from the environment. What the server and the
     /// development tools (`seed`) start from.
-    pub async fn open(path: &str) -> anyhow::Result<Self> {
+    pub async fn open(url: &str) -> anyhow::Result<Self> {
         // The schema: the migrations in the `migration` crate, each applied once, before the app's
         // connections are opened (see `db::migrated`).
-        let db = crate::db::migrated(path)
+        let db = crate::db::migrated(url)
             .await
-            .with_context(|| format!("could not open and migrate the database {path}"))?;
+            .with_context(|| format!("could not open and migrate the database {url}"))?;
         crate::search::ensure_triggers(&db)
             .await
             .map_err(|_| anyhow::anyhow!("could not create the search triggers"))?;
-        tracing::info!(path, "database ready");
+        tracing::info!(url, "database ready");
         let files = FileStores::from_env().map_err(anyhow::Error::msg)?;
         tracing::info!(
             max_upload_bytes = files.max_upload_bytes,

@@ -32,10 +32,11 @@ async fn main() -> anyhow::Result<()> {
         return run_healthcheck().await;
     }
 
-    // The database file (`DATABASE_PATH`), created when missing.
-    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "woodmouse.db".to_string());
+    // `sqlite:<path>` opens a file-backed database (created when missing).
+    let db_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:woodmouse.db".to_string());
 
-    let state = AppState::open(&db_path).await.context("could not start")?;
+    let state = AppState::open(&db_url).await.context("could not start")?;
 
     match std::env::args().nth(1).as_deref() {
         None | Some("serve") => {}

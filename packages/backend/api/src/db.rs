@@ -6,6 +6,7 @@
 //! [`Writer`](crate::state::Writer) and a transaction all are, so a helper works inside or outside a
 //! transaction.
 
+use std::str::FromStr;
 use std::time::Duration;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, SqlxSqliteConnector, TransactionTrait};
@@ -17,10 +18,10 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 pub trait Db: ConnectionTrait + TransactionTrait {}
 impl<T: ConnectionTrait + TransactionTrait> Db for T {}
 
-/// Open the database file at `path`, creating it when missing. WAL, so reads run beside the one writer.
-pub async fn connect(path: impl AsRef<std::path::Path>) -> Result<SqlitePool, sqlx::Error> {
-    let options = SqliteConnectOptions::new()
-        .filename(path)
+/// Open the database at `url` (`sqlite:path`, `DATABASE_URL`), creating the file when missing. WAL, so
+/// reads run beside the one writer.
+pub async fn connect(url: &str) -> Result<SqlitePool, sqlx::Error> {
+    let options = SqliteConnectOptions::from_str(url)?
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
@@ -37,26 +38,25 @@ pub fn orm(pool: SqlitePool) -> DatabaseConnection {
     SqlxSqliteConnector::from_sqlx_sqlite_pool(pool)
 }
 
-/// Apply the pending migrations to the database at `path`, then open it for the app.
+/// Apply the pending migrations to the database at `url`, then open it for the app.
 ///
 /// The migrations run on a pool of their own, closed before the app's is opened: a connection that
 /// loaded the schema before a migration changed a table can prepare a statement against its stale copy
 /// (SQLite checks the schema only when the statement runs, and re-prepares it then), and sqlx keeps the
 /// column list of that first preparation, so a row would be read without its new columns ("missing
 /// value for column ..."). Fresh connections see the migrated schema.
-pub async fn migrated(path: impl AsRef<std::path::Path>) -> anyhow::Result<DatabaseConnection> {
-    let path = path.as_ref();
-    let pool = connect(path).await?;
+pub async fn migrated(url: &str) -> anyhow::Result<DatabaseConnection> {
+    let pool = connect(url).await?;
     let result = migration::Migrator::up(&orm(pool.clone()), None).await;
     pool.close().await;
     result?;
-    Ok(orm(connect(path).await?))
+    Ok(orm(connect(url).await?))
 }
 
 /// A fresh database in a temporary file, migrated (tests, and anything that needs a throwaway database).
 pub async fn temporary() -> DatabaseConnection {
     let path = std::env::temp_dir().join(format!("woodmouse-test-{}.db", uuid::Uuid::new_v4()));
-    migrated(&path)
+    migrated(&format!("sqlite:{}", path.display()))
         .await
         .expect("a migrated temporary database")
 }

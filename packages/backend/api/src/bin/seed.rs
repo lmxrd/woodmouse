@@ -421,8 +421,9 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
-    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "woodmouse.db".to_string());
-    let state = AppState::open(&db_path).await?;
+    let db_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:woodmouse.db".to_string());
+    let state = AppState::open(&db_url).await?;
     let has_users = !users::Entity::find()
         .all(state.db())
         .await

@@ -17,7 +17,7 @@ API service built with axum, utoipa (OpenAPI), and SeaORM on SQLite.
 Environment variables (see `src/main.rs`):
 
 - `BIND_ADDR` — listen address (default `0.0.0.0:8000`)
-- `DATABASE_PATH` — the SQLite database file (default `woodmouse.db`)
+- `DATABASE_URL` — SQLite URL (default `sqlite:woodmouse.db`)
 
 ## Docker
 

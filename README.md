@@ -82,7 +82,7 @@ optional:
 | --- | --- | --- |
 | `PORT` | `8000` | The port to listen on |
 | `PUBLIC_URL` | from the request | Your address, like `https://tasks.example.com`, for links in emails and calendar events. Starting with `https://`, every cookie gets `Secure` and the `__Host-` prefix |
-| `DATABASE_PATH` | `woodmouse.db` | The SQLite database file (the Docker image uses `/data/woodmouse.db`) |
+| `DATABASE_URL` | `sqlite:woodmouse.db` | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`) |
 | `DATA_DIR` | `data` | Where uploaded files live (the Docker image uses `/data`) |
 | `MAX_UPLOAD_MB` | `25` | The largest accepted upload |
 | `TRUST_PROXY` | unset | `true` behind a reverse proxy that sets `X-Forwarded-For`: the sign-in limits then count by the client's address from it |
@@ -267,9 +267,7 @@ is listed here (and in its release notes), newest last.
 
 ### Unreleased
 
-- **Renamed and removed variables.** `DATABASE_URL` is now `DATABASE_PATH`,
-  a file path (`/data/woodmouse.db` in the image, not
-  `sqlite:/data/woodmouse.db`). `WOODMOUSE_SWAGGER_UI` is `SWAGGER_UI`.
+- **Renamed and removed variables.** `WOODMOUSE_SWAGGER_UI` is `SWAGGER_UI`.
   `WOODMOUSE_SECURE_COOKIES` is gone: a `PUBLIC_URL` starting with
   `https://` makes cookies secure. `OIDC_DISPLAY_NAME` is `OIDC_LABEL`.
   `OIDC_ENABLED` is gone: single sign-on is on once it has an issuer and a
