@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 
-import { MobileNav } from "../components/layout/MobileNav";
-import { Sidebar } from "../components/layout/Sidebar";
-import { SearchPalette } from "../components/search/SearchPalette";
+import { MobileNav } from "../components/layout/mobile-nav";
+import { Sidebar } from "../components/layout/sidebar";
+import { SearchPalette } from "../components/search/search-palette";
 import { requireLogin } from "../lib/auth";
 
 export const Route = createFileRoute("/w/$workspaceId")({

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { MaintenanceTab } from "../components/admin/MaintenanceTab";
+import { MaintenanceTab } from "../components/admin/maintenance-tab";
 
 export const Route = createFileRoute("/settings/admin/maintenance")({
   component: () => (

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 
-import { TaskDetail } from "../components/task/TaskDetail";
+import { TaskDetail } from "../components/task/task-detail";
 
 /** The same task view as a full page, for bookmarks and sharing. */
 export const Route = createFileRoute("/w/$workspaceId/t/$taskId")({

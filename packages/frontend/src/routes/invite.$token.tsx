@@ -7,7 +7,7 @@ import {
   getInviteOptions,
 } from "woodmouse-sdk/react-query";
 
-import { AuthField, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
+import { AuthField, AuthSheet, ErrorNote } from "../components/layout/auth-sheet";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { finishLogin } from "../lib/auth";

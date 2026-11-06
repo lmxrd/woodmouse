@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { authStatusOptions } from "woodmouse-sdk/react-query";
 
-import { PasswordSection } from "../components/settings/AccountPage";
-import { TwoFactorSection } from "../components/settings/TwoFactorSection";
+import { PasswordSection } from "../components/settings/account-page";
+import { TwoFactorSection } from "../components/settings/two-factor-section";
 
 export const Route = createFileRoute("/settings/password")({
   component: PasswordSettings,

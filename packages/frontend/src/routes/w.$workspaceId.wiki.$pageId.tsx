@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { WikiPage } from "../components/wiki/WikiPage";
+import { WikiPage } from "../components/wiki/wiki-page";
 
 export const Route = createFileRoute("/w/$workspaceId/wiki/$pageId")({
   component: function WikiPageRoute() {

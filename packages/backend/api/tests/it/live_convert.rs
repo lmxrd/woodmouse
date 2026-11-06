@@ -1,5 +1,5 @@
 //! The server reads documents written by the real editor (fixtures produced by the frontend test
-//! `yjsFixtures.test.ts`) and must get the same blocks the editor's own save produces.
+//! `yjs-fixtures.test.ts`) and must get the same blocks the editor's own save produces.
 
 use api::blocks::{BlockData, validate_blocks};
 use api::live::convert::blocks_from_doc;

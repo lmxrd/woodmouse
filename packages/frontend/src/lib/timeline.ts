@@ -8,7 +8,7 @@ import {
   taskSpan,
   type WeekStart,
 } from "./calendar";
-import type { Zoom } from "./projectSearch";
+import type { Zoom } from "./project-search";
 import { isDone } from "./task";
 
 /** The id of the synthetic list that holds tasks with no list (the project's inbox). */

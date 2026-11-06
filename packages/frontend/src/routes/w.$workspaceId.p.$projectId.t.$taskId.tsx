@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 
-import { ResponsiveDialog } from "../components/common/ResponsiveDialog";
-import { TaskDetail } from "../components/task/TaskDetail";
+import { ResponsiveDialog } from "../components/common/responsive-dialog";
+import { TaskDetail } from "../components/task/task-detail";
 import { Button, buttonVariants } from "../components/ui/button";
 
 /** The task as a dialog over its project's board. */

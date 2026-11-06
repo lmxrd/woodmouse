@@ -28,7 +28,9 @@
 - UI goes in `src/components/`, one folder per feature (`task/`, `board/`, `wiki/`, `admin/`, ...); `layout/` is the
   app shell (`RootLayout`, `Sidebar`), `common/` the small pieces used everywhere (dialogs, fields, avatars) and `ui/`
   the shadcn primitives. Shared helpers and
-  clients go in `src/lib/` (e.g. `queryClient`).
+  clients go in `src/lib/` (e.g. `query-client`). File names under `src/components/` and `src/lib/` are
+  kebab-case (`task-detail.tsx`, `use-theme.ts`, `page-tree.test.ts`); the exported component or hook keeps its
+  own name (`TaskDetail`, `useTheme`). `src/routes/` keeps TanStack Router's file-route names.
 - shadcn/ui runs on Base UI (`@base-ui/react`, style `base-vega` in `components.json`), not Radix. There is no
   `asChild`: pass the element to `render` (`<PopoverTrigger render={<Button variant="outline" />}>Edit</PopoverTrigger>`),
   and style a link as a button with `buttonVariants` on the `<a>`/`<Link>` itself. A `Select` shows the raw value
@@ -41,7 +43,7 @@
 - The SDK validates requests and responses against the spec (`validator: true`, zod): a backend answer
   that does not fit its OpenAPI document throws, so fix the backend's schema, not the frontend.
 - Data fetching: TanStack Query (`useQuery`/`useMutation`). Tune defaults in
-  `src/lib/queryClient.ts`; wire real endpoints by replacing `queryFn`s in
+  `src/lib/query-client.ts`; wire real endpoints by replacing `queryFn`s in
   route components.
 - Styling: Tailwind CSS v4 utility classes. Global styles live only in
   `src/index.css`; do not add a `tailwind.config.js`.
@@ -65,7 +67,7 @@
 
 - **View state belongs in the URL.** Anything that changes what a list, board, calendar, timeline or page shows
   (filters, sort, dates, zoom, search) is a validated search param (`validateSearch`; project views share
-  `lib/projectSearch.ts` and `ProjectFilters`), never local state, so a link always reproduces the view.
+  `lib/project-search.ts` and `ProjectFilters`), never local state, so a link always reproduces the view.
   Write explicit values (not "today" or a default that can change); update with `replace: true`.
 
 - Wiki editor: `PageEditor` picks live editing (`LiveBody`: Yjs + y-websocket + TipTap collaboration; the

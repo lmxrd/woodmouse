@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { WorkspacesTab } from "../components/admin/WorkspacesTab";
+import { WorkspacesTab } from "../components/admin/workspaces-tab";
 
 interface Search {
   deleted?: boolean;

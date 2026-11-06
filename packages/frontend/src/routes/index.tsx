@@ -2,7 +2,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { createWorkspaceMutation, listWorkspacesOptions } from "woodmouse-sdk/react-query";
 
-import { InlineAdd } from "../components/common/InlineAdd";
+import { InlineAdd } from "../components/common/inline-add";
 import { requireLogin } from "../lib/auth";
 
 export const Route = createFileRoute("/")({
