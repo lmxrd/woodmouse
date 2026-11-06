@@ -12,7 +12,7 @@ import {
 import { describeNotification, notificationQuote } from "../../lib/notifications";
 import { useFormatters } from "../../lib/useFormatters";
 import { cn } from "../../lib/utils";
-import { Button } from "../ui/button";
+import { Button, buttonVariants } from "../ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 /** The notifications button with its unread count; opens the list. Polls the count once a minute. */
@@ -51,19 +51,17 @@ export function NotificationBell({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm text-muted-foreground hover:text-foreground"
-          aria-label={count > 0 ? `Notifications, ${count} unread` : "Notifications"}
-        >
-          <span>Notifications</span>
-          {count > 0 ? (
-            <span className="min-w-5 bg-signal px-1.5 text-center font-mono text-[11px] text-white">
-              {count > 99 ? "99+" : count}
-            </span>
-          ) : null}
-        </button>
+      <PopoverTrigger
+        type="button"
+        className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm text-muted-foreground hover:text-foreground"
+        aria-label={count > 0 ? `Notifications, ${count} unread` : "Notifications"}
+      >
+        <span>Notifications</span>
+        {count > 0 ? (
+          <span className="min-w-5 bg-signal px-1.5 text-center font-mono text-[11px] text-white">
+            {count > 99 ? "99+" : count}
+          </span>
+        ) : null}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-0">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -74,11 +72,13 @@ export function NotificationBell({ onNavigate }: { onNavigate?: () => void }) {
                 Mark all read
               </Button>
             ) : null}
-            <Button variant="ghost" size="xs" asChild>
-              <Link to="/settings/notifications" onClick={() => setOpen(false)}>
-                Settings
-              </Link>
-            </Button>
+            <Link
+              to="/settings/notifications"
+              onClick={() => setOpen(false)}
+              className={buttonVariants({ variant: "ghost", size: "xs" })}
+            >
+              Settings
+            </Link>
           </div>
         </div>
         <ul className="max-h-96 overflow-y-auto">

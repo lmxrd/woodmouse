@@ -225,6 +225,7 @@ export function TimelineView({
           </Button>
           <Select
             value={zoom}
+            items={{ day: "Day", week: "Week", month: "Month" }}
             onValueChange={(z) =>
               void navigate({
                 search: (prev) => ({ ...prev, zoom: z as Zoom }),

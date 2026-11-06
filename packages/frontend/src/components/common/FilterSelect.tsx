@@ -17,7 +17,11 @@ export function FilterSelect({
   onChange: (value: string | undefined) => void;
 }) {
   return (
-    <Select value={value ?? ANY} onValueChange={(v) => onChange(v === ANY ? undefined : v)}>
+    <Select
+      value={value ?? ANY}
+      items={[{ value: ANY, label: anyLabel }, ...options]}
+      onValueChange={(v) => onChange(v === ANY || v === null ? undefined : v)}
+    >
       <SelectTrigger
         size="sm"
         aria-label={label}

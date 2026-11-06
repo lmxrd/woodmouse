@@ -180,7 +180,16 @@ function NewUser({ onDone }: { onDone: () => void }) {
 function RoleSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <Field label="Access to every workspace">
-      <Select value={value} onValueChange={onChange}>
+      <Select
+        value={value}
+        items={{
+          [NONE]: "No global role",
+          read: "Read everywhere",
+          write: "Write everywhere",
+          admin: "Admin everywhere",
+        }}
+        onValueChange={(v) => v && onChange(v)}
+      >
         <SelectTrigger aria-label="Global role" className="w-52">
           <SelectValue />
         </SelectTrigger>
@@ -226,7 +235,11 @@ function Memberships({ user }: { user: AdminUser }) {
         ))}
         {others.length > 0 ? (
           <div className="flex items-center gap-2 px-3 py-1.5">
-            <Select value={workspaceId} onValueChange={setWorkspaceId}>
+            <Select
+              value={workspaceId || null}
+              items={others.map((w) => ({ value: w.id, label: w.name }))}
+              onValueChange={(id) => setWorkspaceId(id ?? "")}
+            >
               <SelectTrigger size="sm" aria-label="Add to workspace" className="min-w-0 flex-1">
                 <SelectValue placeholder="Add to workspace…" />
               </SelectTrigger>
@@ -238,7 +251,11 @@ function Memberships({ user }: { user: AdminUser }) {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={role} onValueChange={(r) => setRole(r as Role)}>
+            <Select
+              value={role}
+              items={{ read: "Read", write: "Write", admin: "Admin" }}
+              onValueChange={(r) => setRole(r as Role)}
+            >
               <SelectTrigger size="sm" aria-label="Role" className="w-24">
                 <SelectValue />
               </SelectTrigger>

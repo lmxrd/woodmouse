@@ -12,7 +12,7 @@ import {
 } from "woodmouse-sdk/react-query";
 
 import { AuthField as Field, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
-import { Button } from "../components/ui/button";
+import { Button, buttonVariants } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { RecoveryCodes, SetupQr } from "../components/settings/TwoFactorSection";
 import { finishLogin } from "../lib/auth";
@@ -111,9 +111,9 @@ function LoginForm({ sso }: { sso: string | null }) {
     >
       {sso ? (
         <>
-          <Button asChild variant="outline" size="lg">
-            <a href={SSO_LOGIN_URL}>Sign in with {sso}</a>
-          </Button>
+          <a href={SSO_LOGIN_URL} className={buttonVariants({ variant: "outline", size: "lg" })}>
+            Sign in with {sso}
+          </a>
           <p className="label-mono text-center text-muted-foreground">or with your password</p>
         </>
       ) : null}
@@ -159,9 +159,9 @@ function LoginForm({ sso }: { sso: string | null }) {
 function SsoOnly({ sso }: { sso: string }) {
   return (
     <div className="flex flex-col gap-5">
-      <Button asChild size="lg">
-        <a href={SSO_LOGIN_URL}>Sign in with {sso}</a>
-      </Button>
+      <a href={SSO_LOGIN_URL} className={buttonVariants({ size: "lg" })}>
+        Sign in with {sso}
+      </a>
       <p className="text-sm text-muted-foreground">
         No account? Ask a workspace admin to invite you.
       </p>

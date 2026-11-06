@@ -125,9 +125,10 @@ export function NewCalendarLink({
           {!workspaceId && scope !== "user" ? (
             <Field label="Workspace" htmlFor="calendar-workspace">
               <Select
-                value={wsId}
+                value={wsId ?? null}
+                items={workspaces.map((w) => ({ value: w.id, label: w.name }))}
                 onValueChange={(value) => {
-                  setChosenWorkspace(value);
+                  setChosenWorkspace(value ?? undefined);
                   setChosenProject(undefined);
                 }}
               >
@@ -146,7 +147,11 @@ export function NewCalendarLink({
           ) : null}
           {scope === "project" && !projectId ? (
             <Field label="Project" htmlFor="calendar-project">
-              <Select value={projectChoice} onValueChange={setChosenProject}>
+              <Select
+                value={projectChoice ?? null}
+                items={projects.map((p) => ({ value: p.id, label: p.name }))}
+                onValueChange={(id) => setChosenProject(id ?? undefined)}
+              >
                 <SelectTrigger id="calendar-project">
                   <SelectValue placeholder="No projects" />
                 </SelectTrigger>

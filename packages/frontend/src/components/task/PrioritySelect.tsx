@@ -12,7 +12,14 @@ export function PrioritySelect({
   onChange: (value: Priority) => void;
 }) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as Priority)}>
+    <Select
+      value={value}
+      items={PRIORITIES.map((p) => ({
+        value: p,
+        label: `${PRIORITY_BADGE[p]} ${PRIORITY_NAME[p]}`,
+      }))}
+      onValueChange={(v) => onChange(v as Priority)}
+    >
       <SelectTrigger
         aria-label="Priority"
         className={cn("w-full", isHotPriority(value) && "font-medium text-signal")}

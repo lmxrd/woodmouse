@@ -31,7 +31,7 @@ function RoleSelect({
   label: string;
 }) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as Role)}>
+    <Select value={value} items={ROLE_NAME} onValueChange={(v) => onChange(v as Role)}>
       <SelectTrigger size="sm" aria-label={label} className="w-28">
         <SelectValue />
       </SelectTrigger>

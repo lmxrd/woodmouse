@@ -68,6 +68,7 @@ export function NotificationSettings() {
         <Field label={`Send it at (${me?.timezone ?? "UTC"})`}>
           <Select
             value={String(settings.digest_hour)}
+            items={HOURS.map((h) => ({ value: String(h), label: hourLabel(h) }))}
             onValueChange={(h) => update.mutate({ body: { digest_hour: Number(h) } })}
           >
             <SelectTrigger aria-label="Summary hour" className="w-32">

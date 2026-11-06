@@ -22,6 +22,7 @@ import { Input } from "../ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -91,19 +92,21 @@ export function Sidebar({
           </span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuLabel className="label-mono text-muted-foreground">
-            Workspaces
-          </DropdownMenuLabel>
-          {workspaces?.map((w) => (
-            <DropdownMenuItem
-              key={w.id}
-              onSelect={() =>
-                void navigate({ to: "/w/$workspaceId", params: { workspaceId: w.id } })
-              }
-            >
-              {w.name}
-            </DropdownMenuItem>
-          ))}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="label-mono text-muted-foreground">
+              Workspaces
+            </DropdownMenuLabel>
+            {workspaces?.map((w) => (
+              <DropdownMenuItem
+                key={w.id}
+                onClick={() =>
+                  void navigate({ to: "/w/$workspaceId", params: { workspaceId: w.id } })
+                }
+              >
+                {w.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 

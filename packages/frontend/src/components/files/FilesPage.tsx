@@ -20,7 +20,7 @@ import { userLabel } from "../../lib/user";
 import { useWorkspaceRole } from "../../lib/useWorkspaceRole";
 import { cn } from "../../lib/utils";
 import { ConfirmDialog } from "../common/ConfirmDialog";
-import { Button } from "../ui/button";
+import { Button, buttonVariants } from "../ui/button";
 import { Input } from "../ui/input";
 import { useUploader } from "./useUploader";
 
@@ -232,11 +232,13 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
                   Upload new version
                 </Button>
               ) : null}
-              <Button variant="outline" size="sm" asChild>
-                <a href={fileContentUrl(file.id)} download={file.name}>
-                  Download
-                </a>
-              </Button>
+              <a
+                href={fileContentUrl(file.id)}
+                download={file.name}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Download
+              </a>
               {canWrite ? (
                 <Button
                   type="button"

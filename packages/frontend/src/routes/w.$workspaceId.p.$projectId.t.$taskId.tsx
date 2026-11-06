@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 
 import { ResponsiveDialog } from "../components/common/ResponsiveDialog";
 import { TaskDetail } from "../components/task/TaskDetail";
-import { Button } from "../components/ui/button";
+import { Button, buttonVariants } from "../components/ui/button";
 
 /** The task as a dialog over its project's board. */
 export const Route = createFileRoute("/w/$workspaceId/p/$projectId/t/$taskId")({
@@ -37,11 +37,13 @@ function TaskDialog() {
           <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-2">
             <span className="label-mono truncate text-muted-foreground">{listName}</span>
             <span className="flex shrink-0 items-center gap-1">
-              <Button asChild variant="ghost" size="xs">
-                <Link to="/w/$workspaceId/t/$taskId" params={{ workspaceId, taskId }}>
-                  Open as page
-                </Link>
-              </Button>
+              <Link
+                to="/w/$workspaceId/t/$taskId"
+                params={{ workspaceId, taskId }}
+                className={buttonVariants({ variant: "ghost", size: "xs" })}
+              >
+                Open as page
+              </Link>
               <Button type="button" variant="ghost" size="xs" onClick={close}>
                 Close
               </Button>

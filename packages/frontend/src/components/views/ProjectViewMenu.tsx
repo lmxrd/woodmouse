@@ -10,6 +10,7 @@ import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -71,10 +72,10 @@ export function ProjectViewMenu({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button type="button" variant="outline" size="sm" aria-label="View">
-            {active?.name ?? VIEWS.find((v) => v.value === value)?.label} ▾
-          </Button>
+        <DropdownMenuTrigger
+          render={<Button type="button" variant="outline" size="sm" aria-label="View" />}
+        >
+          {active?.name ?? VIEWS.find((v) => v.value === value)?.label} ▾
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
           <DropdownMenuRadioGroup
@@ -90,28 +91,28 @@ export function ProjectViewMenu({
           {views && views.length > 0 ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="label-mono text-muted-foreground">
-                Saved views
-              </DropdownMenuLabel>
-              {views.map((view) => (
-                <DropdownMenuItem key={view.id} onSelect={() => onApply(view.params)}>
-                  <span className="min-w-0 flex-1 truncate">
-                    {view.id === active?.id ? "✓ " : ""}
-                    {view.name}
-                  </span>
-                  <span className="label-mono text-[10px] text-muted-foreground">
-                    {view.is_shared ? "Shared" : "Mine"}
-                  </span>
-                </DropdownMenuItem>
-              ))}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="label-mono text-muted-foreground">
+                  Saved views
+                </DropdownMenuLabel>
+                {views.map((view) => (
+                  <DropdownMenuItem key={view.id} onClick={() => onApply(view.params)}>
+                    <span className="min-w-0 flex-1 truncate">
+                      {view.id === active?.id ? "✓ " : ""}
+                      {view.name}
+                    </span>
+                    <span className="label-mono text-[10px] text-muted-foreground">
+                      {view.is_shared ? "Shared" : "Mine"}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
             </>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setSaving(true)}>
-            Save current filters…
-          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setSaving(true)}>Save current filters…</DropdownMenuItem>
           {views && views.length > 0 ? (
-            <DropdownMenuItem onSelect={() => setManaging(true)}>Manage views…</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setManaging(true)}>Manage views…</DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>

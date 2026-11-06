@@ -99,6 +99,7 @@ export function ProjectFilters({
       {fields.includes("status") ? (
         <Select
           value={search.status ?? defaultStatus}
+          items={STATUS_LABEL}
           onValueChange={(next) =>
             setSearch({ status: next === defaultStatus ? undefined : (next as TaskStatus) })
           }
