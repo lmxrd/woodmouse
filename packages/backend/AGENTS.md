@@ -128,6 +128,30 @@
   provider before writing. A refused sign-in that came back with our signed login cookie is audited as
   `login_failed` (`data.method = "sso"`, `data.reason` = the code, the account as target when known). Tests: `tests/it/oidc.rs` runs a stand-in provider (real RS256 tokens, keys in
   `tests/it/fixtures/oidc_key_*.pem`, PKCS#1 from `openssl genrsa -traditional 2048`).
+- **Single sign-on only** (`OIDC_ONLY`, `EnvSettings::only`): `Oidc::require_password_login` (403) guards password
+  login, the TOTP step, invite acceptance and password changes; `AuthStatus.password_login` tells the frontend.
+  It needs `OIDC_ISSUER` and `OIDC_CLIENT_ID` from the environment and forces `enabled` on (so the admin page cannot
+  lock everyone out); bootstrap still works, and invited people get in through the provider by verified email.
+- **Two-factor sign-in** (`src/totp.rs`, the `/auth/totp/*` and `/auth/login/totp` routes): TOTP through
+  `totp-rs` (SHA-1, 6 digits, 30 s, one step of skew), the secret base32 in `UserTotp` (`enabled_at` `None` while
+  being set up), `last_step` refusing a code's step a second time (totp-rs leaves replay to its caller), and ten
+  single-use recovery codes stored as SHA-256 (`UserRecoveryCode`). A password login of someone with it on answers
+  202 `{totp_required}` and a signed 5-minute challenge cookie (`AppState::challenge_key`, made at start), not a
+  session; the second step goes through `LoginLimits`, and a right password alone does not clear the email's
+  failures. Single sign-on asks for it too: the callback sets the same challenge and redirects to
+  `/login?step=totp` (`totp::second_step` decides for both). `TOTP_REQUIRED` (`AppState::totp_required`): someone
+  without it gets an `Enroll` challenge (15 minutes; `/login?step=totp-setup`, `POST /auth/login/totp/setup` and
+  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched.
+  Replacing the app (`/auth/totp/replace`, then `/confirm`) keeps the new secret in `pending_secret` until a code
+  from it arrives; the old secret works until then, the recovery codes stay. Random bytes come from `uuid` v4 through SHA-256 (no other
+  random source is a direct dependency). `totp_enabled` is on `Me` and `AdminUser`, never on `PublicUser`.
+- **API keys** (`routes/api_keys.rs`, `ApiKey`; `auth::from_api_key`): `wm_` + 32 random bytes (base64url), only
+  the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes a session
+  cookie, else `Authorization: Bearer`. `auth::api_key_scope_allows` gates by method and path (never `/api/auth/*`
+  but `GET /api/auth/me`; read = GET/HEAD; write = no `/api/admin/*`), and the auth layer (`auth::authenticate`)
+  runs the handler under `auth::role_cap`, which `access::role_in` applies, so a key's workspace role is the lower
+  of its scope and the person's. Code that checks roles without `role_in`, or that spawns a task, does not see the
+  cap. `last_used_at` is written at most once a minute. Admin keys only for the super admin or a global admin.
 - **Login slow-down** (`auth::LoginLimits`): in memory, per email and per address, 1 s doubling up to a cap,
   no lockout; addresses are never stored.
 - **Jobs and operations**: `jobs.rs` runs daily (expired sessions) and sends notification email; there is no

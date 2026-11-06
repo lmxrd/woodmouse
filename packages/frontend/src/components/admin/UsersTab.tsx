@@ -6,6 +6,7 @@ import {
   adminListUsersOptions,
   adminListWorkspacesOptions,
   adminReissueInviteMutation,
+  adminResetTotpMutation,
   adminUpdateUserMutation,
 } from "woodmouse-sdk/react-query";
 
@@ -52,6 +53,7 @@ export function UsersTab({ meId }: { meId: string }) {
               {[
                 u.super_admin ? "super admin" : null,
                 u.pending ? "invited" : null,
+                u.totp_enabled ? "two-factor" : null,
                 u.global_role ? `${u.global_role} everywhere` : null,
                 u.memberships.length > 0
                   ? `${u.memberships.length} ${u.memberships.length === 1 ? "workspace" : "workspaces"}`
@@ -266,6 +268,8 @@ function Memberships({ user }: { user: AdminUser }) {
 function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
   const [invite, setInvite] = useState<string | null>(null);
   const [disabling, setDisabling] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const resetTotp = useMutation({ ...adminResetTotpMutation() });
   const update = useMutation({
     ...adminUpdateUserMutation(),
     meta: { inline: true },
@@ -353,6 +357,19 @@ function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
               )}
             </div>
           ) : null}
+          {user.totp_enabled ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">
+                Two-factor sign-in is on. Reset it if they lost their authenticator app and their
+                recovery codes.
+              </p>
+              <div>
+                <Button variant="outline" onClick={() => setResetting(true)}>
+                  Reset two-factor sign-in
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div>
             {user.active ? (
               <Button variant="outline" onClick={() => setDisabling(true)}>
@@ -368,6 +385,14 @@ function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={resetting}
+        onOpenChange={setResetting}
+        title={`Reset two-factor sign-in for ${userLabel(user)}?`}
+        description="Their password alone signs them in again until they set it up anew. Their recovery codes stop working."
+        confirmLabel="Reset"
+        onConfirm={() => resetTotp.mutate({ path: { id: user.id } })}
+      />
       <ConfirmDialog
         open={disabling}
         onOpenChange={setDisabling}

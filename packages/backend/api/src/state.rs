@@ -34,6 +34,11 @@ pub struct AppState {
     pub mailer: Arc<dyn crate::mail::Mailer>,
     /// Single sign-on: the settings in force, the provider's metadata, the login cookie's key.
     pub oidc: Arc<crate::oidc::Oidc>,
+    /// Signs the two-factor sign-in challenge (`totp::Challenge`). Made at start: a restart only means
+    /// signing in again from the password.
+    pub challenge_key: axum_extra::extract::cookie::Key,
+    /// `TOTP_REQUIRED`: every sign-in of someone without two-factor sets it up first (`totp::second_step`).
+    pub totp_required: bool,
 }
 
 /// The connection for a request that writes. Dropping it lets the next writer in.
@@ -73,6 +78,8 @@ impl AppState {
             rooms: Arc::default(),
             login_limits: Arc::default(),
             oidc: Arc::new(crate::oidc::Oidc::new(Default::default())),
+            challenge_key: axum_extra::extract::cookie::Key::generate(),
+            totp_required: false,
         }
     }
 
@@ -93,6 +100,7 @@ impl AppState {
             "file storage ready"
         );
         let oidc = crate::oidc::Oidc::new(crate::oidc::EnvSettings::from_env()?);
+        let totp_required = crate::config::flag("TOTP_REQUIRED")?.unwrap_or(false);
         crate::auth::warm_up();
         oidc.apply(
             entity::oidc_settings::Entity::find_by_id(1)
@@ -100,7 +108,9 @@ impl AppState {
                 .await?
                 .as_ref(),
         );
-        Ok(Self::with_files(db, files).with_oidc(oidc))
+        let mut state = Self::with_files(db, files).with_oidc(oidc);
+        state.totp_required = totp_required;
+        Ok(state)
     }
 
     /// The same state with other single sign-on settings (the server's from the environment; tests).

@@ -1,5 +1,5 @@
 //! The site admin: only the super admin gets in (everyone else sees 404). Users (enable, disable, global
-//! role), deleted workspaces, the audit log, revision redaction, and the integrity check.
+//! role, two-factor reset), deleted workspaces, the audit log, revision redaction, and the integrity check.
 
 use crate::db::Db;
 use crate::db::prelude::*;
@@ -22,7 +22,7 @@ use crate::integrity::{self, Problem};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::routes::members::issue_invite;
 use crate::state::AppState;
-use crate::{access, revisions, time, trash};
+use crate::{access, revisions, time, totp, trash};
 use entity::{AuditLog, Role, User};
 
 pub fn router() -> OpenApiRouter<AppState> {
@@ -31,6 +31,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(admin_create_user))
         .routes(routes!(admin_update_user))
         .routes(routes!(admin_reissue_invite))
+        .routes(routes!(admin_reset_totp))
         .routes(routes!(admin_list_workspaces))
         .routes(routes!(admin_restore_workspace))
         .routes(routes!(admin_audit_log))
@@ -50,6 +51,8 @@ pub struct AdminUser {
     pub user: PublicUser,
     /// Has never signed in (no password, no single sign-on account): an invite link is waiting to be used.
     pub pending: bool,
+    /// Signing in with their password also asks for a code from an authenticator app.
+    pub totp_enabled: bool,
     /// The workspaces they are a member of (not deleted ones).
     pub memberships: Vec<AdminMembership>,
 }
@@ -63,10 +66,16 @@ pub struct AdminMembership {
 }
 
 impl AdminUser {
-    fn new(user: &User, pending: bool, memberships: Vec<AdminMembership>) -> Self {
+    fn new(
+        user: &User,
+        pending: bool,
+        totp_enabled: bool,
+        memberships: Vec<AdminMembership>,
+    ) -> Self {
         Self {
             user: PublicUser::from(user),
             pending,
+            totp_enabled,
             memberships,
         }
     }
@@ -118,10 +127,16 @@ pub async fn admin_list_users(
     let mut users = users::Entity::find().all(db).await?;
     users.sort_by_key(|u| u.id);
     let linked = auth::linked_users(db, users.iter().map(|u| u.id)).await?;
+    let two_factor = totp::enabled_users(db, users.iter().map(|u| u.id)).await?;
     let mut out = vec![];
     for u in &users {
         let pending = u.password_hash.is_none() && !linked.contains(&u.id);
-        out.push(AdminUser::new(u, pending, memberships_of(db, u.id).await?));
+        out.push(AdminUser::new(
+            u,
+            pending,
+            two_factor.contains(&u.id),
+            memberships_of(db, u.id).await?,
+        ));
     }
     Ok(Json(out))
 }
@@ -235,7 +250,7 @@ pub async fn admin_create_user(
     Ok((
         StatusCode::CREATED,
         Json(CreatedUser {
-            user: AdminUser::new(&created, true, memberships),
+            user: AdminUser::new(&created, true, false, memberships),
             invite_token,
         }),
     ))
@@ -386,7 +401,48 @@ pub async fn admin_update_user(
     let user = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
     let memberships = memberships_of(&*db, id).await?;
     let pending = auth::is_pending(&*db, &user).await?;
-    Ok(Json(AdminUser::new(&user, pending, memberships)))
+    let totp_enabled = totp::enabled(&*db, id).await?.is_some();
+    Ok(Json(AdminUser::new(
+        &user,
+        pending,
+        totp_enabled,
+        memberships,
+    )))
+}
+
+/// Turn off someone's two-factor sign-in (they lost their authenticator and their recovery codes): their
+/// password alone signs them in again, and they can set it up anew.
+#[utoipa::path(
+    delete,
+    path = "/admin/users/{id}/totp",
+    tag = "admin",
+    security(("session_cookie" = [])),
+    params(("id" = uuid::Uuid, Path, description = "User id")),
+    responses(
+        (status = 204, description = "Two-factor is off for them"),
+        (status = 404, description = "Not the super admin, no such user, or two-factor is not on")
+    )
+)]
+pub async fn admin_reset_totp(
+    State(state): State<AppState>,
+    CurrentUser { user: admin, .. }: CurrentUser,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<StatusCode, ApiError> {
+    access::require_super_admin(&admin)?;
+    let db = state.writer().await?;
+    let tx = db.begin().await?;
+    users::Entity::find_by_id(id).one_or_not_found(&tx).await?;
+    if totp::enabled(&tx, id).await?.is_none() {
+        return Err(ApiError::not_found());
+    }
+    totp::remove(&tx, id).await?;
+    audit::record(
+        &tx,
+        Entry::admin(Some(admin.id), "totp_reset").target("user", id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// A workspace as the site admin sees it.

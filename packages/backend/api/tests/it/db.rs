@@ -356,6 +356,7 @@ async fn entities_match_the_tables() {
         ($($m:ident),+) => { $( check::<entity::$m::Entity>(&db).await; )+ };
     }
     all!(
+        api_keys,
         audit_logs,
         calendar_links,
         comments,
@@ -381,6 +382,8 @@ async fn entities_match_the_tables() {
         tasks,
         user_identities,
         user_invites,
+        user_recovery_codes,
+        user_totp,
         users,
         watches,
         wiki_pages,

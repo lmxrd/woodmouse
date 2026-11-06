@@ -46,6 +46,8 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::api_keys::Entity")]
+    ApiKeys,
     #[sea_orm(has_many = "super::calendar_links::Entity")]
     CalendarLinks,
     #[sea_orm(has_many = "super::comments::Entity")]
@@ -68,10 +70,20 @@ pub enum Relation {
     UserIdentities,
     #[sea_orm(has_many = "super::user_invites::Entity")]
     UserInvites,
+    #[sea_orm(has_many = "super::user_recovery_codes::Entity")]
+    UserRecoveryCodes,
+    #[sea_orm(has_one = "super::user_totp::Entity")]
+    UserTotp,
     #[sea_orm(has_many = "super::watches::Entity")]
     Watches,
     #[sea_orm(has_many = "super::workspace_members::Entity")]
     WorkspaceMembers,
+}
+
+impl Related<super::api_keys::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ApiKeys.def()
+    }
 }
 
 impl Related<super::calendar_links::Entity> for Entity {
@@ -137,6 +149,18 @@ impl Related<super::user_identities::Entity> for Entity {
 impl Related<super::user_invites::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::UserInvites.def()
+    }
+}
+
+impl Related<super::user_recovery_codes::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserRecoveryCodes.def()
+    }
+}
+
+impl Related<super::user_totp::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserTotp.def()
     }
 }
 

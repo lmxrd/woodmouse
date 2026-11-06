@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod admin;
+pub mod api_keys;
 pub mod auth;
 pub mod calendar;
 pub mod comments;
@@ -33,7 +34,6 @@ use axum::middleware;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 
-use crate::auth::CurrentUser;
 use crate::{openapi::ApiDoc, state::AppState};
 
 /// All API routes, registered together with their OpenAPI operations.
@@ -43,7 +43,7 @@ use crate::{openapi::ApiDoc, state::AppState};
 /// truth for both the axum routes and the OpenAPI document.
 ///
 /// Enforcement is fail-closed: every route that is not in the public set is
-/// wrapped by the auth layer (`middleware::from_extractor_with_state`), so a
+/// wrapped by the auth layer (`auth::authenticate`: a session or an API key), so a
 /// handler cannot accidentally ship without authentication — forgetting to
 /// mark a new route public makes it 401, not open. Handlers still declare
 /// `CurrentUser` themselves because they need the user value (the session is
@@ -58,7 +58,7 @@ use crate::{openapi::ApiDoc, state::AppState};
 pub fn api(state: AppState) -> OpenApiRouter<AppState> {
     // Session required — enforced by the layer for every route below.
     let protected = protected(Some(state.files.max_upload_bytes)).route_layer(
-        middleware::from_extractor_with_state::<CurrentUser, _>(state),
+        middleware::from_fn_with_state(state, crate::auth::authenticate),
     );
     nest(public().merge(protected))
 }
@@ -89,6 +89,7 @@ fn public() -> OpenApiRouter<AppState> {
 /// `None` (building them for [`api_doc`]) applies none.
 fn protected(max_upload_bytes: Option<u64>) -> OpenApiRouter<AppState> {
     auth::protected_router()
+        .merge(api_keys::router())
         .merge(admin::router())
         .merge(oidc::protected_router())
         .merge(workspaces::router())

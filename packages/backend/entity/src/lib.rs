@@ -15,6 +15,7 @@
 mod enums;
 mod relations;
 
+pub mod api_keys;
 pub mod audit_logs;
 pub mod calendar_links;
 pub mod comments;
@@ -41,6 +42,8 @@ pub mod tasks;
 pub mod time;
 pub mod user_identities;
 pub mod user_invites;
+pub mod user_recovery_codes;
+pub mod user_totp;
 pub mod users;
 pub mod watches;
 pub mod wiki_pages;
@@ -50,6 +53,7 @@ pub mod workspaces;
 pub use enums::*;
 pub use time::DateTime;
 
+pub use api_keys::Model as ApiKey;
 pub use audit_logs::Model as AuditLog;
 pub use calendar_links::Model as CalendarLink;
 pub use comments::Model as Comment;
@@ -75,6 +79,8 @@ pub use task_links::Model as TaskLink;
 pub use tasks::Model as Task;
 pub use user_identities::Model as UserIdentity;
 pub use user_invites::Model as UserInvite;
+pub use user_recovery_codes::Model as UserRecoveryCode;
+pub use user_totp::Model as UserTotp;
 pub use users::Model as User;
 pub use watches::Model as Watch;
 pub use wiki_pages::Model as WikiPage;

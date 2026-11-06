@@ -14,10 +14,12 @@ pub mod mail;
 pub mod notify;
 pub mod oidc;
 pub mod openapi;
+pub mod random;
 pub mod routes;
 pub mod state;
 pub mod storage;
 pub mod time;
+pub mod totp;
 pub mod transfer;
 
 // Content modules are used all over the crate; keep their short paths (`crate::blocks`).

@@ -88,6 +88,11 @@ optional:
 | `WOODMOUSE_SWAGGER_UI`     | unset                   | Set to `1` to browse the API at `/swagger-ui`                                            |
 | `SMTP_*`                   | unset                   | Email, see below                                                                         |
 | `OIDC_*`                   | unset                   | Single sign-on, see below                                                                |
+| `TOTP_REQUIRED`            | unset                   | `true` to require two-factor sign-in: anyone without it sets it up at their next sign-in |
+
+The yes/no variables (`TOTP_REQUIRED`, and `OIDC_ENABLED`, `OIDC_AUTO_CREATE`
+and `OIDC_ONLY` below) take `true` or `false`; `1`/`0`, `yes`/`no` and
+`on`/`off` work too, in any case. Any other value stops the server from starting.
 
 
 ### Backups
@@ -140,12 +145,11 @@ is set wins over its field on that page, which then cannot be changed there.
 | `OIDC_ISSUER`        | The provider's issuer URL (https), like `https://id.example.com/realms/home`                  |
 | `OIDC_CLIENT_ID`     | The client registered at the provider                                                         |
 | `OIDC_CLIENT_SECRET` | Its secret (leave unset for a public client)                                                  |
-| `OIDC_ENABLED`       | `1`/`0` (also `true`/`false`, `yes`/`no`, `on`/`off`); on by default when `OIDC_ISSUER` is set |
+| `OIDC_ENABLED`       | `true` or `false`; on by default when `OIDC_ISSUER` is set                                    |
 | `OIDC_DISPLAY_NAME`  | The provider's name on the login button                                                       |
-| `OIDC_AUTO_CREATE`   | `1` to create an account for someone new whose provider confirms their email                  |
+| `OIDC_AUTO_CREATE`   | `true` to create an account for someone new whose provider confirms their email               |
 | `OIDC_REDIRECT_URL`  | The callback URL, when the one from `PUBLIC_URL` is wrong                                     |
-
-A yes/no variable with any other value stops the server from starting.
+| `OIDC_ONLY`          | `true` to turn password sign-in off: single sign-on is the only way in (see below)            |
 
 - **Register the callback URL** at the provider:
   `<PUBLIC_URL>/api/auth/oidc/callback`. The settings page shows it.
@@ -170,10 +174,38 @@ A yes/no variable with any other value stops the server from starting.
   an admin adds them. With a public provider (Google), that means anyone.
 - **Passwords keep working.** The first account is always made with a password.
   Someone who signs in only through single sign-on can set a password under
-  **Settings → Password**.
+  **Settings → Password & two-factor**.
+- **Single sign-on only.** With `OIDC_ONLY=true`, signing in with a password, the
+  two-factor code step, choosing a password from an invite link and changing a
+  password are all refused (403), and the login page shows only the provider's
+  button. `OIDC_ISSUER` and `OIDC_CLIENT_ID` must then be set as variables too,
+  and single sign-on cannot be turned off on the settings page; otherwise the
+  server does not start. The first account is still created on the login page
+  (with a password that cannot be used while this is set): use the email your
+  provider confirms for you, since that is how your provider account is linked
+  to it. Invited people open their invite link and sign in with the provider
+  using the invited email; that links their account (or, with
+  `OIDC_AUTO_CREATE`, anyone the provider lets in gets an account).
 - Saving the settings checks the provider first and refuses what it cannot
   reach. They apply at once, without a restart. The client secret is stored in
   the database as typed and is never shown again.
+
+### Two-factor sign-in
+
+Anyone can also require a code from an authenticator app at every sign-in,
+password or single sign-on (any TOTP app: Aegis, 1Password, Google Authenticator, ...)
+under **Settings → Password & two-factor**: scan the QR code, enter the code it
+shows, and keep the ten recovery codes, each of which signs in once in place of
+a code. Turning it off, making new recovery codes or replacing the app (with a
+new phone: the old app keeps working until the new one shows a code) needs a
+code.
+Someone who lost both their app and their recovery codes asks the super admin,
+who can reset it under **Site admin → Users**.
+
+With `TOTP_REQUIRED=true`, every sign-in (password or single sign-on) of someone
+without two-factor sets it up before going in, and nobody can turn it off.
+Sessions that already exist are left alone. After the super admin resets
+someone's two-factor, they set it up again at their next sign-in.
 
 ### Docker notes
 
@@ -185,6 +217,14 @@ named volume, make it writable by that user.
 
 Every route lives under `/api`. Run with `WOODMOUSE_SWAGGER_UI=1` to browse the
 API, or load the `openapi.json` attached to each release into any OpenAPI tool.
+
+Scripts and integrations use an **API key** from **Settings → Account**, sent
+as `Authorization: Bearer wm_...`. It acts as you, capped at its permission:
+**Read** only reads, **Read & write** also changes things but never
+administers (site or workspace), and **Admin** (for site and global admins
+only) does what you may. A key can never manage API keys, two-factor sign-in,
+your password, email or sessions. It stops working when it is revoked, when it
+expires, or when your account is disabled. The key is shown once, when made.
 
 ## Contributing
 

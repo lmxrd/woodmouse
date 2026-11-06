@@ -90,6 +90,7 @@ pub async fn get_invite(
     responses(
         (status = 200, description = "Password set and logged in", body = PublicUser),
         (status = 400, description = "Invalid password"),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`): sign in with single sign-on instead"),
         (status = 404, description = "Unknown, used or expired invite")
     )
 )]
@@ -98,6 +99,7 @@ pub async fn accept_invite(
     Path(token): Path<String>,
     Json(input): Json<AcceptInvite>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
+    state.oidc.require_password_login()?;
     validate_password(&input.password)?;
     let db = state.writer().await?;
     let (_, user) = load_invite(&*db, &token).await?;
