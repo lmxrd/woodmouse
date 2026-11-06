@@ -52,6 +52,8 @@
   release (`alpine:3.x.y`, with `apk upgrade`).
 - One git repository at this root; `backend/` and `frontend/` are scaffolded
   stacks with their own AGENTS.md (follow those inside each directory).
-- Tool versions are pinned in `mise.toml`; keep the file pruned to the tools
-  actually used by the scaffolded stacks. The toolchains live only there: the
-  image builds nothing, so the Dockerfile pins no Node or Rust.
+- Tool versions, each in one place, all exact: Node in the root `package.json` (`devEngines.runtime`), pnpm in
+  its `packageManager`, Rust (channel, components, musl targets) in `rust-toolchain.toml`, every other tool in
+  `mise.toml` `[tools]`. mise reads all of them (`idiomatic_version_file_enable_tools`), so `mise install` (and
+  CI's mise-action) installs everything. Crates are exact versions too (`axum = "0.8.9"`), the ones in
+  `Cargo.lock`. The image builds nothing, so the Dockerfile pins no Node or Rust.

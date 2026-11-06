@@ -12,7 +12,8 @@ permissions:
 # tests, and the release build with its image. Nothing is pushed: releases
 # publish, CI only verifies.
 jobs:
-  # The quality gates, exactly as locally: the tools come from mise.toml and
+  # The quality gates, exactly as locally: the tools come from mise (mise.toml,
+  # package.json, rust-toolchain.toml) and
   # the checks and tests are the same tasks. The default target on the bare
   # runner — no matrix, no cross compiling. One job, so the dev build of the
   # backend (and of the OpenAPI spec) is done once and shared.

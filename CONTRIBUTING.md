@@ -7,7 +7,8 @@ way are the changes we want.
 ## Getting set up
 
 Install [mise](https://mise.jdx.dev) and run `mise install`. It brings the pinned
-Rust toolchain, Node, pnpm and zig. Then:
+Rust toolchain (from `rust-toolchain.toml`), Node and pnpm (from the root
+`package.json`), zig and the other tools in `mise.toml`. Then:
 
 ```bash
 mise run dev      # the backend on :8000 and the Vite dev server on :5173, together
@@ -52,7 +53,9 @@ packages/backend/    the Rust server: axum, utoipa (OpenAPI) and SeaORM on SQLit
 packages/frontend/   the React app (Vite, TanStack Router and Query, Tailwind)
 packages/sdk/        the frontend's API client, generated from the OpenAPI spec; never edited
 .github/             CI, the release workflow and Dependabot
-mise.toml            the toolchain and every task
+mise.toml            the tools (other than Node, pnpm, Rust) and every task
+package.json         the Node (devEngines.runtime) and pnpm (packageManager) versions
+rust-toolchain.toml  the Rust toolchain
 ```
 
 Inside the backend:
