@@ -105,6 +105,14 @@
   migration only after it ran, so a crash in between runs it again: make each step repeatable.
 - Ordering (tasks, lists, wiki pages): integer `position`s 20 apart (`src/content/ordering.rs`). The API takes
   `after_id` (`null` = first), never a number; neighbours are renumbered only when there is no room.
+- Tests: unit tests beside the code; integration tests in `api/tests/it/` (one binary, `main.rs` lists the
+  modules) drive the real router through axum-test's `TestServer` on a fresh migrated SQLite file
+  (`common::app`, `app_with_db`, `app_with_state`; mock transport, no socket). Requests read
+  `app.post("/api/..").json_text(r#"{..}"#).session(Some(&cookie)).await`, answers `res.status_code()`,
+  `res.text()`, `json_of(&res)`; a test acting as several people passes each one's cookie, and
+  `common::browser` is a server that keeps cookies between requests, as a browser does. The live-editing tests
+  use the HTTP transport (`TestServer::builder().http_transport()`), because the WebSocket client needs a real
+  socket.
 
 ## Conventions by feature
 

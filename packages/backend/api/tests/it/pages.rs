@@ -8,13 +8,13 @@ use serde_json::{Value, json};
 use crate::common::*;
 
 /// The body as JSON, or as a string when it is not JSON (extractor rejections are plain text).
-async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
-    let text = body_string(res.into_body()).await;
+async fn json_of(res: TestResponse) -> Value {
+    let text = res.text();
     serde_json::from_str(&text).unwrap_or(Value::String(text))
 }
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     db: sea_orm::DatabaseConnection,
     cookie: String,
     ws: uuid::Uuid,
@@ -35,70 +35,55 @@ async fn fixture() -> Fx {
 impl Fx {
     async fn page(&self, title: &str, parent: Option<&str>) -> String {
         let body = json!({ "title": title, "parent_id": parent }).to_string();
-        let res = request(
-            &self.app,
-            post_json(
-                &format!("/api/workspaces/{}/pages", self.ws),
-                &body,
-                Some(&self.cookie),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::CREATED);
+        let res = self
+            .app
+            .post(&format!("/api/workspaces/{}/pages", self.ws))
+            .json_text(&body)
+            .session(Some(&self.cookie))
+            .await;
+        assert_eq!(res.status_code(), StatusCode::CREATED);
         json_of(res).await["id"].as_str().unwrap().to_string()
     }
     async fn get(&self, id: &str) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            get(&format!("/api/pages/{id}"), Some(&self.cookie)),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .get(&format!("/api/pages/{id}"))
+            .session(Some(&self.cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     async fn patch(&self, id: &str, body: Value) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            patch_json(
-                &format!("/api/pages/{id}"),
-                &body.to_string(),
-                Some(&self.cookie),
-            ),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .patch(&format!("/api/pages/{id}"))
+            .json_text(&body.to_string())
+            .session(Some(&self.cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     async fn save(&self, id: &str, blocks: Value) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            put_json(
-                &format!("/api/pages/{id}/blocks"),
-                &json!({ "blocks": blocks }).to_string(),
-                Some(&self.cookie),
-            ),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .put(&format!("/api/pages/{id}/blocks"))
+            .json_text(&json!({ "blocks": blocks }).to_string())
+            .session(Some(&self.cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     async fn tree(&self) -> Vec<Value> {
-        let res = request(
-            &self.app,
-            get(
-                &format!("/api/workspaces/{}/pages", self.ws),
-                Some(&self.cookie),
-            ),
-        )
-        .await;
+        let res = self
+            .app
+            .get(&format!("/api/workspaces/{}/pages", self.ws))
+            .session(Some(&self.cookie))
+            .await;
         json_of(res).await.as_array().unwrap().clone()
     }
     async fn trash(&self) -> Vec<Value> {
-        let res = request(
-            &self.app,
-            get(
-                &format!("/api/workspaces/{}/trash", self.ws),
-                Some(&self.cookie),
-            ),
-        )
-        .await;
+        let res = self
+            .app
+            .get(&format!("/api/workspaces/{}/trash", self.ws))
+            .session(Some(&self.cookie))
+            .await;
         json_of(res).await.as_array().unwrap().clone()
     }
 }
@@ -321,77 +306,62 @@ async fn permissions_and_workspace_isolation() {
 
     // Readers read the tree and pages but cannot change anything.
     assert_eq!(
-        request(&fx.app, get(&format!("/api/pages/{page}"), Some(&reader)))
+        fx.app
+            .get(&format!("/api/pages/{page}"))
+            .session(Some(&reader))
             .await
-            .status(),
+            .status_code(),
         StatusCode::OK
     );
     assert_eq!(
-        request(
-            &fx.app,
-            get(&format!("/api/workspaces/{}/pages", fx.ws), Some(&reader))
-        )
-        .await
-        .status(),
+        fx.app
+            .get(&format!("/api/workspaces/{}/pages", fx.ws))
+            .session(Some(&reader))
+            .await
+            .status_code(),
         StatusCode::OK
     );
-    let create = post_json(
-        &format!("/api/workspaces/{}/pages", fx.ws),
-        r#"{"title":"x"}"#,
-        Some(&reader),
-    );
+    let create = fx
+        .app
+        .post(&format!("/api/workspaces/{}/pages", fx.ws))
+        .json_text(r#"{"title":"x"}"#)
+        .session(Some(&reader));
+    assert_eq!(create.await.status_code(), StatusCode::NOT_FOUND);
     assert_eq!(
-        request(&fx.app, create).await.status(),
+        fx.app
+            .patch(&format!("/api/pages/{page}"))
+            .json_text(r#"{"title":"x"}"#)
+            .session(Some(&reader))
+            .await
+            .status_code(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        request(
-            &fx.app,
-            patch_json(
-                &format!("/api/pages/{page}"),
-                r#"{"title":"x"}"#,
-                Some(&reader)
-            )
-        )
-        .await
-        .status(),
+        fx.app
+            .put(&format!("/api/pages/{page}/blocks"))
+            .json_text(r#"{"blocks":[]}"#)
+            .session(Some(&reader))
+            .await
+            .status_code(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        request(
-            &fx.app,
-            put_json(
-                &format!("/api/pages/{page}/blocks"),
-                r#"{"blocks":[]}"#,
-                Some(&reader)
-            )
-        )
-        .await
-        .status(),
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(
-        request(
-            &fx.app,
-            delete(&format!("/api/pages/{page}"), Some(&reader))
-        )
-        .await
-        .status(),
+        fx.app
+            .delete(&format!("/api/pages/{page}"))
+            .session(Some(&reader))
+            .await
+            .status_code(),
         StatusCode::NOT_FOUND
     );
 
     // Writers edit; a stranger (no membership) sees nothing.
     assert_eq!(
-        request(
-            &fx.app,
-            patch_json(
-                &format!("/api/pages/{page}"),
-                r#"{"title":"Renamed"}"#,
-                Some(&writer)
-            )
-        )
-        .await
-        .status(),
+        fx.app
+            .patch(&format!("/api/pages/{page}"))
+            .json_text(r#"{"title":"Renamed"}"#)
+            .session(Some(&writer))
+            .await
+            .status_code(),
         StatusCode::OK
     );
     let stranger = {
@@ -411,40 +381,39 @@ async fn permissions_and_workspace_isolation() {
         format!("woodmouse_session={token}")
     };
     assert_eq!(
-        request(&fx.app, get(&format!("/api/pages/{page}"), Some(&stranger)))
+        fx.app
+            .get(&format!("/api/pages/{page}"))
+            .session(Some(&stranger))
             .await
-            .status(),
+            .status_code(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        request(
-            &fx.app,
-            get(&format!("/api/workspaces/{}/pages", fx.ws), Some(&stranger))
-        )
-        .await
-        .status(),
+        fx.app
+            .get(&format!("/api/workspaces/{}/pages", fx.ws))
+            .session(Some(&stranger))
+            .await
+            .status_code(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        request(&fx.app, get(&format!("/api/pages/{page}"), None))
+        fx.app
+            .get(&format!("/api/pages/{page}"))
             .await
-            .status(),
+            .status_code(),
         StatusCode::UNAUTHORIZED
     );
 
     // A page cannot be parented across workspaces.
     let other_ws = create_workspace(&fx.app, &fx.cookie, "Work").await;
     let body = json!({ "title": "x", "parent_id": page }).to_string();
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{other_ws}/pages"),
-            &body,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{other_ws}/pages"))
+        .json_text(&body)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -461,17 +430,15 @@ async fn deleting_a_page_takes_its_subtree_and_restores_as_a_group() {
     .await;
 
     // One child is deleted on its own first.
-    request(
-        &fx.app,
-        delete(&format!("/api/pages/{early}"), Some(&fx.cookie)),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/pages/{early}"))
+        .session(Some(&fx.cookie))
+        .await;
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-    request(
-        &fx.app,
-        delete(&format!("/api/pages/{root}"), Some(&fx.cookie)),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/pages/{root}"))
+        .session(Some(&fx.cookie))
+        .await;
 
     assert!(fx.tree().await.is_empty());
     assert_eq!(fx.get(&kitchen).await.0, StatusCode::NOT_FOUND);
@@ -488,9 +455,11 @@ async fn deleting_a_page_takes_its_subtree_and_restores_as_a_group() {
         let (app, cookie, ws) = (fx.app.clone(), fx.cookie.clone(), fx.ws);
         let uri = format!("/api/workspaces/{ws}/trash/page/{id}/restore");
         async move {
-            request(&app, post_json(&uri, "{}", Some(&cookie)))
+            app.post(&uri)
+                .json_text("{}")
+                .session(Some(&cookie))
                 .await
-                .status()
+                .status_code()
         }
     };
     assert_eq!(restore(&early).await, StatusCode::CONFLICT);
@@ -527,39 +496,36 @@ async fn stale_saves_conflict_unless_forced_and_presence_lists_others() {
 
     let save = |blocks: Value, base: i64, force: bool| {
         let body = json!({ "blocks": blocks, "base_version": base, "force": force }).to_string();
-        let req = put_json(
-            &format!("/api/pages/{page}/blocks"),
-            &body,
-            Some(&fx.cookie),
-        );
-        async { request(&fx.app, req).await }
+        let req = fx
+            .app
+            .put(&format!("/api/pages/{page}/blocks"))
+            .json_text(&body)
+            .session(Some(&fx.cookie));
+        async { req.await }
     };
     let a = json!([{ "type": "paragraph", "spans": [text("a")] }]);
     let b = json!([{ "type": "paragraph", "spans": [text("b")] }]);
 
     let res = save(a.clone(), v0, false).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.status_code(), StatusCode::OK);
     let v1 = json_of(res).await["version"].as_i64().unwrap();
     assert_eq!(v1, v0 + 1);
 
     // Someone still on v0 is refused; forcing overwrites.
     assert_eq!(
-        save(b.clone(), v0, false).await.status(),
+        save(b.clone(), v0, false).await.status_code(),
         StatusCode::CONFLICT
     );
-    assert_eq!(save(b, v0, true).await.status(), StatusCode::OK);
+    assert_eq!(save(b, v0, true).await.status_code(), StatusCode::OK);
 
     // Presence never lists yourself.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/pages/{page}/presence"),
-            "{}",
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .post(&format!("/api/pages/{page}/presence"))
+        .json_text("{}")
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(json_of(res).await, json!([]));
 }
 
@@ -577,8 +543,8 @@ async fn search_ranks_titles_above_content_and_limits_results() {
 
     let find = |q: &str, extra: &str| {
         let uri = format!("/api/workspaces/{}/search?q={q}{extra}", fx.ws);
-        let req = get(&uri, Some(&fx.cookie));
-        async { json_of(request(&fx.app, req).await).await }
+        let req = fx.app.get(&uri).session(Some(&fx.cookie));
+        async { json_of(req.await).await }
     };
     let hits = find("budget", "").await;
     let ids: Vec<&str> = hits
@@ -599,12 +565,12 @@ async fn search_ranks_titles_above_content_and_limits_results() {
     assert_eq!(find("", "&kind=page").await.as_array().unwrap().len(), 3);
 
     // Deleted pages are not found, and restoring brings them back.
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/pages/{budget}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert!(res.status().is_success());
+    let res = fx
+        .app
+        .delete(&format!("/api/pages/{budget}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert!(res.status_code().is_success());
     assert_eq!(find("budget", "").await.as_array().unwrap().len(), 1);
 }
 
@@ -612,8 +578,12 @@ async fn search_ranks_titles_above_content_and_limits_results() {
 async fn search_finds_tasks_and_respects_workspaces() {
     let fx = fixture().await;
     let post = |uri: String, body: Value| {
-        let req = post_json(&uri, &body.to_string(), Some(&fx.cookie));
-        async { json_of(request(&fx.app, req).await).await }
+        let req = fx
+            .app
+            .post(&uri)
+            .json_text(&body.to_string())
+            .session(Some(&fx.cookie));
+        async { json_of(req.await).await }
     };
     let project = post(
         format!("/api/workspaces/{}/projects", fx.ws),
@@ -636,11 +606,11 @@ async fn search_finds_tasks_and_respects_workspaces() {
     let task_id = task["id"].as_str().unwrap().to_string();
 
     let find = |ws: uuid::Uuid, q: &str, extra: &str| {
-        let req = get(
-            &format!("/api/workspaces/{ws}/search?q={q}{extra}"),
-            Some(&fx.cookie),
-        );
-        async { json_of(request(&fx.app, req).await).await }
+        let req = fx
+            .app
+            .get(&format!("/api/workspaces/{ws}/search?q={q}{extra}"))
+            .session(Some(&fx.cookie));
+        async { json_of(req.await).await }
     };
     let hits = find(fx.ws, "oak", "").await;
     assert_eq!(hits[0]["id"], task_id);
@@ -649,16 +619,13 @@ async fn search_finds_tasks_and_respects_workspaces() {
     assert_eq!(hits[0]["is_completed"], false);
 
     // Renaming updates the index; a page search does not return tasks.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_id}"),
-            &json!({ "title": "Order birch worktop" }).to_string(),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert!(res.status().is_success());
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_id}"))
+        .json_text(&json!({ "title": "Order birch worktop" }).to_string())
+        .session(Some(&fx.cookie))
+        .await;
+    assert!(res.status_code().is_success());
     assert_eq!(find(fx.ws, "oak", "").await, json!([]));
     assert_eq!(find(fx.ws, "birch", "").await.as_array().unwrap().len(), 1);
     assert_eq!(find(fx.ws, "birch", "&kind=page").await, json!([]));
@@ -700,19 +667,16 @@ impl Fx {
     }
     async fn save_as(&self, cookie: &str, page: &str, text_: &str) {
         let body = json!({ "blocks": [{ "type": "paragraph", "spans": [text(text_)] }] });
-        let res = request(
-            &self.app,
-            put_json(
-                &format!("/api/pages/{page}/blocks"),
-                &body.to_string(),
-                Some(cookie),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::OK);
+        let res = self
+            .app
+            .put(&format!("/api/pages/{page}/blocks"))
+            .json_text(&body.to_string())
+            .session(Some(cookie))
+            .await;
+        assert_eq!(res.status_code(), StatusCode::OK);
     }
     async fn json_get(&self, uri: &str) -> Value {
-        json_of(request(&self.app, get(uri, Some(&self.cookie))).await).await
+        json_of(self.app.get(uri).session(Some(&self.cookie)).await).await
     }
 }
 
@@ -739,16 +703,13 @@ async fn page_saves_are_versions_and_restore_keeps_everything() {
     assert_eq!(list[0]["saved_by"]["email"], "t@home.io");
 
     // Restoring writes the old content as a new version; nothing is lost.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/page-revisions/{second}/restore"),
-            "{}",
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .post(&format!("/api/page-revisions/{second}/restore"))
+        .json_text("{}")
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let restored = json_of(res).await;
     assert_eq!(restored["blocks"][0]["spans"][0]["text"], "second");
     let list = fx.json_get(&format!("/api/pages/{page}/revisions")).await;
@@ -762,50 +723,41 @@ async fn page_saves_are_versions_and_restore_keeps_everything() {
 async fn task_text_versions_keep_the_original_and_restore() {
     let fx = fixture().await;
     let project = json_of(
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/workspaces/{}/projects", fx.ws),
-                r#"{"name":"P"}"#,
-                Some(&fx.cookie),
-            ),
-        )
-        .await,
+        fx.app
+            .post(&format!("/api/workspaces/{}/projects", fx.ws))
+            .json_text(r#"{"name":"P"}"#)
+            .session(Some(&fx.cookie))
+            .await,
     )
     .await;
     let created = json_of(
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/projects/{}/lists", project["id"].as_str().unwrap()),
-                r#"{"name":"Todo"}"#,
-                Some(&fx.cookie),
-            ),
-        )
-        .await,
+        fx.app
+            .post(&format!(
+                "/api/projects/{}/lists",
+                project["id"].as_str().unwrap()
+            ))
+            .json_text(r#"{"name":"Todo"}"#)
+            .session(Some(&fx.cookie))
+            .await,
     )
     .await;
     let list = created["id"].as_str().unwrap();
     let task = json_of(
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/lists/{list}/tasks"),
-                r#"{"title":"Original"}"#,
-                Some(&fx.cookie),
-            ),
-        )
-        .await,
+        fx.app
+            .post(&format!("/api/lists/{list}/tasks"))
+            .json_text(r#"{"title":"Original"}"#)
+            .session(Some(&fx.cookie))
+            .await,
     )
     .await;
     let id = task["id"].as_str().unwrap();
     let edit = |body: Value| {
-        let req = patch_json(
-            &format!("/api/tasks/{id}"),
-            &body.to_string(),
-            Some(&fx.cookie),
-        );
-        async { request(&fx.app, req).await.status() }
+        let req = fx
+            .app
+            .patch(&format!("/api/tasks/{id}"))
+            .json_text(&body.to_string())
+            .session(Some(&fx.cookie));
+        async { req.await.status_code() }
     };
     assert_eq!(edit(json!({ "title": "Renamed" })).await, StatusCode::OK);
     assert_eq!(
@@ -823,16 +775,13 @@ async fn task_text_versions_keep_the_original_and_restore() {
     assert!(list[2]["saved_at"].is_string());
 
     let rev = list[2]["id"].as_str().unwrap();
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/task-revisions/{rev}/restore"),
-            "{}",
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .post(&format!("/api/task-revisions/{rev}/restore"))
+        .json_text("{}")
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(json_of(res).await["title"], "Original");
     let list = fx.json_get(&format!("/api/tasks/{id}/revisions")).await;
     assert_eq!(list.as_array().unwrap().len(), 4);
@@ -851,44 +800,34 @@ async fn markdown_export_of_a_page_and_of_the_whole_wiki() {
             { "page_link": { "page_id": child, "label": "Plan" } }
         ] }
     ]});
-    let res = request(
-        &fx.app,
-        put_json(
-            &format!("/api/pages/{parent}/blocks"),
-            &body.to_string(),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .put(&format!("/api/pages/{parent}/blocks"))
+        .json_text(&body.to_string())
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
 
-    let res = request(
-        &fx.app,
-        get(&format!("/api/pages/{parent}/export"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .get(&format!("/api/pages/{parent}/export"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let disposition = res.headers()["content-disposition"]
         .to_str()
         .unwrap()
         .to_string();
     assert!(disposition.contains("Home base.md"), "{disposition}");
-    assert_eq!(
-        body_string(res.into_body()).await,
-        "# Home base\n\n## Goals\n\nsee Plan\n"
-    );
+    assert_eq!(res.text(), "# Home base\n\n## Goals\n\nsee Plan\n");
 
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/workspaces/{}/wiki/export", fx.ws),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    use http_body_util::BodyExt;
-    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let res = fx
+        .app
+        .get(&format!("/api/workspaces/{}/wiki/export", fx.ws))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let bytes = res.into_bytes();
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let mut names: Vec<String> = zip
         .file_names()
@@ -904,12 +843,13 @@ async fn markdown_export_of_a_page_and_of_the_whole_wiki() {
 
 impl Fx {
     async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            post_json(uri, &body.to_string(), Some(&self.cookie)),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .post(uri)
+            .json_text(&body.to_string())
+            .session(Some(&self.cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     /// A task in a new project, as (project id, task id).
     async fn task(&self, title: &str) -> (String, String) {
@@ -977,12 +917,12 @@ async fn references_are_derived_from_content_and_resolved_with_current_titles() 
         )
         .await;
     assert_eq!(nothing, json!({ "pages": [], "tasks": [] }));
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/pages/{target}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert!(res.status().is_success());
+    let res = fx
+        .app
+        .delete(&format!("/api/pages/{target}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert!(res.status_code().is_success());
     let (_, resolved) = fx
         .post(
             &format!("/api/workspaces/{}/resolve", fx.ws),

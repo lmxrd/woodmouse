@@ -6,15 +6,15 @@ use serde_json::{Value, json};
 use crate::common::*;
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     cookie: String,
     ws: uuid::Uuid,
     project: String,
     other_project: String,
 }
 
-async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).unwrap_or(Value::Null)
+async fn json_of(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).unwrap_or(Value::Null)
 }
 
 async fn fixture() -> Fx {
@@ -23,15 +23,11 @@ async fn fixture() -> Fx {
     let ws = create_workspace(&app, &cookie, "Home").await;
     let mut ids = vec![];
     for name in ["P", "Q"] {
-        let res = request(
-            &app,
-            post_json(
-                &format!("/api/workspaces/{ws}/projects"),
-                &format!(r#"{{"name":"{name}"}}"#),
-                Some(&cookie),
-            ),
-        )
-        .await;
+        let res = app
+            .post(&format!("/api/workspaces/{ws}/projects"))
+            .json_text(&format!(r#"{{"name":"{name}"}}"#))
+            .session(Some(&cookie))
+            .await;
         ids.push(json_of(res).await["id"].as_str().unwrap().to_string());
     }
     Fx {
@@ -45,23 +41,25 @@ async fn fixture() -> Fx {
 
 impl Fx {
     async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            post_json(uri, &body.to_string(), Some(&self.cookie)),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .post(uri)
+            .json_text(&body.to_string())
+            .session(Some(&self.cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     async fn patch(&self, uri: &str, body: Value) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            patch_json(uri, &body.to_string(), Some(&self.cookie)),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .patch(uri)
+            .json_text(&body.to_string())
+            .session(Some(&self.cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     async fn get(&self, uri: &str) -> Value {
-        json_of(request(&self.app, get(uri, Some(&self.cookie))).await).await
+        json_of(self.app.get(uri).session(Some(&self.cookie)).await).await
     }
     async fn count(&self, query: &str) -> usize {
         let uri = format!(
@@ -218,12 +216,12 @@ async fn deleting_a_sprint_returns_its_tasks_to_the_backlog_and_can_be_restored(
     let sprint = fx.sprint(&fx.project, "Doomed").await;
     let t = fx.task("A", json!({"sprint_id": sprint})).await;
 
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/sprints/{sprint}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/sprints/{sprint}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert!(fx.get(&format!("/api/tasks/{t}")).await["sprint_id"].is_null());
     let list = fx
         .get(&format!("/api/projects/{}/sprints", fx.project))
@@ -238,16 +236,16 @@ async fn deleting_a_sprint_returns_its_tasks_to_the_backlog_and_can_be_restored(
         .find(|i| i["kind"] == "sprint")
         .expect("the sprint is in the trash");
     assert_eq!(item["name"], "Doomed");
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/trash/sprint/{sprint}/restore", fx.ws),
-            "{}",
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .post(&format!(
+            "/api/workspaces/{}/trash/sprint/{sprint}/restore",
+            fx.ws
+        ))
+        .json_text("{}")
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     let list = fx
         .get(&format!("/api/projects/{}/sprints", fx.project))
         .await;

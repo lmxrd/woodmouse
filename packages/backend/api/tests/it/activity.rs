@@ -5,13 +5,13 @@ use serde_json::Value;
 
 use crate::common::*;
 
-async fn json(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).expect("valid json")
+async fn json(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).expect("valid json")
 }
 
-async fn id_of(app: &axum::Router, cookie: &str, uri: &str, body: &str) -> String {
-    let res = request(app, post_json(uri, body, Some(cookie))).await;
-    assert_eq!(res.status(), StatusCode::CREATED, "POST {uri}");
+async fn id_of(app: &TestServer, cookie: &str, uri: &str, body: &str) -> String {
+    let res = app.post(uri).json_text(body).session(Some(cookie)).await;
+    assert_eq!(res.status_code(), StatusCode::CREATED, "POST {uri}");
     json(res).await["id"].as_str().unwrap().to_string()
 }
 
@@ -20,7 +20,7 @@ async fn records_what_happens_and_scopes_the_feed() {
     let app = app().await;
     let c = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &c, "Home").await;
-    let me = json(request(&app, get("/api/auth/me", Some(&c))).await).await["id"]
+    let me = json(app.get("/api/auth/me").session(Some(&c)).await).await["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -66,12 +66,12 @@ async fn records_what_happens_and_scopes_the_feed() {
         let c = c.clone();
         let task = task.clone();
         async move {
-            let res = request(
-                &app,
-                patch_json(&format!("/api/tasks/{task}"), &body, Some(&c)),
-            )
-            .await;
-            assert_eq!(res.status(), StatusCode::OK);
+            let res = app
+                .patch(&format!("/api/tasks/{task}"))
+                .json_text(&body)
+                .session(Some(&c))
+                .await;
+            assert_eq!(res.status_code(), StatusCode::OK);
         }
     };
     patch(r#"{"title":"Order oak worktop"}"#.to_string()).await;
@@ -106,40 +106,34 @@ async fn records_what_happens_and_scopes_the_feed() {
         &format!(r#"{{"related_task_id":"{other}","kind":"blocks"}}"#),
     )
     .await;
-    let res = request(
+    let res = upload(
         &app,
-        upload(
-            &format!("/api/workspaces/{ws}/files"),
-            "quote.pdf",
-            "application/pdf",
-            b"pdf",
-            Some(&task),
-            Some(&c),
-        ),
+        &format!("/api/workspaces/{ws}/files"),
+        "quote.pdf",
+        "application/pdf",
+        b"pdf",
+        Some(&task),
+        Some(&c),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    request(&app, delete(&format!("/api/tasks/{task}"), Some(&c))).await;
-    request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{ws}/trash/task/{task}/restore"),
-            "{}",
-            Some(&c),
-        ),
-    )
-    .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    app.delete(&format!("/api/tasks/{task}"))
+        .session(Some(&c))
+        .await;
+    app.post(&format!("/api/workspaces/{ws}/trash/task/{task}/restore"))
+        .json_text("{}")
+        .session(Some(&c))
+        .await;
 
     let feed = |query: String| {
         let app = app.clone();
         let c = c.clone();
         async move {
-            let res = request(
-                &app,
-                get(&format!("/api/workspaces/{ws}/activity{query}"), Some(&c)),
-            )
-            .await;
-            assert_eq!(res.status(), StatusCode::OK);
+            let res = app
+                .get(&format!("/api/workspaces/{ws}/activity{query}"))
+                .session(Some(&c))
+                .await;
+            assert_eq!(res.status_code(), StatusCode::OK);
             json(res).await.as_array().unwrap().clone()
         }
     };
@@ -223,16 +217,12 @@ async fn records_what_happens_and_scopes_the_feed() {
         format!("?project_id={project}"),
         String::new(),
     ] {
-        let res = request(
-            &app,
-            get(
-                &format!("/api/workspaces/{other_ws}/activity{query}"),
-                Some(&c),
-            ),
-        )
-        .await;
+        let res = app
+            .get(&format!("/api/workspaces/{other_ws}/activity{query}"))
+            .session(Some(&c))
+            .await;
         assert!(json(res).await.as_array().unwrap().is_empty());
     }
-    let res = request(&app, get(&format!("/api/workspaces/{ws}/activity"), None)).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app.get(&format!("/api/workspaces/{ws}/activity")).await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 }

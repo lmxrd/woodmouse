@@ -72,7 +72,7 @@ api/src/live/          live wiki editing (Yjs rooms over WebSockets)
 api/src/transfer/      import and export
 api/src/jobs.rs        the daily and periodic jobs
 api/src/db.rs          the pool, `Db` and the `prelude` of SeaORM traits
-api/tests/it/          the end-to-end tests
+api/tests/it/          the integration tests, through axum-test's TestServer
 entity/src/            the database models: one generated SeaORM entity per table (`mise run gen:models`), and `DateTime`
 migration/src/         the schema: SeaORM migrations, each running a SQL file (`mise run migrate` applies them)
 ```

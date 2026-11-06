@@ -10,9 +10,9 @@ use crate::common::*;
 #[tokio::test]
 async fn health_probes() {
     let app = app().await;
-    let res = request(&app, get("/api/health", None)).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = app.get("/api/health").await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("\"status\":\"ok\""), "body: {body}");
     assert!(body.contains("\"db\":\"ok\""), "body: {body}");
 }
@@ -22,126 +22,95 @@ async fn bootstrap_login_logout_flow() {
     let app = app().await;
 
     // Before any user exists: bootstrap required.
-    let res = request(&app, get("/api/auth/status", None)).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = app.get("/api/auth/status").await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("\"bootstrap_required\":true"), "body: {body}");
 
     // Bootstrap creates the super admin and logs in.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/bootstrap",
-            r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = app
+        .post("/api/auth/bootstrap")
+        .json_text(r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let cookie = cookie_of(&res);
-    let body = body_string(res.into_body()).await;
+    let body = res.text();
     assert!(body.contains("admin@home.io"), "body: {body}");
     assert!(body.contains("\"super_admin\":true"), "body: {body}");
 
     // Bootstrap is closed once a user exists.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/bootstrap",
-            r#"{"email":"x@y.io","name":"X","password":"longenough"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let res = app
+        .post("/api/auth/bootstrap")
+        .json_text(r#"{"email":"x@y.io","name":"X","password":"longenough"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CONFLICT);
 
-    let res = request(&app, get("/api/auth/status", None)).await;
-    let body = body_string(res.into_body()).await;
+    let res = app.get("/api/auth/status").await;
+    let body = res.text();
     assert!(
         body.contains("\"bootstrap_required\":false"),
         "body: {body}"
     );
 
     // The session cookie works.
-    let res = request(&app, get("/api/auth/me", Some(&cookie))).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = app.get("/api/auth/me").session(Some(&cookie)).await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("admin@home.io"), "body: {body}");
 
     // Without a cookie: 401.
-    let res = request(&app, get("/api/auth/me", None)).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app.get("/api/auth/me").await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
     // Wrong password: 401, same generic error as unknown email.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/login",
-            r#"{"email":"admin@home.io","password":"wrong pass"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app
+        .post("/api/auth/login")
+        .json_text(r#"{"email":"admin@home.io","password":"wrong pass"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/login",
-            r#"{"email":"nobody@home.io","password":"wrong pass"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app
+        .post("/api/auth/login")
+        .json_text(r#"{"email":"nobody@home.io","password":"wrong pass"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
     // Correct credentials: a fresh session.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/login",
-            r#"{"email":"admin@home.io","password":"correct horse"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .post("/api/auth/login")
+        .json_text(r#"{"email":"admin@home.io","password":"correct horse"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let cookie2 = cookie_of(&res);
 
     // Logout invalidates only the logged-out session.
-    let res = request(&app, post_json("/api/auth/logout", "", Some(&cookie2))).await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let res = request(&app, get("/api/auth/me", Some(&cookie2))).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-    let res = request(&app, get("/api/auth/me", Some(&cookie))).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .post("/api/auth/logout")
+        .json_text("")
+        .session(Some(&cookie2))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let res = app.get("/api/auth/me").session(Some(&cookie2)).await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+    let res = app.get("/api/auth/me").session(Some(&cookie)).await;
+    assert_eq!(res.status_code(), StatusCode::OK);
 }
 
 #[tokio::test]
 async fn bootstrap_validates_input() {
     let app = app().await;
 
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/bootstrap",
-            r#"{"email":"nope","name":"A","password":"longenough"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = app
+        .post("/api/auth/bootstrap")
+        .json_text(r#"{"email":"nope","name":"A","password":"longenough"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/bootstrap",
-            r#"{"email":"a@b.io","name":"A","password":"short"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = app
+        .post("/api/auth/bootstrap")
+        .json_text(r#"{"email":"a@b.io","name":"A","password":"short"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -149,51 +118,38 @@ async fn workspaces_access_is_enforced() {
     let (app, db) = app_with_db().await;
 
     // First user: bootstrap super admin.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/bootstrap",
-            r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = app
+        .post("/api/auth/bootstrap")
+        .json_text(r#"{"email":"admin@home.io","name":"Admin","password":"correct horse"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let admin_cookie = cookie_of(&res);
 
     // Unauthenticated access is rejected.
-    let res = request(&app, get("/api/workspaces", None)).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app.get("/api/workspaces").await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
     // A garbage session cookie is rejected by the auth layer, not just a
     // missing one — enforcement is fail-closed for every protected route.
-    let res = request(
-        &app,
-        get(
-            "/api/workspaces",
-            Some("woodmouse_session=definitely-not-a-real-token"),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-    let res = request(
-        &app,
-        get(
-            "/api/auth/me",
-            Some("woodmouse_session=definitely-not-a-real-token"),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app
+        .get("/api/workspaces")
+        .session(Some("woodmouse_session=definitely-not-a-real-token"))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
+    let res = app
+        .get("/api/auth/me")
+        .session(Some("woodmouse_session=definitely-not-a-real-token"))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
     // The admin creates a workspace.
-    let res = request(
-        &app,
-        post_json("/api/workspaces", r#"{"name":"Home"}"#, Some(&admin_cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let body = body_string(res.into_body()).await;
+    let res = app
+        .post("/api/workspaces")
+        .json_text(r#"{"name":"Home"}"#)
+        .session(Some(&admin_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let body = res.text();
     let workspace_id: uuid::Uuid = serde_json::from_slice(
         &serde_json::from_str::<serde_json::Value>(&body)
             .expect("valid json")
@@ -206,20 +162,19 @@ async fn workspaces_access_is_enforced() {
     assert!(body.contains("Home"), "body: {body}");
 
     // The admin sees it, both in the list and by id.
-    let res = request(&app, get("/api/workspaces", Some(&admin_cookie))).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = app
+        .get("/api/workspaces")
+        .session(Some(&admin_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("Home"), "body: {body}");
 
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}"),
-            Some(&admin_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}"))
+        .session(Some(&admin_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
 
     // A second, non-member user seeded directly in the database.
     let other = users::ActiveModel {
@@ -240,57 +195,51 @@ async fn workspaces_access_is_enforced() {
     let other_cookie = format!("woodmouse_session={other_token}");
 
     // Membership filtering: the list shows no workspaces.
-    let res = request(&app, get("/api/workspaces", Some(&other_cookie))).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = app
+        .get("/api/workspaces")
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert_eq!(body, "[]", "no workspaces visible: {body}");
 
     // Direct access to the workspace: 404 (same as nonexistent — no leak).
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}"),
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}"))
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     // A nonexistent workspace gives the same status.
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{}", uuid::Uuid::new_v4()),
-            Some(&admin_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .get(&format!("/api/workspaces/{}", uuid::Uuid::new_v4()))
+        .session(Some(&admin_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     // The second user can create their own workspace and sees only that.
-    let res = request(
-        &app,
-        post_json(
-            "/api/workspaces",
-            r#"{"name":"Other place"}"#,
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = app
+        .post("/api/workspaces")
+        .json_text(r#"{"name":"Other place"}"#)
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
 
-    let res = request(&app, get("/api/workspaces", Some(&other_cookie))).await;
-    let body = body_string(res.into_body()).await;
+    let res = app
+        .get("/api/workspaces")
+        .session(Some(&other_cookie))
+        .await;
+    let body = res.text();
     assert!(body.contains("Other place"), "body: {body}");
     assert!(!body.contains("Home"), "body: {body}");
 
     // Empty name is rejected.
-    let res = request(
-        &app,
-        post_json("/api/workspaces", r#"{"name":"  "}"#, Some(&admin_cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = app
+        .post("/api/workspaces")
+        .json_text(r#"{"name":"  "}"#)
+        .session(Some(&admin_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
     // The composite primary key rejects a second membership row for the
     // same (user, workspace) pair — role lookups stay deterministic.
@@ -313,15 +262,11 @@ async fn workspaces_access_is_enforced() {
     assert!(dup.is_ok(), "first membership insert should succeed");
     assert!(dup2.is_err(), "duplicate membership must be rejected");
     // And granting the second user read access now opens the workspace.
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}"),
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}"))
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
 }
 
 /// Every error answers `{"error": "..."}` in sentence case, extractors' rejections included.
@@ -329,10 +274,9 @@ async fn workspaces_access_is_enforced() {
 async fn every_error_has_the_one_shape() {
     let app = app().await;
     let admin = bootstrap_admin(&app).await;
-    let body = |res: axum::http::Response<axum::body::Body>| async move {
-        let status = res.status();
-        let json: serde_json::Value =
-            serde_json::from_str(&body_string(res.into_body()).await).expect("a JSON error body");
+    let body = |res: TestResponse| async move {
+        let status = res.status_code();
+        let json: serde_json::Value = serde_json::from_str(&res.text()).expect("a JSON error body");
         (
             status,
             json["error"]
@@ -342,20 +286,19 @@ async fn every_error_has_the_one_shape() {
         )
     };
     // A path that does not parse.
-    let (status, error) =
-        body(request(&app, get("/api/workspaces/not-a-uuid", Some(&admin))).await).await;
+    let (status, error) = body(
+        app.get("/api/workspaces/not-a-uuid")
+            .session(Some(&admin))
+            .await,
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(error.starts_with(char::is_uppercase), "{error}");
     // Not found.
     let (status, error) = body(
-        request(
-            &app,
-            get(
-                &format!("/api/workspaces/{}", uuid::Uuid::new_v4()),
-                Some(&admin),
-            ),
-        )
-        .await,
+        app.get(&format!("/api/workspaces/{}", uuid::Uuid::new_v4()))
+            .session(Some(&admin))
+            .await,
     )
     .await;
     assert_eq!(
@@ -363,21 +306,18 @@ async fn every_error_has_the_one_shape() {
         (StatusCode::NOT_FOUND, "Not found")
     );
     // A body that is not JSON, and JSON that does not fit.
-    let req = axum::http::Request::builder()
-        .method("POST")
-        .uri("/api/workspaces")
-        .header("cookie", &admin)
-        .body(axum::body::Body::from("name=x"))
-        .unwrap();
-    let (status, error) = body(request(&app, req).await).await;
+    let req = app
+        .post("/api/workspaces")
+        .text("name=x")
+        .session(Some(&admin));
+    let (status, error) = body(req.await).await;
     assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
     assert!(error.contains("JSON"), "{error}");
     let (status, error) = body(
-        request(
-            &app,
-            post_json("/api/workspaces", r#"{"name":1}"#, Some(&admin)),
-        )
-        .await,
+        app.post("/api/workspaces")
+            .json_text(r#"{"name":1}"#)
+            .session(Some(&admin))
+            .await,
     )
     .await;
     assert_eq!(
@@ -386,15 +326,9 @@ async fn every_error_has_the_one_shape() {
     );
     // A validation message.
     let (status, error) = body(
-        request(
-            &app,
-            post_json(
-                "/api/auth/bootstrap",
-                r#"{"email":"x","password":"long enough"}"#,
-                None,
-            ),
-        )
-        .await,
+        app.post("/api/auth/bootstrap")
+            .json_text(r#"{"email":"x","password":"long enough"}"#)
+            .await,
     )
     .await;
     assert!(status.is_client_error());

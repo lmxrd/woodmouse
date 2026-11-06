@@ -9,6 +9,8 @@ use entity::{labels, workspace_members};
 use entity::{users, workspaces};
 use sea_orm::DatabaseConnection;
 
+use crate::common::*;
+
 /// A workspace row, so labels can point at something (the relations are foreign keys).
 async fn workspace(db: &DatabaseConnection) -> uuid::Uuid {
     workspaces::ActiveModel {
@@ -397,36 +399,24 @@ async fn entities_match_the_tables() {
 /// Checked over every id column after the API has made rows in the main tables.
 #[tokio::test]
 async fn every_id_is_stored_as_sixteen_bytes() {
-    let (app, db) = crate::common::app_with_db().await;
-    let admin = crate::common::bootstrap_admin(&app).await;
-    let ws = crate::common::create_workspace(&app, &admin, "Home").await;
+    let (app, db) = app_with_db().await;
+    let admin = bootstrap_admin(&app).await;
+    let ws = create_workspace(&app, &admin, "Home").await;
     let project: serde_json::Value = serde_json::from_str(
-        &crate::common::body_string(
-            crate::common::request(
-                &app,
-                crate::common::post_json(
-                    &format!("/api/workspaces/{ws}/projects"),
-                    r#"{"name":"House"}"#,
-                    Some(&admin),
-                ),
-            )
+        &app.post(&format!("/api/workspaces/{ws}/projects"))
+            .json_text(r#"{"name":"House"}"#)
+            .session(Some(&admin))
             .await
-            .into_body(),
-        )
-        .await,
+            .text(),
     )
     .unwrap();
     let project_id = project["id"].as_str().unwrap();
-    let res = crate::common::request(
-        &app,
-        crate::common::post_json(
-            &format!("/api/projects/{project_id}/tasks"),
-            r#"{"title":"Paint"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert!(res.status().is_success(), "{}", res.status());
+    let res = app
+        .post(&format!("/api/projects/{project_id}/tasks"))
+        .json_text(r#"{"title":"Paint"}"#)
+        .session(Some(&admin))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.status_code());
 
     let columns = api::db::query::<(String, String)>(
         &db,

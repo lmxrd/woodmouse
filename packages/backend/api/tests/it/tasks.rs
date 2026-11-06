@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::common::*;
 
 struct Fixture {
-    app: axum::Router,
+    app: App,
     cookie: String,
     workspace_id: uuid::Uuid,
     project_id: uuid::Uuid,
@@ -21,28 +21,20 @@ async fn fixture() -> Fixture {
     let cookie = bootstrap_admin(&app).await;
     let workspace_id = create_workspace(&app, &cookie, "Home").await;
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{workspace_id}/projects"),
-            r#"{"name":"Renovation"}"#,
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = app
+        .post(&format!("/api/workspaces/{workspace_id}/projects"))
+        .json_text(r#"{"name":"Renovation"}"#)
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let project_id = json_id(res).await;
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/projects/{project_id}/lists"),
-            r#"{"name":"Todo"}"#,
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = app
+        .post(&format!("/api/projects/{project_id}/lists"))
+        .json_text(r#"{"name":"Todo"}"#)
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let list_id = json_id(res).await;
 
     Fixture {
@@ -54,8 +46,8 @@ async fn fixture() -> Fixture {
     }
 }
 
-async fn json_id(res: axum::http::Response<axum::body::Body>) -> uuid::Uuid {
-    let body = body_string(res.into_body()).await;
+async fn json_id(res: TestResponse) -> uuid::Uuid {
+    let body = res.text();
     serde_json::from_str::<Value>(&body)
         .expect("valid json")
         .get("id")
@@ -67,27 +59,24 @@ async fn json_id(res: axum::http::Response<axum::body::Body>) -> uuid::Uuid {
 }
 
 async fn create_task(fx: &Fixture, title: &str) -> uuid::Uuid {
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{}/tasks", fx.list_id),
-            &format!(r#"{{"title":"{title}"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/lists/{}/tasks", fx.list_id))
+        .json_text(&format!(r#"{{"title":"{title}"}}"#))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     json_id(res).await
 }
 
 async fn get_task_json(fx: &Fixture, task_id: uuid::Uuid) -> Value {
-    let res = request(
-        &fx.app,
-        get(&format!("/api/tasks/{task_id}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .get(&format!("/api/tasks/{task_id}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     serde_json::from_str(&body).expect("valid json")
 }
 
@@ -95,19 +84,16 @@ async fn get_task_json(fx: &Fixture, task_id: uuid::Uuid) -> Value {
 /// parameters like `?is_completed=true` (or empty).
 async fn list_tasks_json(fx: &Fixture, query: &str) -> Vec<Value> {
     let extra = query.trim_start_matches('?');
-    let res = request(
-        &fx.app,
-        get(
-            &format!(
-                "/api/workspaces/{}/tasks?list_id={}&{extra}",
-                fx.workspace_id, fx.list_id
-            ),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .get(&format!(
+            "/api/workspaces/{}/tasks?list_id={}&{extra}",
+            fx.workspace_id, fx.list_id
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     serde_json::from_str(&body).expect("valid json")
 }
 
@@ -116,80 +102,62 @@ async fn projects_and_lists_crud() {
     let fx = fixture().await;
 
     // Projects are listed under the workspace.
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/workspaces/{}/projects", fx.workspace_id),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .get(&format!("/api/workspaces/{}/projects", fx.workspace_id))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("Renovation"), "body: {body}");
 
     // Rename the project.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/projects/{}", fx.project_id),
-            r#"{"name":"Loft renovation"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .patch(&format!("/api/projects/{}", fx.project_id))
+        .json_text(r#"{"name":"Loft renovation"}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("Loft renovation"), "body: {body}");
 
     // Empty names are rejected.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/projects", fx.workspace_id),
-            r#"{"name":"  "}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/projects", fx.workspace_id))
+        .json_text(r#"{"name":"  "}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
     // Lists belong to the project and can be renamed.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/projects/{}/lists", fx.project_id),
-            r#"{"name":"Doing"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/projects/{}/lists", fx.project_id))
+        .json_text(r#"{"name":"Doing"}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let doing_id = json_id(res).await;
 
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/lists/{doing_id}"),
-            r#"{"name":"In progress"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .patch(&format!("/api/lists/{doing_id}"))
+        .json_text(r#"{"name":"In progress"}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(body.contains("In progress"), "body: {body}");
 
     // A list of another "project" is not reachable at garbage ids.
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/lists/{}", uuid::Uuid::new_v4()),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .get(&format!("/api/lists/{}", uuid::Uuid::new_v4()))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -208,61 +176,52 @@ async fn task_lifecycle() {
     assert_eq!(b["position"], 40);
 
     // Partial update: is_completed + priority + due date.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_a}"),
-            r#"{"is_completed":true,"priority":"urgent","due_date":"2026-01-01T00:00:00Z"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_a}"))
+        .json_text(r#"{"is_completed":true,"priority":"urgent","due_date":"2026-01-01T00:00:00Z"}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let a = get_task_json(&fx, task_a).await;
     assert!(a["completed_at"].is_string());
     assert_eq!(a["priority"], "urgent");
     assert_eq!(a["due_date"], "2026-01-01T00:00:00Z");
 
     // Explicit null clears the due date; absent leaves it unchanged.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_a}"),
-            r#"{"due_date":null}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_a}"))
+        .json_text(r#"{"due_date":null}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let a = get_task_json(&fx, task_a).await;
     assert_eq!(a["due_date"], Value::Null);
     assert_eq!(a["priority"], "urgent");
 
     // Empty title is rejected.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_a}"),
-            r#"{"title":"  "}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_a}"))
+        .json_text(r#"{"title":"  "}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
     // Delete removes the task.
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/tasks/{task_a}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let res = request(
-        &fx.app,
-        get(&format!("/api/tasks/{task_a}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{task_a}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .get(&format!("/api/tasks/{task_a}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     let tasks = list_tasks_json(&fx, "").await;
     assert_eq!(tasks.len(), 1);
@@ -274,114 +233,98 @@ async fn assignees_and_labels() {
     let fx = fixture().await;
 
     // A label in the workspace.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/labels", fx.workspace_id),
-            r##"{"name":"errand","color":"#ff0000"}"##,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/labels", fx.workspace_id))
+        .json_text(r##"{"name":"errand","color":"#ff0000"}"##)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let label_id = json_id(res).await;
 
     // A label in another workspace must not attach.
     let other_ws = create_workspace(&fx.app, &fx.cookie, "Other place").await;
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{other_ws}/labels"),
-            r#"{"name":"foreign"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{other_ws}/labels"))
+        .json_text(r#"{"name":"foreign"}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let foreign_label = json_id(res).await;
 
     // The admin's user id (needed as an assignee).
     let me: Value = {
-        let res = request(&fx.app, get("/api/auth/me", Some(&fx.cookie))).await;
-        serde_json::from_str(&body_string(res.into_body()).await).expect("json")
+        let res = fx.app.get("/api/auth/me").session(Some(&fx.cookie)).await;
+        serde_json::from_str(&res.text()).expect("json")
     };
     let admin_id = me["id"].as_str().unwrap();
 
     // Create with assignee + label.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{}/tasks", fx.list_id),
-            &format!(
-                r#"{{"title":"Pick up keys","assignee_ids":["{admin_id}"],"label_ids":["{label_id}"]}}"#
-            ),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .post(&format!("/api/lists/{}/tasks", fx.list_id))
+        .json_text(&format!(
+            r#"{{"title":"Pick up keys","assignee_ids":["{admin_id}"],"label_ids":["{label_id}"]}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let body = res.text();
     let task: Value = serde_json::from_str(&body).expect("json");
     let task_id = task["id"].as_str().unwrap().to_string();
     assert_eq!(task["assignees"][0]["email"], "admin@home.io");
     assert_eq!(task["labels"][0]["name"], "errand");
 
     // Replacing the label set works; foreign labels are rejected.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_id}"),
-            r#"{"label_ids":[]}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_id}"))
+        .json_text(r#"{"label_ids":[]}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let task = get_task_json(&fx, task_id.parse().unwrap()).await;
     assert_eq!(task["labels"].as_array().unwrap().len(), 0);
 
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_id}"),
-            &format!(r#"{{"label_ids":["{foreign_label}"]}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_id}"))
+        .json_text(&format!(r#"{{"label_ids":["{foreign_label}"]}}"#))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
     // Non-member assignees are rejected.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task_id}"),
-            &format!(r#"{{"assignee_ids":["{}"]}}"#, uuid::Uuid::new_v4()),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{task_id}"))
+        .json_text(&format!(
+            r#"{{"assignee_ids":["{}"]}}"#,
+            uuid::Uuid::new_v4()
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
     // Deleting a label detaches it from tasks.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{}/tasks", fx.list_id),
-            &format!(r#"{{"title":"Tagged","label_ids":["{label_id}"]}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/lists/{}/tasks", fx.list_id))
+        .json_text(&format!(
+            r#"{{"title":"Tagged","label_ids":["{label_id}"]}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let tagged_id = json_id(res).await;
 
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/labels/{label_id}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/labels/{label_id}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     let task = get_task_json(&fx, tagged_id).await;
     assert_eq!(task["labels"].as_array().unwrap().len(), 0);
 }
@@ -391,19 +334,16 @@ async fn filtering_and_sorting() {
     let fx = fixture().await;
 
     // Labels and assignee for filters.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/labels", fx.workspace_id),
-            r#"{"name":"errand"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/labels", fx.workspace_id))
+        .json_text(r#"{"name":"errand"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let label_id = json_id(res).await;
     let me: Value = {
-        let res = request(&fx.app, get("/api/auth/me", Some(&fx.cookie))).await;
-        serde_json::from_str(&body_string(res.into_body()).await).expect("json")
+        let res = fx.app.get("/api/auth/me").session(Some(&fx.cookie)).await;
+        serde_json::from_str(&res.text()).expect("json")
     };
     let admin_id = me["id"].as_str().unwrap();
 
@@ -412,15 +352,11 @@ async fn filtering_and_sorting() {
     let t3 = create_task(&fx, "Gamma").await;
 
     // is_completed filter.
-    request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{t1}"),
-            r#"{"is_completed":true}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .patch(&format!("/api/tasks/{t1}"))
+        .json_text(r#"{"is_completed":true}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let done = list_tasks_json(&fx, "?is_completed=true").await;
     assert_eq!(done.len(), 1);
     assert_eq!(done[0]["title"], "Alpha");
@@ -428,29 +364,21 @@ async fn filtering_and_sorting() {
     assert_eq!(open.len(), 2);
 
     // assignee filter (t3 assigned to admin).
-    request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{t3}"),
-            &format!(r#"{{"assignee_ids":["{admin_id}"]}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .patch(&format!("/api/tasks/{t3}"))
+        .json_text(&format!(r#"{{"assignee_ids":["{admin_id}"]}}"#))
+        .session(Some(&fx.cookie))
+        .await;
     let assigned = list_tasks_json(&fx, &format!("?assignee_id={admin_id}")).await;
     assert_eq!(assigned.len(), 1);
     assert_eq!(assigned[0]["title"], "Gamma");
 
     // label filter (t3 labeled).
-    request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{t3}"),
-            &format!(r#"{{"label_ids":["{label_id}"]}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .patch(&format!("/api/tasks/{t3}"))
+        .json_text(&format!(r#"{{"label_ids":["{label_id}"]}}"#))
+        .session(Some(&fx.cookie))
+        .await;
     let labeled = list_tasks_json(&fx, &format!("?label_id={label_id}")).await;
     assert_eq!(labeled.len(), 1);
     assert_eq!(labeled[0]["title"], "Gamma");
@@ -466,15 +394,11 @@ async fn filtering_and_sorting() {
     // due_date sort: tasks without a due date order first ascending (SQLite
     // NULL ordering). Alpha has none; Beta is due before Gamma.
     for (id, due) in [(&t2, "2023-11-14T00:00:00Z"), (&t3, "2027-01-15T00:00:00Z")] {
-        request(
-            &fx.app,
-            patch_json(
-                &format!("/api/tasks/{id}"),
-                &format!(r#"{{"due_date":"{due}"}}"#),
-                Some(&fx.cookie),
-            ),
-        )
-        .await;
+        fx.app
+            .patch(&format!("/api/tasks/{id}"))
+            .json_text(&format!(r#"{{"due_date":"{due}"}}"#))
+            .session(Some(&fx.cookie))
+            .await;
     }
     let by_due = list_tasks_json(&fx, "?sort=due_date&order=asc").await;
     let titles: Vec<&str> = by_due
@@ -498,16 +422,12 @@ async fn access_isolation_and_roles() {
     let cookie = bootstrap_admin(&app).await;
     let workspace_id = create_workspace(&app, &cookie, "Home").await;
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{workspace_id}/projects"),
-            r#"{"name":"Secret project"}"#,
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = app
+        .post(&format!("/api/workspaces/{workspace_id}/projects"))
+        .json_text(r#"{"name":"Secret project"}"#)
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let project_id = json_id(res).await;
 
     // A second, non-member user (seeded directly).
@@ -527,33 +447,24 @@ async fn access_isolation_and_roles() {
     let other_cookie = format!("woodmouse_session={other_token}");
 
     // Non-member: the workspace looks nonexistent (404), nothing is creatable.
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}/projects"),
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}/projects"))
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
-    let res = request(
-        &app,
-        get(&format!("/api/projects/{project_id}"), Some(&other_cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .get(&format!("/api/projects/{project_id}"))
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{workspace_id}/projects"),
-            r#"{"name":"Intrude"}"#,
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .post(&format!("/api/workspaces/{workspace_id}/projects"))
+        .json_text(r#"{"name":"Intrude"}"#)
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     // As a read-only member: can list, cannot write.
     workspace_members::ActiveModel {
@@ -566,27 +477,19 @@ async fn access_isolation_and_roles() {
     .await
     .expect("seed membership");
 
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}/projects"),
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    let body = body_string(res.into_body()).await;
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}/projects"))
+        .session(Some(&other_cookie))
+        .await;
+    let body = res.text();
     assert!(body.contains("Secret project"), "body: {body}");
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{workspace_id}/projects"),
-            r#"{"name":"Intrude"}"#,
-            Some(&other_cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .post(&format!("/api/workspaces/{workspace_id}/projects"))
+        .json_text(r#"{"name":"Intrude"}"#)
+        .session(Some(&other_cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -597,91 +500,74 @@ async fn delete_cascades() {
 
     // Labels survive project deletion (they belong to the workspace), but
     // tasks, assignments, and label links do not.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/labels", fx.workspace_id),
-            r#"{"name":"keepme"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/labels", fx.workspace_id))
+        .json_text(r#"{"name":"keepme"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let label_id = json_id(res).await;
-    request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{task}"),
-            &format!(r#"{{"label_ids":["{label_id}"]}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .patch(&format!("/api/tasks/{task}"))
+        .json_text(&format!(r#"{{"label_ids":["{label_id}"]}}"#))
+        .session(Some(&fx.cookie))
+        .await;
 
     // Delete the list: its tasks are gone.
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/lists/{}", fx.list_id), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let res = request(
-        &fx.app,
-        get(&format!("/api/tasks/{task}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .delete(&format!("/api/lists/{}", fx.list_id))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .get(&format!("/api/tasks/{task}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     // Recreate a list in the project and verify the label is still there
     // and attachable — the join rows were cleaned up with the task.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/projects/{}/lists", fx.project_id),
-            r#"{"name":"Fresh list"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/projects/{}/lists", fx.project_id))
+        .json_text(r#"{"name":"Fresh list"}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let fresh_list = json_id(res).await;
 
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{fresh_list}/tasks"),
-            &format!(r#"{{"title":"New task","label_ids":["{label_id}"]}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/lists/{fresh_list}/tasks"))
+        .json_text(&format!(
+            r#"{{"title":"New task","label_ids":["{label_id}"]}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
 
     // Delete the project: lists and tasks go with it.
-    let res = request(
-        &fx.app,
-        delete(
-            &format!("/api/projects/{}", fx.project_id),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let res = request(
-        &fx.app,
-        get(&format!("/api/lists/{fresh_list}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .delete(&format!("/api/projects/{}", fx.project_id))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .get(&format!("/api/lists/{fresh_list}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/workspaces/{}/labels", fx.workspace_id),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    let body = body_string(res.into_body()).await;
+    let res = fx
+        .app
+        .get(&format!("/api/workspaces/{}/labels", fx.workspace_id))
+        .session(Some(&fx.cookie))
+        .await;
+    let body = res.text();
     assert!(
         body.contains("keepme"),
         "labels survive project deletion: {body}"
@@ -693,27 +579,23 @@ async fn move_between_lists_and_start_date() {
     let fx = fixture().await;
     let t1 = create_task(&fx, "Alpha").await;
 
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/projects/{}/lists", fx.project_id),
-            r#"{"name":"Done"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/projects/{}/lists", fx.project_id))
+        .json_text(r#"{"name":"Done"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let other_list = json_id(res).await;
 
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{t1}"),
-            &format!(r#"{{"list_id":"{other_list}","start_date":"2023-11-14T00:00:00Z"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{t1}"))
+        .json_text(&format!(
+            r#"{{"list_id":"{other_list}","start_date":"2023-11-14T00:00:00Z"}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let task = get_task_json(&fx, t1).await;
     assert_eq!(task["list_id"], other_list.to_string());
     assert_eq!(task["start_date"], "2023-11-14T00:00:00Z");
@@ -721,28 +603,21 @@ async fn move_between_lists_and_start_date() {
     assert!(list_tasks_json(&fx, "").await.is_empty());
 
     // `null` clears the start date.
-    request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{t1}"),
-            r#"{"start_date":null}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .patch(&format!("/api/tasks/{t1}"))
+        .json_text(r#"{"start_date":null}"#)
+        .session(Some(&fx.cookie))
+        .await;
     assert!(get_task_json(&fx, t1).await["start_date"].is_null());
 
     // Unknown target list: 404.
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{t1}"),
-            &format!(r#"{{"list_id":"{}"}}"#, uuid::Uuid::new_v4()),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{t1}"))
+        .json_text(&format!(r#"{{"list_id":"{}"}}"#, uuid::Uuid::new_v4()))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -773,17 +648,12 @@ async fn workspace_members_listing() {
     .await
     .expect("seed membership");
 
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}/members"),
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let members: Vec<Value> =
-        serde_json::from_str(&body_string(res.into_body()).await).expect("json");
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}/members"))
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let members: Vec<Value> = serde_json::from_str(&res.text()).expect("json");
     assert_eq!(members.len(), 2);
     assert_eq!(members[0]["user"]["name"], "Admin", "sorted by name");
     assert_eq!(members[0]["role"], "admin");
@@ -807,15 +677,11 @@ async fn workspace_members_listing() {
     let token = api::sessions::start_session(&db, stranger.id)
         .await
         .expect("seed session");
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace_id}/members"),
-            Some(&format!("woodmouse_session={token}")),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = app
+        .get(&format!("/api/workspaces/{workspace_id}/members"))
+        .session(Some(&format!("woodmouse_session={token}")))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -824,71 +690,50 @@ async fn workspace_task_listing_scopes() {
     create_task(&fx, "In first list").await;
 
     // A second list in the same project, and a second project with a list.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/projects/{}/lists", fx.project_id),
-            r#"{"name":"Second"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/projects/{}/lists", fx.project_id))
+        .json_text(r#"{"name":"Second"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let second_list = json_id(res).await;
-    request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{second_list}/tasks"),
-            r#"{"title":"In second list"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .post(&format!("/api/lists/{second_list}/tasks"))
+        .json_text(r#"{"title":"In second list"}"#)
+        .session(Some(&fx.cookie))
+        .await;
 
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/projects", fx.workspace_id),
-            r#"{"name":"Other project"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/projects", fx.workspace_id))
+        .json_text(r#"{"name":"Other project"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let other_project = json_id(res).await;
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/projects/{other_project}/lists"),
-            r#"{"name":"Elsewhere"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/projects/{other_project}/lists"))
+        .json_text(r#"{"name":"Elsewhere"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let other_list = json_id(res).await;
-    request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{other_list}/tasks"),
-            r#"{"title":"In other project"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    fx.app
+        .post(&format!("/api/lists/{other_list}/tasks"))
+        .json_text(r#"{"title":"In other project"}"#)
+        .session(Some(&fx.cookie))
+        .await;
 
     let fetch = |query: String| {
         let app = fx.app.clone();
         let cookie = fx.cookie.clone();
         let workspace_id = fx.workspace_id;
         async move {
-            let res = request(
-                &app,
-                get(
-                    &format!("/api/workspaces/{workspace_id}/tasks{query}"),
-                    Some(&cookie),
-                ),
-            )
-            .await;
-            let status = res.status();
-            let body = body_string(res.into_body()).await;
+            let res = app
+                .get(&format!("/api/workspaces/{workspace_id}/tasks{query}"))
+                .session(Some(&cookie))
+                .await;
+            let status = res.status_code();
+            let body = res.text();
             (status, body)
         }
     };
@@ -916,15 +761,14 @@ async fn workspace_task_listing_scopes() {
 
     // Another workspace entirely.
     let other_ws = create_workspace(&fx.app, &fx.cookie, "Work").await;
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/workspaces/{other_ws}/tasks?list_id={second_list}"),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .get(&format!(
+            "/api/workspaces/{other_ws}/tasks?list_id={second_list}"
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -941,12 +785,12 @@ async fn completion_timestamp_and_project_id() {
         let app = fx.app.clone();
         let cookie = fx.cookie.clone();
         async move {
-            let res = request(
-                &app,
-                patch_json(&format!("/api/tasks/{t}"), &body, Some(&cookie)),
-            )
-            .await;
-            assert_eq!(res.status(), StatusCode::OK);
+            let res = app
+                .patch(&format!("/api/tasks/{t}"))
+                .json_text(&body)
+                .session(Some(&cookie))
+                .await;
+            assert_eq!(res.status_code(), StatusCode::OK);
         }
     };
 
@@ -964,15 +808,12 @@ async fn completion_timestamp_and_project_id() {
     assert_eq!(get_task_json(&fx, t).await["completed_at"], stamp);
 
     // Reopening while moving to another list (a drag out of Done) clears it.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/projects/{}/lists", fx.project_id),
-            r#"{"name":"Other"}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/projects/{}/lists", fx.project_id))
+        .json_text(r#"{"name":"Other"}"#)
+        .session(Some(&fx.cookie))
+        .await;
     let other = json_id(res).await;
     patch(format!(r#"{{"is_completed":false,"list_id":"{other}"}}"#)).await;
     let reopened = get_task_json(&fx, t).await;
@@ -986,85 +827,62 @@ async fn tasks_without_a_list_are_the_projects_inbox() {
     let cookie = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &cookie, "Home").await;
     let project = {
-        let res = request(
-            &app,
-            post_json(
-                &format!("/api/workspaces/{ws}/projects"),
-                r#"{"name":"P"}"#,
-                Some(&cookie),
-            ),
-        )
-        .await;
+        let res = app
+            .post(&format!("/api/workspaces/{ws}/projects"))
+            .json_text(r#"{"name":"P"}"#)
+            .session(Some(&cookie))
+            .await;
         json_id(res).await
     };
 
     // A new project has no lists; quick adds go to the inbox (no list).
-    let res = request(
-        &app,
-        get(&format!("/api/projects/{project}/lists"), Some(&cookie)),
-    )
-    .await;
-    let lists: Vec<Value> = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .get(&format!("/api/projects/{project}/lists"))
+        .session(Some(&cookie))
+        .await;
+    let lists: Vec<Value> = serde_json::from_str(&res.text()).unwrap();
     assert!(lists.is_empty());
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/projects/{project}/tasks"),
-            r#"{"title":"Quick idea"}"#,
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let task: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .post(&format!("/api/projects/{project}/tasks"))
+        .json_text(r#"{"title":"Quick idea"}"#)
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let task: Value = serde_json::from_str(&res.text()).unwrap();
     assert!(task["list_id"].is_null());
     assert_eq!(task["project_id"], project.to_string());
     let task_id = task["id"].as_str().unwrap().to_string();
 
     // The inbox filter lists them; moving into a list takes it out, and `null` moves it back.
-    let inbox = |app: axum::Router, cookie: String| async move {
-        let res = request(
-            &app,
-            get(
-                &format!("/api/workspaces/{ws}/tasks?project_id={project}&inbox=true"),
-                Some(&cookie),
-            ),
-        )
-        .await;
-        serde_json::from_str::<Vec<Value>>(&body_string(res.into_body()).await).unwrap()
+    let inbox = |app: App, cookie: String| async move {
+        let res = app
+            .get(&format!(
+                "/api/workspaces/{ws}/tasks?project_id={project}&inbox=true"
+            ))
+            .session(Some(&cookie))
+            .await;
+        serde_json::from_str::<Vec<Value>>(&res.text()).unwrap()
     };
     assert_eq!(inbox(app.clone(), cookie.clone()).await.len(), 1);
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/projects/{project}/lists"),
-            r#"{"name":"Later"}"#,
-            Some(&cookie),
-        ),
-    )
-    .await;
+    let res = app
+        .post(&format!("/api/projects/{project}/lists"))
+        .json_text(r#"{"name":"Later"}"#)
+        .session(Some(&cookie))
+        .await;
     let later = json_id(res).await;
-    let res = request(
-        &app,
-        patch_json(
-            &format!("/api/tasks/{task_id}"),
-            &format!(r#"{{"list_id":"{later}"}}"#),
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .patch(&format!("/api/tasks/{task_id}"))
+        .json_text(&format!(r#"{{"list_id":"{later}"}}"#))
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert!(inbox(app.clone(), cookie.clone()).await.is_empty());
-    let res = request(
-        &app,
-        patch_json(
-            &format!("/api/tasks/{task_id}"),
-            r#"{"list_id":null}"#,
-            Some(&cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .patch(&format!("/api/tasks/{task_id}"))
+        .json_text(r#"{"list_id":null}"#)
+        .session(Some(&cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(inbox(app.clone(), cookie.clone()).await.len(), 1);
 }
 
@@ -1077,15 +895,11 @@ async fn scheduling_filters_and_project_links() {
     let mk = |title: &'static str, extra: String| {
         let (app, cookie, list) = (fx.app.clone(), fx.cookie.clone(), fx.list_id);
         async move {
-            let res = request(
-                &app,
-                post_json(
-                    &format!("/api/lists/{list}/tasks"),
-                    &format!(r#"{{"title":"{title}"{extra}}}"#),
-                    Some(&cookie),
-                ),
-            )
-            .await;
+            let res = app
+                .post(&format!("/api/lists/{list}/tasks"))
+                .json_text(&format!(r#"{{"title":"{title}"{extra}}}"#))
+                .session(Some(&cookie))
+                .await;
             json_id(res).await
         }
     };
@@ -1113,15 +927,11 @@ async fn scheduling_filters_and_project_links() {
     let titles = |query: String| {
         let (app, cookie, ws) = (fx.app.clone(), fx.cookie.clone(), fx.workspace_id);
         async move {
-            let res = request(
-                &app,
-                get(
-                    &format!("/api/workspaces/{ws}/tasks?{query}"),
-                    Some(&cookie),
-                ),
-            )
-            .await;
-            let text = body_string(res.into_body()).await;
+            let res = app
+                .get(&format!("/api/workspaces/{ws}/tasks?{query}"))
+                .session(Some(&cookie))
+                .await;
+            let text = res.text();
             let mut t: Vec<String> = serde_json::from_str::<Vec<Value>>(&text)
                 .unwrap_or_else(|_| panic!("{query}: {text}"))
                 .iter()
@@ -1165,29 +975,24 @@ async fn scheduling_filters_and_project_links() {
     assert_eq!(titles(String::new()).await.len(), 4);
 
     // Links between project tasks, as edges; links to deleted tasks drop out.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/tasks/{span}/links"),
-            &format!(r#"{{"related_task_id":"{due_only}","kind":"blocks"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/tasks/{span}/links"))
+        .json_text(&format!(
+            r#"{{"related_task_id":"{due_only}","kind":"blocks"}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let edges = |project: String| {
         let (app, cookie, ws) = (fx.app.clone(), fx.cookie.clone(), fx.workspace_id);
         async move {
-            let res = request(
-                &app,
-                get(
-                    &format!("/api/workspaces/{ws}/task-links{project}"),
-                    Some(&cookie),
-                ),
-            )
-            .await;
-            assert_eq!(res.status(), StatusCode::OK);
-            serde_json::from_str::<Vec<Value>>(&body_string(res.into_body()).await).unwrap()
+            let res = app
+                .get(&format!("/api/workspaces/{ws}/task-links{project}"))
+                .session(Some(&cookie))
+                .await;
+            assert_eq!(res.status_code(), StatusCode::OK);
+            serde_json::from_str::<Vec<Value>>(&res.text()).unwrap()
         }
     };
     let all = edges(String::new()).await;
@@ -1205,11 +1010,10 @@ async fn scheduling_filters_and_project_links() {
             .len(),
         0
     );
-    request(
-        &fx.app,
-        delete(&format!("/api/tasks/{due_only}"), Some(&fx.cookie)),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/tasks/{due_only}"))
+        .session(Some(&fx.cookie))
+        .await;
     assert!(edges(String::new()).await.is_empty());
 }
 
@@ -1218,10 +1022,10 @@ async fn work_time_is_set_cleared_and_validated() {
     let fx = fixture().await;
     let task = create_task(&fx, "Sand the floor").await;
     let patch = |body: &str| {
-        request(
-            &fx.app,
-            patch_json(&format!("/api/tasks/{task}"), body, Some(&fx.cookie)),
-        )
+        fx.app
+            .patch(&format!("/api/tasks/{task}"))
+            .json_text(body)
+            .session(Some(&fx.cookie))
     };
 
     let t = get_task_json(&fx, task).await;
@@ -1230,7 +1034,7 @@ async fn work_time_is_set_cleared_and_validated() {
     assert_eq!(
         patch(r#"{"estimate_minutes":180,"spent_minutes":45}"#)
             .await
-            .status(),
+            .status_code(),
         StatusCode::OK
     );
     let t = get_task_json(&fx, task).await;
@@ -1247,25 +1051,22 @@ async fn work_time_is_set_cleared_and_validated() {
 
     // Negative or absurd values are refused.
     assert_eq!(
-        patch(r#"{"spent_minutes":-5}"#).await.status(),
+        patch(r#"{"spent_minutes":-5}"#).await.status_code(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
-        patch(r#"{"spent_minutes":2000000}"#).await.status(),
+        patch(r#"{"spent_minutes":2000000}"#).await.status_code(),
         StatusCode::BAD_REQUEST
     );
 
     // New tasks can start with an estimate.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/lists/{}/tasks", fx.list_id),
-            r#"{"title":"Paint","estimate_minutes":60}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let created: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = fx
+        .app
+        .post(&format!("/api/lists/{}/tasks", fx.list_id))
+        .json_text(r#"{"title":"Paint","estimate_minutes":60}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let created: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(created["estimate_minutes"], 60);
 }

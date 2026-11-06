@@ -1,7 +1,6 @@
 //! Import and export: CSV of tasks, JSON of chosen parts, previews, and what gets skipped.
 
 use api::db::prelude::*;
-use axum::body::Body;
 use axum::http::StatusCode;
 use entity::{users, workspace_members};
 use serde_json::{Value, json};
@@ -9,14 +8,14 @@ use serde_json::{Value, json};
 use crate::common::*;
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     db: sea_orm::DatabaseConnection,
     cookie: String,
     ws: uuid::Uuid,
 }
 
-async fn json_of(res: axum::http::Response<Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).unwrap_or(Value::Null)
+async fn json_of(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).unwrap_or(Value::Null)
 }
 
 async fn fixture() -> Fx {
@@ -33,32 +32,26 @@ async fn fixture() -> Fx {
 
 impl Fx {
     async fn call(&self, method: &str, uri: &str, body: Value) -> (StatusCode, Value) {
-        let b = body.to_string();
         let req = match method {
-            "POST" => post_json(uri, &b, Some(&self.cookie)),
-            "PUT" => put_json(uri, &b, Some(&self.cookie)),
-            "PATCH" => patch_json(uri, &b, Some(&self.cookie)),
-            _ => get(uri, Some(&self.cookie)),
+            "GET" => self.app.get(uri),
+            method => self.app.method(method.parse().unwrap(), uri).json(&body),
         };
-        let res = request(&self.app, req).await;
-        (res.status(), json_of(res).await)
+        let res = req.session(Some(&self.cookie)).await;
+        (res.status_code(), json_of(res).await)
     }
     async fn text(&self, uri: &str) -> (StatusCode, String) {
-        let res = request(&self.app, get(uri, Some(&self.cookie))).await;
-        (res.status(), body_string(res.into_body()).await)
+        let res = self.app.get(uri).session(Some(&self.cookie)).await;
+        (res.status_code(), res.text())
     }
     /// Import with the given request fields (`format`, `text`, ...); returns the status and the report.
     async fn import_with(&self, cookie: &str, ws: uuid::Uuid, body: Value) -> (StatusCode, Value) {
-        let res = request(
-            &self.app,
-            post_json(
-                &format!("/api/workspaces/{ws}/import"),
-                &body.to_string(),
-                Some(cookie),
-            ),
-        )
-        .await;
-        (res.status(), json_of(res).await)
+        let res = self
+            .app
+            .post(&format!("/api/workspaces/{ws}/import"))
+            .json_text(&body.to_string())
+            .session(Some(cookie))
+            .await;
+        (res.status_code(), json_of(res).await)
     }
     async fn import(&self, query: &str, text: &str) -> (StatusCode, Value) {
         let mut body = json!({"format": "csv", "text": text});
@@ -325,9 +318,10 @@ async fn an_admin_can_create_the_missing_people_and_others_cannot() {
     assert_eq!(report["invites"][0]["email"], "ghost@home.io");
     let token = report["invites"][0]["invite_token"].as_str().unwrap();
     assert_eq!(
-        request(&fx.app, get(&format!("/api/invites/{token}"), None))
+        fx.app
+            .get(&format!("/api/invites/{token}"))
             .await
-            .status(),
+            .status_code(),
         StatusCode::OK
     );
     let members = fx
@@ -473,11 +467,10 @@ async fn json_exports_chosen_parts_and_imports_them_elsewhere() {
     assert_eq!(report["comments_created"], 1);
     assert_eq!(report["pages_created"], 2);
     let pages = json_of(
-        request(
-            &fx.app,
-            get(&format!("/api/workspaces/{other}/pages"), Some(&fx.cookie)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/workspaces/{other}/pages"))
+            .session(Some(&fx.cookie))
+            .await,
     )
     .await;
     assert_eq!(pages.as_array().unwrap().len(), 2);

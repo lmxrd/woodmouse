@@ -50,6 +50,5 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 webpki-roots = "1.0.11"
 
 [dev-dependencies]
-http-body-util = "0.1.5"
+axum-test.workspace = true
 tokio-tungstenite = "0.30.0"
-tower = { version = "0.5.3", features = ["util"] }

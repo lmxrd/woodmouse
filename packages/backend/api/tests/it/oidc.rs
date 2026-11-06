@@ -5,9 +5,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use axum::body::Body;
 use axum::extract::{Form, State as AxumState};
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::cookie::{Cookie, SignedCookieJar};
 use base64::Engine;
@@ -251,15 +250,15 @@ fn env_for(provider: &Provider) -> EnvSettings {
     }
 }
 
-async fn setup_with(oidc: Oidc, secure_cookies: bool) -> (axum::Router, AppState) {
+async fn setup_with(oidc: Oidc, secure_cookies: bool) -> (App, AppState) {
     let mut state = AppState::new(api::db::temporary().await)
         .with_limits(api::limits::Limits::generous())
         .with_oidc(oidc);
     state.secure_cookies = secure_cookies;
-    (router(state.clone()), state)
+    (server(router(state.clone())), state)
 }
 
-async fn setup(provider: &Provider) -> (axum::Router, AppState) {
+async fn setup(provider: &Provider) -> (App, AppState) {
     setup_with(Oidc::new(env_for(provider)), false).await
 }
 
@@ -273,15 +272,7 @@ struct Login {
     cookie: String,
 }
 
-fn set_cookies(res: &axum::http::Response<Body>) -> Vec<String> {
-    res.headers()
-        .get_all("set-cookie")
-        .iter()
-        .map(|h| h.to_str().unwrap().to_string())
-        .collect()
-}
-
-fn location(res: &axum::http::Response<Body>) -> String {
+fn location(res: &TestResponse) -> String {
     res.headers()
         .get("location")
         .expect("a redirect")
@@ -290,21 +281,21 @@ fn location(res: &axum::http::Response<Body>) -> String {
         .to_string()
 }
 
-async fn start(app: &axum::Router) -> axum::http::Response<Body> {
-    request(
-        app,
-        Request::builder()
-            .uri("/api/auth/oidc/login")
-            .header("host", HOST)
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await
+async fn start(app: &TestServer) -> TestResponse {
+    with_host(app.get("/api/auth/oidc/login"), HOST).await
 }
 
-async fn login(app: &axum::Router) -> Login {
+/// The request as sent to `host` (the callback URL is derived from it when `PUBLIC_URL` is unset).
+fn with_host(request: TestRequest, host: &str) -> TestRequest {
+    request.add_header(
+        axum::http::header::HOST,
+        axum::http::HeaderValue::from_str(host).unwrap(),
+    )
+}
+
+async fn login(app: &TestServer) -> Login {
     let res = start(app).await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.status_code(), StatusCode::SEE_OTHER);
     let url = openidconnect::url::Url::parse(&location(&res)).expect("to the provider");
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     assert_eq!(query["client_id"], CLIENT_ID);
@@ -321,27 +312,21 @@ async fn login(app: &axum::Router) -> Login {
     }
 }
 
-async fn callback(
-    app: &axum::Router,
-    query: &str,
-    cookie: Option<&str>,
-) -> axum::http::Response<Body> {
-    request(
-        app,
-        get(&format!("/api/auth/oidc/callback?{query}"), cookie),
-    )
-    .await
+async fn callback(app: &TestServer, query: &str, cookie: Option<&str>) -> TestResponse {
+    app.get(&format!("/api/auth/oidc/callback?{query}"))
+        .session(cookie)
+        .await
 }
 
 /// The callback's answer: where it sends the browser, and the session cookie if it signed someone in.
-async fn finish(app: &axum::Router, login: &Login, code: &str) -> (String, Option<String>) {
+async fn finish(app: &TestServer, login: &Login, code: &str) -> (String, Option<String>) {
     let res = callback(
         app,
         &format!("code={code}&state={}", login.state),
         Some(&login.cookie),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.status_code(), StatusCode::SEE_OTHER);
     let cookies = set_cookies(&res);
     // The login cookie is cleared, whatever the outcome.
     assert!(
@@ -359,7 +344,7 @@ async fn finish(app: &axum::Router, login: &Login, code: &str) -> (String, Optio
 
 /// Sign in at the provider as `sub` with `email` (verified), and come back.
 async fn sign_in(
-    app: &axum::Router,
+    app: &TestServer,
     provider: &Provider,
     sub: &str,
     email: Option<&str>,
@@ -369,10 +354,10 @@ async fn sign_in(
     finish(app, &login, &code).await
 }
 
-async fn me(app: &axum::Router, session: &str) -> Value {
-    let res = request(app, get("/api/auth/me", Some(session))).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    serde_json::from_str(&body_string(res.into_body()).await).unwrap()
+async fn me(app: &TestServer, session: &str) -> Value {
+    let res = app.get("/api/auth/me").session(Some(session)).await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    serde_json::from_str(&res.text()).unwrap()
 }
 
 fn error(code: &str) -> String {
@@ -416,7 +401,7 @@ async fn an_account_is_matched_by_verified_email_then_by_subject() {
 /// Sign in at the provider and come back with a two-factor challenge instead of a session: where the
 /// callback sends the browser, and the challenge cookie.
 async fn sign_in_to_challenge(
-    app: &axum::Router,
+    app: &TestServer,
     provider: &Provider,
     sub: &str,
     email: &str,
@@ -429,7 +414,7 @@ async fn sign_in_to_challenge(
         Some(&login.cookie),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.status_code(), StatusCode::SEE_OTHER);
     let cookies = set_cookies(&res);
     assert!(
         !cookies
@@ -448,7 +433,7 @@ async fn sign_in_to_challenge(
     (location(&res), challenge)
 }
 
-fn session_of(res: &axum::http::Response<Body>) -> String {
+fn session_of(res: &TestResponse) -> String {
     set_cookies(res)
         .iter()
         .find(|c| c.starts_with(&format!("{}=", api::auth::SESSION_COOKIE)))
@@ -486,16 +471,12 @@ async fn single_sign_on_asks_for_the_two_factor_code_too() {
     let (to, challenge) = sign_in_to_challenge(&app, &provider, "sub-1", "admin@home.io").await;
     assert_eq!(to, "/login?step=totp");
     let code = api::totp::code_at(&secret, api::totp::current_step()).unwrap();
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/login/totp",
-            &format!(r#"{{"code":"{code}"}}"#),
-            Some(&challenge),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .post("/api/auth/login/totp")
+        .json_text(&format!(r#"{{"code":"{code}"}}"#))
+        .session(Some(&challenge))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let user = me(&app, &session_of(&res)).await;
     assert_eq!(user["totp_enabled"], true);
 }
@@ -507,44 +488,36 @@ async fn single_sign_on_sets_up_two_factor_where_it_is_required() {
         .with_limits(api::limits::Limits::generous())
         .with_oidc(Oidc::new(env_for(&provider)));
     state.totp_required = true;
-    let app = router(state.clone());
+    let app = server(router(state.clone()));
     bootstrap_admin(&app).await;
 
     let (to, challenge) = sign_in_to_challenge(&app, &provider, "sub-1", "admin@home.io").await;
     assert_eq!(to, "/login?step=totp-setup");
     // Not a code challenge.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/login/totp",
-            r#"{"code":"123456"}"#,
-            Some(&challenge),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app
+        .post("/api/auth/login/totp")
+        .json_text(r#"{"code":"123456"}"#)
+        .session(Some(&challenge))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
-    let res = request(
-        &app,
-        post_json("/api/auth/login/totp/setup", "{}", Some(&challenge)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let setup: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .post("/api/auth/login/totp/setup")
+        .json_text("{}")
+        .session(Some(&challenge))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let setup: Value = serde_json::from_str(&res.text()).unwrap();
     let code =
         api::totp::code_at(setup["secret"].as_str().unwrap(), api::totp::current_step()).unwrap();
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/login/totp/enable",
-            &format!(r#"{{"code":"{code}"}}"#),
-            Some(&challenge),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .post("/api/auth/login/totp/enable")
+        .json_text(&format!(r#"{{"code":"{code}"}}"#))
+        .session(Some(&challenge))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     let session = session_of(&res);
-    let enrolled: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let enrolled: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(enrolled["codes"].as_array().unwrap().len(), 10);
     assert_eq!(me(&app, &session).await["totp_enabled"], true);
 }
@@ -619,16 +592,12 @@ async fn someone_unknown_is_refused_unless_accounts_are_created() {
     assert_eq!(row.password_hash, None);
 
     // They can set a first password, with no current one.
-    let res = request(
-        &app,
-        post_json(
-            "/api/auth/password",
-            r#"{"new_password":"a first password"}"#,
-            Some(&session),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .post("/api/auth/password")
+        .json_text(r#"{"new_password":"a first password"}"#)
+        .session(Some(&session))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
 }
 
 #[tokio::test]
@@ -697,17 +666,13 @@ async fn an_invited_person_who_signs_in_is_no_longer_pending() {
     let provider = Provider::start().await;
     let (app, state) = setup(&provider).await;
     let admin = bootstrap_admin(&app).await;
-    let res = request(
-        &app,
-        post_json(
-            "/api/admin/users",
-            r#"{"email":"invited@home.io","name":"","memberships":[]}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let created: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .post("/api/admin/users")
+        .json_text(r#"{"email":"invited@home.io","name":"","memberships":[]}"#)
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let created: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(created["user"]["pending"], true);
 
     assert_eq!(
@@ -723,8 +688,8 @@ async fn an_invited_person_who_signs_in_is_no_longer_pending() {
             .unwrap()
             .is_empty()
     );
-    let res = request(&app, get("/api/admin/users", Some(&admin))).await;
-    let users: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app.get("/api/admin/users").session(Some(&admin)).await;
+    let users: Value = serde_json::from_str(&res.text()).unwrap();
     let invited = users
         .as_array()
         .unwrap()
@@ -904,7 +869,13 @@ async fn a_login_older_than_ten_minutes_is_refused() {
     let jar = SignedCookieJar::new(state.oidc.key().clone())
         .add(Cookie::new("woodmouse_oidc", pending.to_string()));
     let res = (jar, ()).into_response();
-    let old = set_cookies(&res)[0].split(';').next().unwrap().to_string();
+    let old = res.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
 
     let code = provider.authorize(
         &login,
@@ -970,7 +941,7 @@ async fn the_cookies_are_scoped_and_cleared_with_the_same_attributes() {
     .await;
     bootstrap_admin(&app).await;
     let res = start(&app).await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.status_code(), StatusCode::SEE_OTHER);
     let cookie = set_cookies(&res)[0].clone();
     assert!(cookie.starts_with("__Host-woodmouse_oidc="), "{cookie}");
     for part in ["Secure", "HttpOnly", "SameSite=Lax", "Path=/;"] {
@@ -1054,15 +1025,14 @@ async fn a_provider_that_is_down_is_not_asked_again_at_once() {
     provider.with(|s| s.down = false);
     assert_eq!(location(&start(&app).await), error("unavailable"));
     assert_eq!(provider.with(|s| s.discovery_hits), 1);
-    let res = request(&app, put_json("/api/admin/oidc", "{}", Some(&admin))).await;
-    assert_eq!(
-        res.status(),
-        StatusCode::OK,
-        "{}",
-        body_string(res.into_body()).await
-    );
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text("{}")
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK, "{}", res.text());
     assert_eq!(provider.with(|s| s.discovery_hits), 2);
-    assert_eq!(start(&app).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(start(&app).await.status_code(), StatusCode::SEE_OTHER);
     assert!(location(&start(&app).await).starts_with(&provider.issuer));
     // Cached now.
     assert_eq!(provider.with(|s| s.discovery_hits), 2);
@@ -1099,12 +1069,12 @@ async fn insecure_or_oversized_metadata_is_refused() {
     let save = |body: Value| {
         let (app, admin) = (app.clone(), admin.clone());
         async move {
-            let res = request(
-                &app,
-                put_json("/api/admin/oidc", &body.to_string(), Some(&admin)),
-            )
-            .await;
-            (res.status(), body_string(res.into_body()).await)
+            let res = app
+                .put("/api/admin/oidc")
+                .json_text(&body.to_string())
+                .session(Some(&admin))
+                .await;
+            (res.status_code(), res.text())
         }
     };
     let settings = json!({
@@ -1175,16 +1145,15 @@ async fn settings_apply_at_once_and_never_return_the_secret() {
     let (app, state) = setup_with(Oidc::new(EnvSettings::default()), false).await;
     let admin = bootstrap_admin(&app).await;
     let status = || async {
-        let res = request(&app, get("/api/auth/status", None)).await;
-        serde_json::from_str::<Value>(&body_string(res.into_body()).await).unwrap()
+        let res = app.get("/api/auth/status").await;
+        serde_json::from_str::<Value>(&res.text()).unwrap()
     };
     assert_eq!(status().await["sso"], Value::Null);
     assert_eq!(location(&start(&app).await), error("unavailable"));
 
-    let res = request(
-        &app,
-        put_json(
-            "/api/admin/oidc",
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(
             &json!({
                 "enabled": true,
                 "issuer": provider.issuer,
@@ -1193,32 +1162,22 @@ async fn settings_apply_at_once_and_never_return_the_secret() {
                 "display_name": "Keycloak",
             })
             .to_string(),
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let body = body_string(res.into_body()).await;
+        )
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let body = res.text();
     assert!(!body.contains(CLIENT_SECRET), "{body}");
     let view: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(view["has_secret"], true);
     assert_eq!(view["active"], true);
+    // Derived from the request's Host (the test server's is `localhost`); with HOST below, from that.
     assert_eq!(
         view["callback_url"],
-        Value::Null,
-        "no Host header in this request"
+        "http://localhost/api/auth/oidc/callback"
     );
-    let res = request(
-        &app,
-        Request::builder()
-            .uri("/api/admin/oidc")
-            .header("host", HOST)
-            .header("cookie", &admin)
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await;
-    let view: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = with_host(app.get("/api/admin/oidc").session(Some(&admin)), HOST).await;
+    let view: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(view["callback_url"], CALLBACK);
 
     // In force without a restart.
@@ -1232,31 +1191,31 @@ async fn settings_apply_at_once_and_never_return_the_secret() {
 
     // Saving again without a secret keeps it; removing it removes it.
     let keep = json!({"enabled": true, "issuer": provider.issuer, "client_id": CLIENT_ID});
-    let res = request(
-        &app,
-        put_json("/api/admin/oidc", &keep.to_string(), Some(&admin)),
-    )
-    .await;
-    let view: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(&keep.to_string())
+        .session(Some(&admin))
+        .await;
+    let view: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(view["has_secret"], true);
     let mut remove = keep.clone();
     remove["remove_secret"] = json!(true);
-    let res = request(
-        &app,
-        put_json("/api/admin/oidc", &remove.to_string(), Some(&admin)),
-    )
-    .await;
-    let view: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(&remove.to_string())
+        .session(Some(&admin))
+        .await;
+    let view: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(view["has_secret"], false);
     assert_eq!(state.oidc.config().unwrap().client_secret, None);
 
     // Turning it off applies at once too.
-    let res = request(
-        &app,
-        put_json("/api/admin/oidc", r#"{"enabled":false}"#, Some(&admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(r#"{"enabled":false}"#)
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(status().await["sso"], Value::Null);
     assert_eq!(location(&start(&app).await), error("unavailable"));
 }
@@ -1270,12 +1229,11 @@ async fn a_new_issuer_does_not_inherit_the_secret() {
     let save = |body: Value| {
         let (app, admin) = (app.clone(), admin.clone());
         async move {
-            request(
-                &app,
-                put_json("/api/admin/oidc", &body.to_string(), Some(&admin)),
-            )
-            .await
-            .status()
+            app.put("/api/admin/oidc")
+                .json_text(&body.to_string())
+                .session(Some(&admin))
+                .await
+                .status_code()
         }
     };
     assert_eq!(
@@ -1300,8 +1258,8 @@ async fn fields_from_the_environment_are_locked() {
     let provider = Provider::start().await;
     let (app, state) = setup(&provider).await; // issuer, client id and secret from the environment
     let admin = bootstrap_admin(&app).await;
-    let res = request(&app, get("/api/admin/oidc", Some(&admin))).await;
-    let view: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app.get("/api/admin/oidc").session(Some(&admin)).await;
+    let view: Value = serde_json::from_str(&res.text()).unwrap();
     assert_eq!(view["locked"]["issuer"], true);
     assert_eq!(view["locked"]["client_secret"], true);
     assert_eq!(view["locked"]["display_name"], false);
@@ -1314,23 +1272,19 @@ async fn fields_from_the_environment_are_locked() {
         json!({"client_secret": "another"}),
         json!({"remove_secret": true}),
     ] {
-        let res = request(
-            &app,
-            put_json("/api/admin/oidc", &body.to_string(), Some(&admin)),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST, "{body}");
+        let res = app
+            .put("/api/admin/oidc")
+            .json_text(&body.to_string())
+            .session(Some(&admin))
+            .await;
+        assert_eq!(res.status_code(), StatusCode::BAD_REQUEST, "{body}");
     }
-    let res = request(
-        &app,
-        put_json(
-            "/api/admin/oidc",
-            r#"{"display_name":"Company"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(r#"{"display_name":"Company"}"#)
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(state.oidc.config().unwrap().display_name, "Company");
     assert_eq!(state.oidc.config().unwrap().issuer, provider.issuer);
 }
@@ -1348,17 +1302,15 @@ async fn the_environments_secret_cannot_be_sent_to_another_issuer() {
     )
     .await;
     let admin = bootstrap_admin(&app).await;
-    let res = request(
-        &app,
-        put_json(
-            "/api/admin/oidc",
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(
             &json!({"enabled": true, "issuer": provider.issuer, "client_id": CLIENT_ID})
                 .to_string(),
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        )
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
     assert_eq!(provider.with(|s| s.discovery_hits), 0);
 }
 
@@ -1378,12 +1330,11 @@ async fn concurrent_saves_leave_memory_and_database_in_step() {
                 "display_name": format!("Provider {i}"),
             });
             tokio::spawn(async move {
-                request(
-                    &app,
-                    put_json("/api/admin/oidc", &body.to_string(), Some(&admin)),
-                )
-                .await
-                .status()
+                app.put("/api/admin/oidc")
+                    .json_text(&body.to_string())
+                    .session(Some(&admin))
+                    .await
+                    .status_code()
             })
         })
         .collect();
@@ -1427,12 +1378,11 @@ async fn a_login_started_before_the_settings_changed_fails() {
         let body = json!({"enabled": true, "issuer": provider.issuer, "client_id": client_id, "client_secret": CLIENT_SECRET});
         let (app, admin) = (app.clone(), admin.clone());
         async move {
-            request(
-                &app,
-                put_json("/api/admin/oidc", &body.to_string(), Some(&admin)),
-            )
-            .await
-            .status()
+            app.put("/api/admin/oidc")
+                .json_text(&body.to_string())
+                .session(Some(&admin))
+                .await
+                .status_code()
         }
     };
     assert_eq!(save(CLIENT_ID).await, StatusCode::OK);
@@ -1450,15 +1400,7 @@ async fn a_host_header_cannot_shape_the_callback_url() {
     let provider = Provider::start().await;
     let (app, _) = setup(&provider).await;
     for host in ["evil.example/path?x=", "user@evil.example", "evil.example#"] {
-        let res = request(
-            &app,
-            Request::builder()
-                .uri("/api/auth/oidc/login")
-                .header("host", host)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+        let res = with_host(app.get("/api/auth/oidc/login"), host).await;
         assert_eq!(location(&res), error("misconfigured"), "{host}");
     }
 }
@@ -1473,12 +1415,11 @@ async fn a_save_never_works_from_a_stale_row() {
     let save = |body: Value| {
         let (app, admin) = (app.clone(), admin.clone());
         tokio::spawn(async move {
-            request(
-                &app,
-                put_json("/api/admin/oidc", &body.to_string(), Some(&admin)),
-            )
-            .await
-            .status()
+            app.put("/api/admin/oidc")
+                .json_text(&body.to_string())
+                .session(Some(&admin))
+                .await
+                .status_code()
         })
     };
     let base = json!({"enabled": true, "issuer": provider.issuer, "client_id": CLIENT_ID});
@@ -1530,21 +1471,12 @@ async fn a_locked_issuer_does_not_clear_the_stored_secret() {
         .await
         .unwrap();
     state.oidc.apply(Some(&row));
-    let res = request(
-        &app,
-        put_json(
-            "/api/admin/oidc",
-            &json!({"client_id": CLIENT_ID, "display_name": "Company"}).to_string(),
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(
-        res.status(),
-        StatusCode::OK,
-        "{}",
-        body_string(res.into_body()).await
-    );
+    let res = app
+        .put("/api/admin/oidc")
+        .json_text(&json!({"client_id": CLIENT_ID, "display_name": "Company"}).to_string())
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK, "{}", res.text());
     assert_eq!(
         state.oidc.config().unwrap().client_secret.as_deref(),
         Some(CLIENT_SECRET)
@@ -1556,7 +1488,7 @@ async fn a_query_that_does_not_parse_still_redirects_and_clears() {
     let provider = Provider::start().await;
     let (app, _) = setup(&provider).await;
     let res = callback(&app, "code=a&code=b&state=x", None).await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.status_code(), StatusCode::SEE_OTHER);
     assert_eq!(location(&res), error("state"));
     assert!(
         set_cookies(&res)
@@ -1573,15 +1505,11 @@ async fn only_you_see_whether_you_have_a_password() {
     let admin = bootstrap_admin(&app).await;
     assert_eq!(me(&app, &admin).await["has_password"], true);
     let workspace = create_workspace(&app, &admin, "Home").await;
-    let res = request(
-        &app,
-        get(
-            &format!("/api/workspaces/{workspace}/members"),
-            Some(&admin),
-        ),
-    )
-    .await;
-    let body = body_string(res.into_body()).await;
+    let res = app
+        .get(&format!("/api/workspaces/{workspace}/members"))
+        .session(Some(&admin))
+        .await;
+    let body = res.text();
     assert!(body.contains("admin@home.io"), "{body}");
     assert!(!body.contains("has_password"), "{body}");
 }
@@ -1652,7 +1580,7 @@ async fn refused_sign_ins_are_audited() {
 }
 
 /// `OIDC_ONLY`: the provider is the only way in.
-async fn setup_only(provider: &Provider) -> (axum::Router, AppState) {
+async fn setup_only(provider: &Provider) -> (App, AppState) {
     let env = EnvSettings {
         only: Some(true),
         ..env_for(provider)
@@ -1707,53 +1635,33 @@ async fn sso_only_refuses_every_password_way_in() {
     let (app, _) = setup_only(&provider).await;
 
     // The first account is still made here (with a password nobody can use while this is set).
-    let status: Value = serde_json::from_str(
-        &body_string(
-            request(&app, get("/api/auth/status", None))
-                .await
-                .into_body(),
-        )
-        .await,
-    )
-    .unwrap();
+    let status: Value = serde_json::from_str(&app.get("/api/auth/status").await.text()).unwrap();
     assert_eq!(status["password_login"], false);
     assert_eq!(status["bootstrap_required"], true);
     let admin = bootstrap_admin(&app).await;
 
-    let forbidden = |res: axum::http::Response<Body>| async move {
-        assert_eq!(res.status(), StatusCode::FORBIDDEN);
-        let body = body_string(res.into_body()).await;
+    let forbidden = |res: TestResponse| async move {
+        assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
+        let body = res.text();
         assert!(body.contains("use single sign-on"), "{body}");
     };
     forbidden(
-        request(
-            &app,
-            post_json(
-                "/api/auth/login",
-                r#"{"email":"admin@home.io","password":"correct horse"}"#,
-                None,
-            ),
-        )
-        .await,
+        app.post("/api/auth/login")
+            .json_text(r#"{"email":"admin@home.io","password":"correct horse"}"#)
+            .await,
     )
     .await;
     // The code step stays open (a challenge exists only after single sign-on), but needs one.
-    let res = request(
-        &app,
-        post_json("/api/auth/login/totp", r#"{"code":"123456"}"#, None),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = app
+        .post("/api/auth/login/totp")
+        .json_text(r#"{"code":"123456"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
     forbidden(
-        request(
-            &app,
-            post_json(
-                "/api/auth/password",
-                r#"{"current_password":"correct horse","new_password":"another one"}"#,
-                Some(&admin),
-            ),
-        )
-        .await,
+        app.post("/api/auth/password")
+            .json_text(r#"{"current_password":"correct horse","new_password":"another one"}"#)
+            .session(Some(&admin))
+            .await,
     )
     .await;
 
@@ -1768,32 +1676,23 @@ async fn with_sso_only_an_invited_person_comes_in_through_the_provider() {
     let provider = Provider::start().await;
     let (app, _) = setup_only(&provider).await;
     let admin = bootstrap_admin(&app).await;
-    let res = request(
-        &app,
-        post_json(
-            "/api/admin/users",
-            r#"{"email":"invited@home.io","name":"","memberships":[]}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let created: Value = serde_json::from_str(&body_string(res.into_body()).await).unwrap();
+    let res = app
+        .post("/api/admin/users")
+        .json_text(r#"{"email":"invited@home.io","name":"","memberships":[]}"#)
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
+    let created: Value = serde_json::from_str(&res.text()).unwrap();
     let token = created["invite_token"].as_str().unwrap();
 
     // The invite link still shows who it is for, but sets no password.
-    let res = request(&app, get(&format!("/api/invites/{token}"), None)).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/invites/{token}/accept"),
-            r#"{"password":"a fine password"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let res = app.get(&format!("/api/invites/{token}")).await;
+    assert_eq!(res.status_code(), StatusCode::OK);
+    let res = app
+        .post(&format!("/api/invites/{token}/accept"))
+        .json_text(r#"{"password":"a fine password"}"#)
+        .await;
+    assert_eq!(res.status_code(), StatusCode::FORBIDDEN);
 
     // Their provider account with that verified email is linked to the invited account.
     let (to, session) = sign_in(&app, &provider, "sub-7", Some("invited@home.io")).await;
