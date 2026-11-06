@@ -6,6 +6,10 @@ name: Dependabot auto-merge
 #
 # A merge made with this token starts no workflow, so the push to main does
 # not run release.yml: its daily schedule picks the merge up instead.
+#
+# The approval is what the ruleset's one required review asks for; it needs
+# "Allow GitHub Actions to create and approve pull requests" in the Actions
+# settings.
 
 on: pull_request
 
@@ -24,4 +28,6 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ github.token }}
-        run: gh pr merge --auto --squash "$PR"
+        run: |
+          gh pr review --approve "$PR"
+          gh pr merge --auto --squash "$PR"
