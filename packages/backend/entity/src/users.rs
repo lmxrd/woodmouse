@@ -62,8 +62,6 @@ pub enum Relation {
     Revisions,
     #[sea_orm(has_many = "super::saved_views::Entity")]
     SavedViews,
-    #[sea_orm(has_many = "super::sessions::Entity")]
-    Sessions,
     #[sea_orm(has_many = "super::task_assignees::Entity")]
     TaskAssignees,
     #[sea_orm(has_many = "super::user_identities::Entity")]
@@ -125,12 +123,6 @@ impl Related<super::revisions::Entity> for Entity {
 impl Related<super::saved_views::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SavedViews.def()
-    }
-}
-
-impl Related<super::sessions::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Sessions.def()
     }
 }
 

@@ -2,7 +2,7 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use serde_json::Value;
 
 use crate::common::*;
@@ -38,16 +38,7 @@ async fn member(
     .insert(db)
     .await
     .unwrap();
-    let token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(user.id),
-        expires_at: Set(crate::common::far_future()),
-    }
-    .insert(db)
-    .await
-    .unwrap();
+    let token = api::sessions::start_session(db, user.id).await.unwrap();
     format!("woodmouse_session={token}")
 }
 

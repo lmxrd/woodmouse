@@ -58,9 +58,16 @@ use crate::{openapi::ApiDoc, state::AppState};
 pub fn api(state: AppState) -> OpenApiRouter<AppState> {
     // Session required — enforced by the layer for every route below.
     let protected = protected(Some(state.files.max_upload_bytes)).route_layer(
-        middleware::from_fn_with_state(state, crate::auth::authenticate),
+        middleware::from_fn_with_state(state.clone(), crate::auth::authenticate),
     );
+    // Every request gets its session (and, through it, its signed-in user): the public routes sign in
+    // and out, the protected ones are checked by the layer above.
     nest(public().merge(protected))
+        .layer(crate::sessions::layer(&state))
+        .layer(middleware::map_response_with_state(
+            state.secure_cookies,
+            crate::sessions::secure_removals,
+        ))
 }
 
 /// The OpenAPI document of [`api`], for the `specs` binary (`cargo specs`).

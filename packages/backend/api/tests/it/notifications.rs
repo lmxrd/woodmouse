@@ -1,7 +1,7 @@
 //! Notifications, watching, email (instant and digest), deadlines and the email settings.
 
 use api::db::prelude::*;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use std::sync::Arc;
 
 use api::mail::Outbox;
@@ -58,16 +58,7 @@ async fn fixture() -> Fx {
     .insert(&db)
     .await
     .unwrap();
-    let token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(sara.id),
-        expires_at: Set(far_future()),
-    }
-    .insert(&db)
-    .await
-    .unwrap();
+    let token = api::sessions::start_session(&db, sara.id).await.unwrap();
 
     let res = request(
         &app,

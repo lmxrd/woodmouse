@@ -27,15 +27,14 @@ pub async fn checkpoint(state: &AppState) {
 
 /// Run one round of the daily jobs.
 pub async fn run_daily(state: &AppState) {
-    let Ok(db) = state.writer().await else {
-        return;
-    };
+    // Through the session store, which takes the writer turn itself.
+    match crate::sessions::Store::new(state.clone())
+        .delete_expired_count()
+        .await
     {
-        match auth::delete_expired_sessions(&*db).await {
-            Ok(0) => {}
-            Ok(n) => tracing::info!(deleted = n, "removed expired sessions"),
-            Err(_) => tracing::warn!("removing expired sessions failed"),
-        }
+        Ok(0) => {}
+        Ok(n) => tracing::info!(deleted = n, "removed expired sessions"),
+        Err(e) => tracing::warn!(error = %e, "removing expired sessions failed"),
     }
 }
 

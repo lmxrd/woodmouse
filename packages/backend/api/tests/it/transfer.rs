@@ -3,7 +3,7 @@
 use api::db::prelude::*;
 use axum::body::Body;
 use axum::http::StatusCode;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use serde_json::{Value, json};
 
 use crate::common::*;
@@ -95,16 +95,9 @@ impl Fx {
         .insert(&self.db)
         .await
         .unwrap();
-        let token = uuid::Uuid::new_v4().to_string();
-        sessions::ActiveModel {
-            id: Set(uuid::Uuid::now_v7()),
-            token: Set(token.clone()),
-            user_id: Set(user.id),
-            expires_at: Set(far_future()),
-        }
-        .insert(&self.db)
-        .await
-        .unwrap();
+        let token = api::sessions::start_session(&self.db, user.id)
+            .await
+            .unwrap();
         (format!("woodmouse_session={token}"), user.id)
     }
     async fn projects(&self) -> Vec<Value> {

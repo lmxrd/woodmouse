@@ -13,6 +13,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::ApiError;
+use crate::sessions::{self, AuthSession};
 use crate::state::AppState;
 use crate::totp;
 use entity::{Role, User};
@@ -206,6 +207,7 @@ pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatu
 )]
 pub async fn bootstrap(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     Json(input): Json<BootstrapRequest>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     validate_credentials(&input.email, &input.password)?;
@@ -234,8 +236,9 @@ pub async fn bootstrap(
         Entry::admin(Some(user.id), "user_created").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
+    drop(db);
+    let jar = sessions::sign_in(&mut auth_session, &state, &user).await?;
     Ok((StatusCode::CREATED, jar, Json(PublicUser::from(&user))))
 }
 
@@ -275,6 +278,7 @@ impl TotpChallenge {
 )]
 pub async fn login(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     Json(input): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
@@ -318,8 +322,9 @@ pub async fn login(
         Entry::admin(Some(user.id), "login").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
+    drop(db);
+    let jar = sessions::sign_in(&mut auth_session, &state, &user).await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))).into_response())
 }
 
@@ -343,6 +348,7 @@ pub struct TotpCode {
 )]
 pub async fn login_totp(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     headers: axum::http::HeaderMap,
     Json(input): Json<TotpCode>,
@@ -398,8 +404,9 @@ pub async fn login_totp(
             .data(serde_json::json!({ "totp": true })),
     )
     .await?;
-    let (_, session) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
+    drop(db);
+    let session = sessions::sign_in(&mut auth_session, &state, &user).await?;
     Ok((
         StatusCode::OK,
         session.add(totp::challenge_cookie_removal(state.secure_cookies)),
@@ -417,26 +424,21 @@ pub async fn login_totp(
 )]
 pub async fn logout(
     State(state): State<AppState>,
-    CurrentUser {
-        user,
-        session_token,
-        ..
-    }: CurrentUser,
+    mut auth_session: AuthSession,
+    CurrentUser { user, .. }: CurrentUser,
 ) -> Result<(StatusCode, CookieJar), ApiError> {
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    auth::delete_session(&tx, &session_token).await?;
     audit::record(
         &tx,
         Entry::admin(Some(user.id), "logout").target("user", user.id),
     )
     .await?;
     tx.commit().await?;
-
-    Ok((
-        StatusCode::NO_CONTENT,
-        auth::session_cookie_removal(state.secure_cookies),
-    ))
+    drop(db);
+    // Deletes the session and clears its cookie.
+    sessions::sign_out(&mut auth_session).await?;
+    Ok((StatusCode::NO_CONTENT, CookieJar::new()))
 }
 
 /// The current user.
@@ -597,11 +599,8 @@ pub struct ChangePassword {
 )]
 pub async fn change_password(
     State(state): State<AppState>,
-    CurrentUser {
-        user,
-        session_token,
-        ..
-    }: CurrentUser,
+    mut auth_session: AuthSession,
+    CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<ChangePassword>,
 ) -> Result<StatusCode, ApiError> {
     state.oidc.require_password_login()?;
@@ -631,13 +630,16 @@ pub async fn change_password(
     if updated != 1 {
         return Err(ApiError::conflict("the password changed meanwhile"));
     }
-    auth::delete_sessions_of(&tx, user.id, Some(&session_token)).await?;
     audit::record(
         &tx,
         Entry::admin(Some(user.id), "password_changed").target("user", user.id),
     )
     .await?;
     tx.commit().await?;
+    drop(db);
+    // The new password hash no longer matches the other sessions' (they end on their next request);
+    // this one signs in again with it.
+    sessions::refresh(&mut auth_session, &state, user.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -757,6 +759,7 @@ async fn slow_down(state: &AppState, user: &User, address: Option<&str>) {
 )]
 pub async fn totp_enable(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<TotpCode>,
@@ -766,6 +769,9 @@ pub async fn totp_enable(
     let tx = db.begin().await?;
     let codes = finish_setup(&state, &tx, &user, address.as_deref(), &input.code).await?;
     tx.commit().await?;
+    drop(db);
+    // The two-factor secret is part of the session hash: the other sessions end, this one stays.
+    sessions::refresh(&mut auth_session, &state, user.id).await?;
     Ok(Json(RecoveryCodes { codes }))
 }
 
@@ -840,6 +846,7 @@ async fn require_code(
 )]
 pub async fn totp_disable(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<TotpCode>,
@@ -860,6 +867,9 @@ pub async fn totp_disable(
     )
     .await?;
     tx.commit().await?;
+    drop(db);
+    // The two-factor secret is part of the session hash: the other sessions end, this one stays.
+    sessions::refresh(&mut auth_session, &state, user.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -959,6 +969,7 @@ pub struct EnrolledLogin {
 )]
 pub async fn login_totp_enable(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     headers: axum::http::HeaderMap,
     Json(input): Json<TotpCode>,
@@ -976,8 +987,9 @@ pub async fn login_totp_enable(
             .data(serde_json::json!({ "totp": "enrolled" })),
     )
     .await?;
-    let (_, session) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
+    drop(db);
+    let session = sessions::sign_in(&mut auth_session, &state, &user).await?;
     Ok((
         StatusCode::OK,
         session.add(totp::challenge_cookie_removal(state.secure_cookies)),
@@ -1049,6 +1061,7 @@ pub async fn totp_replace(
 )]
 pub async fn totp_replace_confirm(
     State(state): State<AppState>,
+    mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     Json(input): Json<TotpCode>,
@@ -1097,5 +1110,8 @@ pub async fn totp_replace_confirm(
     )
     .await?;
     tx.commit().await?;
+    drop(db);
+    // The two-factor secret is part of the session hash: the other sessions end, this one stays.
+    sessions::refresh(&mut auth_session, &state, user.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

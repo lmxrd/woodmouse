@@ -124,7 +124,8 @@ async fn the_users_rebuild_keeps_every_row_and_can_run_again() {
     migration::Migrator::up(&db, Some(1)).await.unwrap();
     let (with_password, invited) = seed_before_sso(&db).await;
 
-    migration::Migrator::up(&db, None).await.unwrap();
+    // Only the single sign-on migration: a later one replaces the sessions table.
+    migration::Migrator::up(&db, Some(1)).await.unwrap();
     assert_kept(&db, with_password, invited).await;
     drop(db);
 
@@ -157,7 +158,20 @@ async fn the_users_rebuild_keeps_every_row_and_can_run_again() {
     .unwrap();
     drop(db);
     let db = open(&path).await;
-    migration::Migrator::up(&db, None).await.unwrap();
+    migration::Migrator::up(&db, Some(1)).await.unwrap();
     assert_kept(&db, with_password, invited).await;
+
+    // The session store's migration signs everyone out once: the old sessions go, and the new table is
+    // keyed by a hash of the session id.
+    migration::Migrator::up(&db, None).await.unwrap();
+    assert_eq!(count(&db, "SELECT count(*) FROM sessions").await, 0);
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM pragma_table_info('sessions') WHERE name IN ('id_hash', 'data', 'expires_at')"
+        )
+        .await,
+        3
+    );
     let _ = std::fs::remove_file(&path);
 }

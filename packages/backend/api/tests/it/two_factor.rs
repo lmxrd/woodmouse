@@ -509,8 +509,8 @@ async fn where_it_is_required_the_password_sign_in_sets_it_up_first() {
 
     let (session, secret) = enroll(&app, &enrolling).await;
     assert_eq!(json(me(&app, &session).await).await["totp_enabled"], true);
-    // The session from before it was required is left alone.
-    assert_eq!(me(&app, &first).await.status(), StatusCode::OK);
+    // Turning two-factor on changes the session hash: the session from before signs out.
+    assert_eq!(me(&app, &first).await.status(), StatusCode::UNAUTHORIZED);
 
     // Next time: the code.
     forget_used_steps(&state).await;
@@ -522,7 +522,7 @@ async fn where_it_is_required_the_password_sign_in_sets_it_up_first() {
 #[tokio::test]
 async fn where_it_is_required_it_cannot_be_turned_off_but_can_be_reset() {
     let (app, state) = required_app().await;
-    let admin = bootstrap_admin(&app).await;
+    bootstrap_admin(&app).await;
     let challenge = enroll_challenge(&app, ADMIN, PASSWORD).await;
     let (session, secret) = enroll(&app, &challenge).await;
     forget_used_steps(&state).await;
@@ -540,13 +540,13 @@ async fn where_it_is_required_it_cannot_be_turned_off_but_can_be_reset() {
     assert_eq!(json(me(&app, &session).await).await["totp_enabled"], true);
 
     // The super admin resets it (here their own): the next sign-in sets it up again.
-    let id = json(me(&app, &admin).await).await["id"]
+    let id = json(me(&app, &session).await).await["id"]
         .as_str()
         .unwrap()
         .to_string();
     let res = request(
         &app,
-        delete(&format!("/api/admin/users/{id}/totp"), Some(&admin)),
+        delete(&format!("/api/admin/users/{id}/totp"), Some(&session)),
     )
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);

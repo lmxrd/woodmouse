@@ -16,6 +16,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod random;
 pub mod routes;
+pub mod sessions;
 pub mod state;
 pub mod storage;
 pub mod time;

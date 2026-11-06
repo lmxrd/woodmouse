@@ -1,6 +1,7 @@
 //! Profile, display preferences, and password changes.
 
 use axum::http::StatusCode;
+use sea_orm::{ActiveModelTrait, ActiveValue::Set};
 use serde_json::Value;
 
 use crate::common::*;
@@ -213,8 +214,8 @@ async fn passwordless_session(db: &sea_orm::DatabaseConnection, email: &str) -> 
     .insert(db)
     .await
     .unwrap();
-    let (session, _) = api::auth::create_session(db, user.id, false).await.unwrap();
-    format!("{}={}", api::auth::SESSION_COOKIE, session.token)
+    let session = api::sessions::start_session(db, user.id).await.unwrap();
+    format!("{}={}", api::auth::SESSION_COOKIE, session)
 }
 
 #[tokio::test]
@@ -411,4 +412,96 @@ async fn over_http_the_session_cookie_is_plain() {
     assert!(removal.starts_with("woodmouse_session=;"), "{removal}");
     has_parts(removal, &["Path=/;", "Max-Age=0"]);
     assert!(!removal.contains("Secure"), "{removal}");
+}
+
+async fn sign_in(app: &axum::Router, password: &str) -> String {
+    let (status, cookie) = login(app, "admin@home.io", password).await;
+    assert_eq!(status, StatusCode::OK);
+    cookie.expect("a session")
+}
+
+#[tokio::test]
+async fn a_password_change_signs_out_the_other_sessions_but_not_this_one() {
+    let app = app().await;
+    let here = bootstrap_admin(&app).await;
+    let elsewhere = sign_in(&app, "correct horse").await;
+    assert_ne!(here, elsewhere);
+
+    let res = request(
+        &app,
+        post_json(
+            "/api/auth/password",
+            r#"{"current_password":"correct horse","new_password":"battery staple"}"#,
+            Some(&here),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    // This session signed in again with the new password; the other one is out.
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&here)))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&elsewhere)))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    // And the new password signs in.
+    sign_in(&app, "battery staple").await;
+}
+
+#[tokio::test]
+async fn a_disabled_persons_session_stops() {
+    let (app, db) = app_with_db().await;
+    let admin = bootstrap_admin(&app).await;
+    let user = entity::users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("sara@home.io".to_string()),
+        name: Set(String::new()),
+        password_hash: Set(Some(api::auth::hash_password("sara's password").unwrap())),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .unwrap();
+    let (status, sara) = login(&app, "sara@home.io", "sara's password").await;
+    assert_eq!(status, StatusCode::OK);
+    let sara = sara.unwrap();
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&sara)))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let res = request(
+        &app,
+        patch_json(
+            &format!("/api/admin/users/{}", user.id),
+            r#"{"active":false}"#,
+            Some(&admin),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&sara)))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn an_ordinary_request_does_not_write_the_session() {
+    let app = app().await;
+    let admin = bootstrap_admin(&app).await;
+    let res = request(&app, get("/api/auth/me", Some(&admin))).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(res.headers().get("set-cookie").is_none());
 }

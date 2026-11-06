@@ -120,9 +120,19 @@
   parent (same `project_id` and `list_id`).
 - **Completion.** `Task.completed_at` is the only state; `PATCH is_completed: bool` makes the server set or clear
   it. Responses carry `completed_at`; filters still take `is_completed`.
-- **Users.** `active` (disabled accounts cannot sign in; sessions are deleted; everything they made stays),
+- **Users.** `active` (disabled accounts cannot sign in and their sessions stop; everything they made stays),
   `global_role` (access to every workspace), `timezone` (the browser's, editable). The super admin's site admin
   routes are in `routes/admin.rs` (users, deleted workspaces, audit log, redaction, integrity check).
+- **Sessions** (`src/sessions.rs`): axum-login on tower-sessions. `sessions::Store` is our own `SessionStore`
+  (the community SQL store needs sqlx 0.8): rows keyed by the SHA-256 of the session id, every write through the
+  writer turn, so call `sessions::sign_in`, `refresh` and `sign_out` with no writer held (commit and `drop(db)`
+  first, or they wait on themselves). The cookie is `woodmouse_session` (`__Host-` over https, `HttpOnly`,
+  `SameSite=Lax`), its expiry set once at sign-in (30 days), so a request writes the session only when it changes.
+  `sessions::Backend::get_user` returns `None` for a disabled account; the session hash is the password hash plus
+  the two-factor secret, so changing either ends the other sessions, and the handler that changed it calls
+  `sessions::refresh` to keep its own. Every sign-in (password, TOTP step, enrolment, SSO callback, invite,
+  bootstrap) ends in `sessions::sign_in`. Tests seed one with `sessions::start_session`. The daily job deletes
+  expired sessions through the store.
 - **Single sign-on** (OpenID Connect; `src/oidc.rs` for the settings in force, the provider client and its
   metadata cache, the login cookie; `routes/oidc.rs` for `/auth/oidc/login`, `/auth/oidc/callback` and
   `/admin/oidc`). `password_hash` is `None` for someone without a password (invited, or single sign-on only);
@@ -130,7 +140,7 @@
   (`auth::is_pending`, `auth::linked_users`). The login in progress lives in a signed cookie (key made at
   start), never in memory. The callback only redirects, to `/` or `/login?error=<code>`: the codes are the
   `SsoError` enum and the frontend's `lib/sso.ts` messages; keep the two lists in step. Linking or creating
-  and the session are one writer transaction with no network call inside. `OIDC_*` env vars win over the
+  is one writer transaction with no network call inside; the session starts after it is committed. `OIDC_*` env vars win over the
   `OidcSettings` row field by field and lock it (400 from the API); a save holds `Oidc::save` and checks the
   provider before writing. A refused sign-in that came back with our signed login cookie is audited as
   `login_failed` (`data.method = "sso"`, `data.reason` = the code, the account as target when known). Tests: `tests/it/oidc.rs` runs a stand-in provider (real RS256 tokens, keys in
@@ -148,13 +158,14 @@
   failures. Single sign-on asks for it too: the callback sets the same challenge and redirects to
   `/login?step=totp` (`totp::second_step` decides for both). `TOTP_REQUIRED` (`AppState::totp_required`): someone
   without it gets an `Enroll` challenge (15 minutes; `/login?step=totp-setup`, `POST /auth/login/totp/setup` and
-  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched.
+  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched
+  until they set it up.
   Replacing the app (`/auth/totp/replace`, then `/confirm`) keeps the new secret in `pending_secret` until a code
   from it arrives; the old secret works until then, the recovery codes stay. Random bytes come from `uuid` v4 through SHA-256 (no other
   random source is a direct dependency). `totp_enabled` is on `Me` and `AdminUser`, never on `PublicUser`.
 - **API keys** (`routes/api_keys.rs`, `ApiKey`; `auth::from_api_key`): `wm_` + 32 random bytes (base64url), only
-  the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes a session
-  cookie, else `Authorization: Bearer`. `auth::api_key_scope_allows` gates by method and path (never `/api/auth/*`
+  the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes the signed-in
+  session (`AuthSession`), else `Authorization: Bearer`. `auth::api_key_scope_allows` gates by method and path (never `/api/auth/*`
   but `GET /api/auth/me`; read = GET/HEAD; write = no `/api/admin/*`), and the auth layer (`auth::authenticate`)
   runs the handler under `auth::role_cap`, which `access::role_in` applies, so a key's workspace role is the lower
   of its scope and the person's. Code that checks roles without `role_in`, or that spawns a task, does not see the

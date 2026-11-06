@@ -96,6 +96,7 @@ pub async fn get_invite(
 )]
 pub async fn accept_invite(
     State(state): State<AppState>,
+    mut auth_session: crate::sessions::AuthSession,
     Path(token): Path<String>,
     Json(input): Json<AcceptInvite>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
@@ -120,7 +121,8 @@ pub async fn accept_invite(
         Entry::admin(Some(user.id), "invite_accepted").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
+    drop(db);
+    let jar = crate::sessions::sign_in(&mut auth_session, &state, &user).await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
 }

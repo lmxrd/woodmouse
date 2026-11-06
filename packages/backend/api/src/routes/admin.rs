@@ -361,9 +361,8 @@ pub async fn admin_update_user(
             .target("user", id),
         )
         .await?;
-        if !active {
-            auth::delete_sessions_of(&tx, id, None).await?;
-        }
+        // Nothing to delete when disabling: a disabled account's sessions stop working at once
+        // (`sessions::Backend` does not load it).
     }
     if let Some(role) = input.global_role.filter(|r| *r != was_role) {
         update.global_role = Set(role);

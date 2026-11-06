@@ -3,7 +3,7 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 
 use crate::common::*;
 
@@ -234,16 +234,9 @@ async fn workspaces_access_is_enforced() {
     .insert(&db)
     .await
     .expect("seed second user");
-    let other_token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(other_token.clone()),
-        user_id: Set(other.id),
-        expires_at: Set(crate::common::far_future()), // 2100-01-01
-    }
-    .insert(&db)
-    .await
-    .expect("seed second session");
+    let other_token = api::sessions::start_session(&db, other.id)
+        .await
+        .expect("seed second session");
     let other_cookie = format!("woodmouse_session={other_token}");
 
     // Membership filtering: the list shows no workspaces.

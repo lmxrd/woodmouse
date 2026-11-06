@@ -2,7 +2,7 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users};
+use entity::users;
 use serde_json::{Value, json};
 
 use crate::common::*;
@@ -25,16 +25,7 @@ async fn seed_user(db: &sea_orm::DatabaseConnection, email: &str) -> (uuid::Uuid
     .insert(db)
     .await
     .unwrap();
-    let token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(user.id),
-        expires_at: Set(far_future()),
-    }
-    .insert(db)
-    .await
-    .unwrap();
+    let token = api::sessions::start_session(db, user.id).await.unwrap();
     (user.id, format!("woodmouse_session={token}"))
 }
 

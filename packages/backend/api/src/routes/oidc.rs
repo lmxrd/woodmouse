@@ -24,7 +24,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::audit::{self, Entry};
-use crate::auth::{self, CurrentUser};
+use crate::auth::CurrentUser;
 use crate::config;
 use crate::db::prelude::*;
 use crate::error::ApiError;
@@ -212,6 +212,7 @@ pub struct CallbackParams {
 )]
 pub async fn oidc_callback(
     State(state): State<AppState>,
+    mut auth_session: crate::sessions::AuthSession,
     headers: HeaderMap,
     params: Result<Query<CallbackParams>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
@@ -228,7 +229,16 @@ pub async fn oidc_callback(
     };
     let removal = oidc::login_cookie_removal(secure);
     match outcome {
-        Ok(SignedIn::Session(session)) => (session.add(removal), Redirect::to("/")).into_response(),
+        // The account's transaction is committed (and the writer turn given back): now the session.
+        Ok(SignedIn::User(user)) => {
+            match crate::sessions::sign_in(&mut auth_session, &state, &user).await {
+                Ok(session) => (session.add(removal), Redirect::to("/")).into_response(),
+                Err(e) => {
+                    tracing::error!(error = %e, "single sign-on could not start the session");
+                    (CookieJar::new().add(removal), SsoError::Failed.redirect()).into_response()
+                }
+            }
+        }
         // Two-factor first: the challenge cookie, and the login page's code (or setup) step.
         Ok(SignedIn::Challenge(challenge, to)) => {
             (challenge, CookieJar::new().add(removal), Redirect::to(to)).into_response()
@@ -421,8 +431,8 @@ impl From<sea_orm::DbErr> for SignInError {
 
 /// How a single sign-on ends.
 enum SignedIn {
-    /// With a session.
-    Session(CookieJar),
+    /// Signed in as this user (the session is started once the transaction is committed).
+    User(entity::User),
     /// With a two-factor challenge, and where the login page asks for the code or the setup.
     Challenge(SignedCookieJar, &'static str),
 }
@@ -503,9 +513,8 @@ async fn sign_in(
             .data(serde_json::json!({ "method": "sso" })),
     )
     .await?;
-    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
-    Ok(SignedIn::Session(jar))
+    Ok(SignedIn::User(user))
 }
 
 async fn create_user(

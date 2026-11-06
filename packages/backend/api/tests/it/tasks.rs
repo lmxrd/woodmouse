@@ -3,7 +3,7 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use serde_json::Value;
 
 use crate::common::*;
@@ -523,16 +523,7 @@ async fn access_isolation_and_roles() {
     .insert(&db)
     .await
     .expect("seed user");
-    let other_token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(other_token.clone()),
-        user_id: Set(other.id),
-        expires_at: Set(crate::common::far_future()),
-    }
-    .insert(&db)
-    .await
-    .expect("seed session");
+    let other_token = api::sessions::start_session(&db, other.id).await.unwrap();
     let other_cookie = format!("woodmouse_session={other_token}");
 
     // Non-member: the workspace looks nonexistent (404), nothing is creatable.
@@ -801,7 +792,6 @@ async fn workspace_members_listing() {
     assert!(members[0]["user"].get("password_hash").is_none());
 
     // A user with no membership sees a 404, like the workspace itself.
-    let token = uuid::Uuid::new_v4().to_string();
     let stranger = users::ActiveModel {
         id: Set(uuid::Uuid::now_v7()),
         email: Set("stranger@x.io".to_string()),
@@ -814,15 +804,9 @@ async fn workspace_members_listing() {
     .insert(&db)
     .await
     .expect("seed user");
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(stranger.id),
-        expires_at: Set(crate::common::far_future()),
-    }
-    .insert(&db)
-    .await
-    .expect("seed session");
+    let token = api::sessions::start_session(&db, stranger.id)
+        .await
+        .expect("seed session");
     let res = request(
         &app,
         get(

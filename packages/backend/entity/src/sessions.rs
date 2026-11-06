@@ -3,34 +3,20 @@
 use super::DateTime;
 use sea_orm::entity::prelude::*;
 
-/// A login session. The opaque token travels in an httpOnly cookie.
+/// A sign-in session (tower-sessions, through axum-login; the store is `api::sessions`). Keyed by the
+/// SHA-256 (hex) of the session id in the cookie, never the id itself, so the table holds no live session.
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "sessions")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub id: Uuid,
-    #[sea_orm(column_type = "Text", unique)]
-    pub token: String,
-    pub user_id: Uuid,
+    #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
+    pub id_hash: String,
+    /// The session's data, JSON.
+    #[sea_orm(column_type = "Text")]
+    pub data: String,
     pub expires_at: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::users::Entity",
-        from = "Column::UserId",
-        to = "super::users::Column::Id",
-        on_update = "NoAction",
-        on_delete = "Cascade"
-    )]
-    Users,
-}
-
-impl Related<super::users::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Users.def()
-    }
-}
+pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}

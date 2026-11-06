@@ -123,6 +123,11 @@ To copy the database while the server runs, use SQLite rather than `cp`:
 - **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`. The
   session cookie is then `__Host-woodmouse_session`, which no other subdomain
   can set. Turning the setting on or off signs everyone out once.
+- **Sessions** last 30 days from sign-in. The database keeps only a hash of
+  each session's id, so a copy of it (or of a backup) cannot be used to sign
+  in. Changing your password or your two-factor setting signs out your other
+  sessions; disabling an account stops its sessions at once. Upgrading to the
+  release with this session store signs everyone out once.
 
 ### Email
 
@@ -204,7 +209,8 @@ who can reset it under **Site admin → Users**.
 
 With `TOTP_REQUIRED=true`, every sign-in (password or single sign-on) of someone
 without two-factor sets it up before going in, and nobody can turn it off.
-Sessions that already exist are left alone. After the super admin resets
+Sessions that already exist are left alone until the person sets it up
+(turning two-factor on signs out their other sessions). After the super admin resets
 someone's two-factor, they set it up again at their next sign-in.
 
 ### Docker notes
