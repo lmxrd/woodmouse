@@ -44,7 +44,9 @@
   that does not fit its OpenAPI document throws, so fix the backend's schema, not the frontend.
 - Data fetching: TanStack Query (`useQuery`/`useMutation`). Tune defaults in
   `src/lib/query-client.ts`; wire real endpoints by replacing `queryFn`s in
-  route components.
+  route components. A mutation whose component shows its own error passes `meta: { inline: true }`;
+  any other failed mutation shows a toast (sonner). A 401 outside `/api/auth/*` means the session ended:
+  the app goes to `/login` (`setSessionExpiredHandler` in `src/main.tsx`).
 - Styling: Tailwind CSS v4 utility classes. Global styles live only in
   `src/index.css`; do not add a `tailwind.config.js`.
 - TypeScript strict; unused imports/locals are build errors — clean up as

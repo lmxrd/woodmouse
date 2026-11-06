@@ -7,6 +7,12 @@ node_modules/
 dist/
 target/
 
+# local data (the development database and its files)
+data/
+*.db
+*.db-wal
+*.db-shm
+
 # environment
 .env
 .env.*
