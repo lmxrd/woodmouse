@@ -5,10 +5,10 @@
 //! the session id, never the id itself, so the database (or a backup of it) holds no live session; every
 //! write takes the app's writer turn (`AppState::writer`), like any other write.
 //!
-//! [`Backend`] loads the signed-in user on each request: `None` for a missing or disabled account, so
-//! disabling someone stops their sessions. Its `session_auth_hash` is a hash of the password hash and the
-//! two-factor secret, so changing either signs out every other session of theirs (the one that made the
-//! change signs in again: [`refresh`]).
+//! [`Backend`] loads the signed-in user on each request: `None` for a missing or disabled account. Its
+//! `session_auth_hash` hashes the account's session generation (raised when it is disabled, so its sessions
+//! end for good), the password hash and the two-factor secret: changing either of the last two signs out
+//! every other session of theirs (the one that made the change signs in again: [`refresh`]).
 
 use std::convert::Infallible;
 use std::fmt;
@@ -267,9 +267,12 @@ impl AuthUser for SessionUser {
     }
 }
 
-/// SHA-256 of the password hash and the two-factor secret (each may be empty).
-fn auth_hash(password_hash: Option<&str>, totp_secret: Option<&str>) -> Vec<u8> {
+/// SHA-256 of the session generation, the password hash and the two-factor secret (each may be empty).
+/// The generation is a fixed 8 bytes and the two strings are separated by a NUL, which neither contains,
+/// so no two different triples hash the same input.
+fn auth_hash(generation: i64, password_hash: Option<&str>, totp_secret: Option<&str>) -> Vec<u8> {
     Sha256::new()
+        .chain_update(generation.to_be_bytes())
         .chain_update(password_hash.unwrap_or("").as_bytes())
         .chain_update([0])
         .chain_update(totp_secret.unwrap_or("").as_bytes())
@@ -290,7 +293,11 @@ pub async fn session_user(
         return Ok(None);
     };
     let secret = totp::enabled(db, user.id).await?.map(|t| t.secret);
-    let auth_hash = auth_hash(user.password_hash.as_deref(), secret.as_deref());
+    let auth_hash = auth_hash(
+        user.session_generation,
+        user.password_hash.as_deref(),
+        secret.as_deref(),
+    );
     Ok(Some(SessionUser { user, auth_hash }))
 }
 
@@ -419,12 +426,16 @@ mod tests {
 
     #[test]
     fn the_hash_changes_with_the_password_and_the_secret() {
-        let base = auth_hash(Some("a"), None);
-        assert_ne!(base, auth_hash(Some("b"), None));
-        assert_ne!(base, auth_hash(Some("a"), Some("S")));
-        assert_eq!(base, auth_hash(Some("a"), Some("")));
+        let base = auth_hash(0, Some("a"), None);
+        assert_ne!(base, auth_hash(0, Some("b"), None));
+        assert_ne!(base, auth_hash(0, Some("a"), Some("S")));
+        assert_ne!(base, auth_hash(1, Some("a"), None));
+        assert_eq!(base, auth_hash(0, Some("a"), Some("")));
         // The separator keeps "ab" + "" apart from "a" + "b".
-        assert_ne!(auth_hash(Some("ab"), None), auth_hash(Some("a"), Some("b")));
+        assert_ne!(
+            auth_hash(0, Some("ab"), None),
+            auth_hash(0, Some("a"), Some("b"))
+        );
     }
 
     #[test]

@@ -120,7 +120,8 @@
   parent (same `project_id` and `list_id`).
 - **Completion.** `Task.completed_at` is the only state; `PATCH is_completed: bool` makes the server set or clear
   it. Responses carry `completed_at`; filters still take `is_completed`.
-- **Users.** `active` (disabled accounts cannot sign in and their sessions stop; everything they made stays),
+- **Users.** `active` (disabled accounts cannot sign in and their sessions end for good: disabling raises
+  `session_generation`, which is in the session hash; everything they made stays),
   `global_role` (access to every workspace), `timezone` (the browser's, editable). The super admin's site admin
   routes are in `routes/admin.rs` (users, deleted workspaces, audit log, redaction, integrity check).
 - **Sessions** (`src/sessions.rs`): axum-login on tower-sessions. `sessions::Store` is our own `SessionStore`
@@ -128,8 +129,9 @@
   writer turn, so call `sessions::sign_in`, `refresh` and `sign_out` with no writer held (commit and `drop(db)`
   first, or they wait on themselves). The cookie is `woodmouse_session` (`__Host-` over https, `HttpOnly`,
   `SameSite=Lax`), its expiry set once at sign-in (30 days), so a request writes the session only when it changes.
-  `sessions::Backend::get_user` returns `None` for a disabled account; the session hash is the password hash plus
-  the two-factor secret, so changing either ends the other sessions, and the handler that changed it calls
+  `sessions::Backend::get_user` returns `None` for a disabled account; the session hash is `session_generation`
+  (raised in the same write that disables someone), the password hash and
+  the two-factor secret, so changing the password or two-factor ends the other sessions, and the handler that changed it calls
   `sessions::refresh` to keep its own. Every sign-in (password, TOTP step, enrolment, SSO callback, invite,
   bootstrap) ends in `sessions::sign_in`. Tests seed one with `sessions::start_session`. The daily job deletes
   expired sessions through the store.

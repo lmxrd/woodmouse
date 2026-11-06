@@ -347,6 +347,11 @@ pub async fn admin_update_user(
     let mut changed = false;
     if let Some(active) = input.active.filter(|a| *a != was_active) {
         update.active = Set(active);
+        if !active {
+            // In the same write: their sessions stop matching for good, even if the account is enabled
+            // again (`sessions::session_user`).
+            update.session_generation = Set(user.session_generation + 1);
+        }
         changed = true;
         audit::record(
             &tx,

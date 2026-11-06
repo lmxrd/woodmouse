@@ -42,6 +42,9 @@ pub struct Model {
     pub global_role: Option<Role>,
     /// Disabled accounts cannot sign in; everything they made stays.
     pub active: bool,
+    /// Raised each time the account is disabled; part of the session hash, so a disabled account's sessions
+    /// end for good.
+    pub session_generation: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

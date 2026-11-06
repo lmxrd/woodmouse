@@ -75,23 +75,27 @@ async fn assert_kept(db: &DatabaseConnection, with_password: uuid::Uuid, invited
         count(db, "SELECT count(*) FROM pragma_foreign_key_check").await,
         0
     );
-    let admin = entity::users::Entity::find_by_id(with_password)
-        .one(db)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        admin
-            .password_hash
-            .is_some_and(|h| h.starts_with("$argon2id$"))
+    // Raw queries: this runs before later migrations add columns the entity has.
+    let password_of = |id: uuid::Uuid| {
+        format!(
+            "SELECT count(*) FROM users WHERE id = x'{}' AND {}",
+            id.simple(),
+            "password_hash"
+        )
+    };
+    assert_eq!(
+        count(
+            db,
+            &format!("{} LIKE '$argon2id$%'", password_of(with_password))
+        )
+        .await,
+        1
     );
     // The empty string that meant "no password" is NULL now.
-    let invitee = entity::users::Entity::find_by_id(invited)
-        .one(db)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(invitee.password_hash, None);
+    assert_eq!(
+        count(db, &format!("{} IS NULL", password_of(invited))).await,
+        1
+    );
     // Every pooled connection still enforces foreign keys.
     let pool = db.get_sqlite_connection_pool();
     let mut held = vec![];

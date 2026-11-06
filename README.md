@@ -126,7 +126,8 @@ To copy the database while the server runs, use SQLite rather than `cp`:
 - **Sessions** last 30 days from sign-in. The database keeps only a hash of
   each session's id, so a copy of it (or of a backup) cannot be used to sign
   in. Changing your password or your two-factor setting signs out your other
-  sessions; disabling an account stops its sessions at once. Upgrading to the
+  sessions; disabling an account ends its sessions for good (enabling it again
+  does not bring them back). Upgrading to the
   release with this session store signs everyone out once.
 - **Cross-site requests are refused.** A request that changes something and
   that the browser marks as coming from another site (`Sec-Fetch-Site`, or an

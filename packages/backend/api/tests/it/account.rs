@@ -505,3 +505,54 @@ async fn an_ordinary_request_does_not_write_the_session() {
     assert_eq!(res.status(), StatusCode::OK);
     assert!(res.headers().get("set-cookie").is_none());
 }
+
+#[tokio::test]
+async fn enabling_an_account_again_does_not_bring_its_sessions_back() {
+    let (app, db) = app_with_db().await;
+    let admin = bootstrap_admin(&app).await;
+    let user = entity::users::ActiveModel {
+        id: Set(uuid::Uuid::now_v7()),
+        email: Set("ola@home.io".to_string()),
+        name: Set(String::new()),
+        password_hash: Set(Some(api::auth::hash_password("ola's password").unwrap())),
+        super_admin: Set(false),
+        active: Set(true),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .unwrap();
+    let (_, old) = login(&app, "ola@home.io", "ola's password").await;
+    let old = old.unwrap();
+    let set_active = |active: bool| {
+        patch_json(
+            &format!("/api/admin/users/{}", user.id),
+            &format!(r#"{{"active":{active}}}"#),
+            Some(&admin),
+        )
+    };
+    assert_eq!(
+        request(&app, set_active(false)).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&app, set_active(true)).await.status(),
+        StatusCode::OK
+    );
+
+    // The session from before the account was disabled stays signed out, with the same password.
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&old)))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, fresh) = login(&app, "ola@home.io", "ola's password").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        request(&app, get("/api/auth/me", Some(&fresh.unwrap())))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}
