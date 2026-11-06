@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -22,6 +23,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  test: {
+    // The unit tests run in UTC, so date code behaves the same on every machine.
+    env: { TZ: "UTC" },
+  },
   server: {
     proxy: {
       // Same-origin cookies in development: the SPA talks to /api on the
