@@ -35,7 +35,11 @@
   jiff `DateTime` (`entity::time`; an explicit `use super::DateTime;` shadows the generated chrono type), the five enum
   columns are the `ActiveEnum`s in `entity/src/enums.rs`, four rows carry `Serialize`/`ToSchema`, and the actor relations
   the generator cannot write are in `entity/src/relations.rs`. The column type names in the migration (`uuid_text`,
-  `datetime_text`, `json_text`) are what make the generator write `Uuid`, date-time and `Json` fields; the JSON
+  `datetime_text`, `json_text`) are what make the generator write `Uuid`, date-time and `Json` fields. Ids are
+  stored as 16-byte BLOBs all the same (sqlx writes a `Uuid` as its bytes, and SQLite keeps a blob a blob under any
+  declared type; `db::every_id_is_stored_as_sixteen_bytes` checks it): raw SQL compares them with `unhex(..)` and
+  prints them with `lower(hex(..))`, and the API sends the usual hyphenated string. Only the search index
+  (`search_docs`, rebuilt by triggers) keys rows by the 32-character hex text; the JSON
   columns the application reads as JSON (audit and notification `data`, saved view `params`) are `Json`, page and
   revision content stays text. Regenerating keeps most edits
   (`--experimental-preserve-user-modifications`) and the task runs `cargo fmt` over the result; review the
