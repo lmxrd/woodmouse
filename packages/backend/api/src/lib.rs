@@ -4,6 +4,7 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod content;
+pub mod csrf;
 pub mod db;
 pub mod error;
 pub mod ical;

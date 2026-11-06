@@ -133,6 +133,11 @@
   `sessions::refresh` to keep its own. Every sign-in (password, TOTP step, enrolment, SSO callback, invite,
   bootstrap) ends in `sessions::sign_in`. Tests seed one with `sessions::start_session`. The daily job deletes
   expired sessions through the store.
+- **CSRF** (`src/csrf.rs`, outermost layer in `routes::api`): Fetch Metadata, as Go's `CrossOriginProtection`.
+  A non-GET/HEAD/OPTIONS request is refused (403) when `Sec-Fetch-Site` is present and not `same-origin`/`none`, or,
+  without it, when `Origin` is present and is neither the `Host` nor `PUBLIC_URL`; requests with neither, and
+  `Authorization: Bearer` (API keys), pass. A route meant to be posted to from another site would need an
+  exception there (there is none: the SSO callback and calendar feeds are GETs).
 - **Single sign-on** (OpenID Connect; `src/oidc.rs` for the settings in force, the provider client and its
   metadata cache, the login cookie; `routes/oidc.rs` for `/auth/oidc/login`, `/auth/oidc/callback` and
   `/admin/oidc`). `password_hash` is `None` for someone without a password (invited, or single sign-on only);

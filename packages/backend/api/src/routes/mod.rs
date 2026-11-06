@@ -68,6 +68,8 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
             state.secure_cookies,
             crate::sessions::secure_removals,
         ))
+        // Outermost: a cross-site request that changes something is refused before anything else.
+        .layer(middleware::from_fn(crate::csrf::protect))
 }
 
 /// The OpenAPI document of [`api`], for the `specs` binary (`cargo specs`).

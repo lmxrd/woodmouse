@@ -128,6 +128,11 @@ To copy the database while the server runs, use SQLite rather than `cp`:
   in. Changing your password or your two-factor setting signs out your other
   sessions; disabling an account stops its sessions at once. Upgrading to the
   release with this session store signs everyone out once.
+- **Cross-site requests are refused.** A request that changes something and
+  that the browser marks as coming from another site (`Sec-Fetch-Site`, or an
+  `Origin` that is not this host or `PUBLIC_URL`) gets 403. Keep the original
+  `Host` header when proxying (nginx: `proxy_set_header Host $host;`), or set
+  `PUBLIC_URL`. API keys and other non-browser clients are not affected.
 
 ### Email
 
