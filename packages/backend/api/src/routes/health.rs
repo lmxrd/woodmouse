@@ -25,7 +25,7 @@ pub struct Health {
 #[utoipa::path(
     get,
     path = "/health",
-    tag = "health",
+    tag = "System",
     responses(
         (status = 200, description = "Service and database are healthy", body = Health),
         (status = 503, description = "Database unreachable", body = Health)
