@@ -845,8 +845,7 @@ pub async fn totp_disable(
     Json(input): Json<TotpCode>,
 ) -> Result<StatusCode, ApiError> {
     if state.totp_required {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
+        return Err(ApiError::forbidden(
             "two-factor sign-in is required on this site",
         ));
     }

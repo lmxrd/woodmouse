@@ -308,10 +308,7 @@ async fn from_api_key(
         .map(|uri| uri.path().to_string())
         .unwrap_or_else(|| parts.uri.path().to_string());
     if !api_key_scope_allows(key.scope, &parts.method, &path) {
-        return Err(ApiError::new(
-            axum::http::StatusCode::FORBIDDEN,
-            "this API key may not do that",
-        ));
+        return Err(ApiError::forbidden("this API key may not do that"));
     }
     let stale = key
         .last_used_at

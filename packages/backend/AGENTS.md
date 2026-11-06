@@ -67,8 +67,11 @@
   `target/specs/`.
 - `src/openapi.rs` holds only the base document (title/metadata); paths and
   schemas are collected automatically by `routes!`.
-- Errors: `sea_orm::DbErr` and `sqlx::Error` convert to `ApiError` (`src/error.rs`); a missing row maps to 404,
-  everything else to 500.
+- Errors: `ApiError` (`src/error.rs`) is a `thiserror` enum; build it with its helpers (`bad_request`, `forbidden`,
+  `not_found`, `conflict`, `unauthorized`, `payload_too_large`, `internal`) and answer `{"error": ...}` (`ErrorBody`).
+  `sea_orm::DbErr` and `sqlx::Error` convert with `?` (a missing row is 404, anything else 500), and so does an
+  `anyhow::Error` (`ApiError::Other`; add `.context(..)`): those are logged with their cause chain and answered with
+  a bare 500 "internal error". The binaries and startup use `anyhow` (`.context(..)`, `bail!`), never `expect`.
 - Schema: SeaORM migrations in `migration/src/` (`m20260101_000001_init.rs` and later, listed in `lib.rs`),
   applied at startup, each once, recorded in `seaql_migrations`. Each runs the `.sql` file beside it, because the
   schema needs what the schema builder does not express (CHECK constraints, foreign key actions, FTS5, table

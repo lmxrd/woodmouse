@@ -414,8 +414,10 @@ async fn run(state: &AppState) -> Result<(), ApiError> {
     Ok(())
 }
 
+use anyhow::Context;
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -425,13 +427,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let has_users = !users::Entity::find()
         .all(state.db())
         .await
-        .map_err(|e| format!("could not read the database: {e:?}"))?
+        .context("could not read the database")?
         .is_empty();
     if has_users {
-        return Err("the database already has users: run `mise run clean` to start over".into());
+        anyhow::bail!("the database already has users: run `mise run clean` to start over");
     }
-    run(&state)
-        .await
-        .map_err(|e| format!("seeding failed: {e:?}"))?;
+    run(&state).await.context("seeding failed")?;
     Ok(())
 }

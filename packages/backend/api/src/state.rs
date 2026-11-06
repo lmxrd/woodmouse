@@ -5,6 +5,8 @@ use std::time::Instant;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
+use anyhow::Context;
+
 use crate::error::ApiError;
 use crate::storage::FileStores;
 
@@ -86,21 +88,31 @@ impl AppState {
     /// Open the database at `url` (`sqlite:<path>`, created when missing): apply the migrations, restore
     /// the search triggers, and set up the file storage from the environment. What the server and the
     /// development tools (`seed`) start from.
-    pub async fn open(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let db = crate::db::orm(crate::db::connect(url).await?);
+    pub async fn open(url: &str) -> anyhow::Result<Self> {
+        let db = crate::db::orm(
+            crate::db::connect(url)
+                .await
+                .with_context(|| format!("could not open the database {url}"))?,
+        );
         // The schema: the migrations in the `migration` crate, each applied once.
-        <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None).await?;
+        <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None)
+            .await
+            .context("could not apply the migrations")?;
         crate::search::ensure_triggers(&db)
             .await
-            .map_err(|_| "could not create the search triggers")?;
+            .map_err(|_| anyhow::anyhow!("could not create the search triggers"))?;
         tracing::info!(url, "database ready");
-        let files = FileStores::from_env()?;
+        let files = FileStores::from_env().map_err(anyhow::Error::msg)?;
         tracing::info!(
             max_upload_bytes = files.max_upload_bytes,
             "file storage ready"
         );
-        let oidc = crate::oidc::Oidc::new(crate::oidc::EnvSettings::from_env()?);
-        let totp_required = crate::config::flag("TOTP_REQUIRED")?.unwrap_or(false);
+        let oidc = crate::oidc::Oidc::new(
+            crate::oidc::EnvSettings::from_env().map_err(anyhow::Error::msg)?,
+        );
+        let totp_required = crate::config::flag("TOTP_REQUIRED")
+            .map_err(anyhow::Error::msg)?
+            .unwrap_or(false);
         crate::auth::warm_up();
         oidc.apply(
             entity::oidc_settings::Entity::find_by_id(1)

@@ -133,10 +133,7 @@ pub async fn create_api_key(
         return Err(ApiError::bad_request("a name of 1 to 100 characters"));
     }
     if input.scope == Role::Admin && !(user.super_admin || user.global_role == Some(Role::Admin)) {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "only an admin may make an admin key",
-        ));
+        return Err(ApiError::forbidden("only an admin may make an admin key"));
     }
     let now = time::now();
     let expires_at = match input.expires_in_days {

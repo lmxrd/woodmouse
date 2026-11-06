@@ -327,8 +327,7 @@ impl Oidc {
         if self.password_login() {
             Ok(())
         } else {
-            Err(crate::error::ApiError::new(
-                axum::http::StatusCode::FORBIDDEN,
+            Err(crate::error::ApiError::forbidden(
                 "Password sign-in is turned off; use single sign-on",
             ))
         }

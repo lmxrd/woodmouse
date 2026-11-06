@@ -1,57 +1,122 @@
+//! The API's error type. Every handler returns `Result<_, ApiError>`; the error becomes a status and a
+//! `{"error": "..."}` body ([`ErrorBody`]). Client errors carry their own message; database errors and
+//! anything unexpected ([`ApiError::Other`], from `anyhow`) are logged with their cause chain and answered
+//! with a bare 500 "internal error", so nothing about the server leaks. A row that is not there is a 404.
+
 use axum::{
     Json,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use serde::Serialize;
+use utoipa::ToSchema;
 
-/// Application error type: converts to an HTTP response.
-#[derive(Debug)]
-pub struct ApiError {
-    status: StatusCode,
-    message: String,
+/// Why a request failed.
+#[derive(Debug, thiserror::Error)]
+pub enum ApiError {
+    /// Invalid request payload (validation failures).
+    #[error("{0}")]
+    BadRequest(String),
+    /// Missing or invalid session.
+    #[error("authentication required")]
+    Unauthorized,
+    /// Signed in, but not allowed to do this.
+    #[error("{0}")]
+    Forbidden(String),
+    /// Does not exist *or* is outside the caller's access: the same status for both, so existence is not
+    /// leaked.
+    #[error("not found")]
+    NotFound,
+    #[error("{0}")]
+    Conflict(String),
+    /// The request body (an upload) exceeds the configured limit.
+    #[error("{0}")]
+    PayloadTooLarge(String),
+    /// Something on our side failed, with a message the client may see.
+    #[error("{0}")]
+    Internal(String),
+    /// Any other status (an extractor's rejection, such as a malformed upload).
+    #[error("{message}")]
+    Status { status: StatusCode, message: String },
+    #[error("database error")]
+    Sqlx(#[source] sqlx::Error),
+    #[error("database error")]
+    Db(#[source] sea_orm::DbErr),
+    /// Anything else that went wrong.
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+/// The body of every error response.
+#[derive(Serialize, ToSchema)]
+pub struct ErrorBody {
+    /// What went wrong, for people.
+    pub error: String,
 }
 
 impl ApiError {
+    /// An error with any status. A known status becomes its own variant.
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self {
-            status,
-            message: message.into(),
+        let message = message.into();
+        match status {
+            StatusCode::BAD_REQUEST => Self::BadRequest(message),
+            StatusCode::FORBIDDEN => Self::Forbidden(message),
+            StatusCode::CONFLICT => Self::Conflict(message),
+            StatusCode::PAYLOAD_TOO_LARGE => Self::PayloadTooLarge(message),
+            StatusCode::INTERNAL_SERVER_ERROR => Self::Internal(message),
+            status => Self::Status { status, message },
         }
     }
 
-    /// Invalid request payload (validation failures).
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, message)
+        Self::BadRequest(message.into())
     }
 
-    /// Missing or invalid session.
     pub fn unauthorized() -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, "authentication required")
+        Self::Unauthorized
     }
 
-    /// Resource does not exist *or* is outside the caller's access — the
-    /// same status for both, so existence is not leaked.
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::Forbidden(message.into())
+    }
+
     pub fn not_found() -> Self {
-        Self::new(StatusCode::NOT_FOUND, "not found")
+        Self::NotFound
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::CONFLICT, message)
+        Self::Conflict(message.into())
+    }
+
+    pub fn payload_too_large(message: impl Into<String>) -> Self {
+        Self::PayloadTooLarge(message.into())
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, message)
+        Self::Internal(message.into())
+    }
+
+    pub fn status(&self) -> StatusCode {
+        match self {
+            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::Status { status, .. } => *status,
+            Self::Internal(_) | Self::Sqlx(_) | Self::Db(_) | Self::Other(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
     }
 }
 
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
         match err {
-            sqlx::Error::RowNotFound => Self::not_found(),
-            err => {
-                tracing::error!(error = %err, "database error");
-                Self::internal("internal error")
-            }
+            sqlx::Error::RowNotFound => Self::NotFound,
+            err => Self::Sqlx(err),
         }
     }
 }
@@ -59,25 +124,66 @@ impl From<sqlx::Error> for ApiError {
 impl From<sea_orm::DbErr> for ApiError {
     fn from(err: sea_orm::DbErr) -> Self {
         match err {
-            sea_orm::DbErr::RecordNotFound(_) => Self::not_found(),
-            err => {
-                tracing::error!(error = %err, "database error");
-                Self::internal("internal error")
-            }
+            sea_orm::DbErr::RecordNotFound(_) => Self::NotFound,
+            err => Self::Db(err),
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = Json(serde_json::json!({ "error": self.message }));
-        (self.status, body).into_response()
+        let status = self.status();
+        let error = match &self {
+            Self::Sqlx(_) | Self::Db(_) | Self::Other(_) => {
+                // `{:#}` on anyhow prints the whole chain; the database variants name their source.
+                let cause = match &self {
+                    Self::Other(e) => format!("{e:#}"),
+                    Self::Sqlx(e) => e.to_string(),
+                    Self::Db(e) => e.to_string(),
+                    _ => unreachable!(),
+                };
+                tracing::error!(error = %self, cause, "request failed");
+                "internal error".to_string()
+            }
+            Self::Internal(message) => {
+                tracing::error!(error = %message, "request failed");
+                message.clone()
+            }
+            other => other.to_string(),
+        };
+        (status, Json(ErrorBody { error })).into_response()
     }
 }
 
-impl ApiError {
-    /// The request body (an upload) exceeds the configured limit.
-    pub fn payload_too_large(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::PAYLOAD_TOO_LARGE, message)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn database_errors_say_nothing_and_missing_rows_are_404() {
+        assert_eq!(
+            ApiError::from(sea_orm::DbErr::RecordNotFound("x".into())).status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            ApiError::from(sqlx::Error::RowNotFound).status(),
+            StatusCode::NOT_FOUND
+        );
+        let err = ApiError::from(sea_orm::DbErr::Custom("table secrets is locked".into()));
+        assert_eq!(err.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let err = ApiError::from(anyhow::anyhow!("disk full").context("writing the export"));
+        assert_eq!(err.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn new_picks_the_variant() {
+        assert!(matches!(
+            ApiError::new(StatusCode::FORBIDDEN, "no"),
+            ApiError::Forbidden(_)
+        ));
+        assert_eq!(
+            ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "x").status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }

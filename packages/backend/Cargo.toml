@@ -21,6 +21,7 @@ api = { path = "api" }
 entity = { path = "entity" }
 migration = { path = "migration" }
 
+anyhow = "1.0.104"
 async-trait = "0.1"
 axum = "0.8"
 jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
@@ -32,6 +33,7 @@ serde = { version = "1", features = ["derive"] }
 # The pool under SeaORM; used directly where SeaORM does not reach (pragmas on one connection).
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "uuid"] }
 serde_json = "1"
+thiserror = "2.0.21"
 tokio = "1"
 # Two-factor sign-in (TOTP, RFC 6238); `otpauth` adds the URL an authenticator app reads from the QR code.
 totp-rs = { version = "6.0.0", features = ["otpauth"] }
@@ -45,6 +47,7 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 # the spec generator build without `packages/frontend/dist`).
 [dependencies]
 api.workspace = true
+anyhow.workspace = true
 axum.workspace = true
 mime_guess.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time", "sync"] }
