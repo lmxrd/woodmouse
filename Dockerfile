@@ -10,10 +10,14 @@
 # The runtime is Alpine, for a shell (`docker exec -it <container> sh`)
 # and busybox tools when debugging in production. The binary itself is
 # static and needs nothing from the base.
-FROM alpine:3
+# An exact Alpine release, so the base changes only in a pull request
+# (Dependabot's, as fix(deps): a release follows). `apk upgrade` takes the
+# package fixes Alpine published since that release.
+FROM alpine:3.24.4
 ARG TARGETARCH
 ARG BINARY=dist/woodmouse-linux-${TARGETARCH}
-RUN apk add --no-cache ca-certificates \
+RUN apk upgrade --no-cache \
+  && apk add --no-cache ca-certificates \
   && addgroup -S woodmouse && adduser -S -G woodmouse woodmouse \
   && mkdir /data && chown woodmouse /data
 # --chmod: the executable bit does not survive every way a binary reaches dist/.
