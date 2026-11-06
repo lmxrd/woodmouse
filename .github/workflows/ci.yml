@@ -57,3 +57,16 @@ jobs:
           done
           docker logs woodmouse-ci
           exit 1
+      # Its Alpine packages: a fixable HIGH or CRITICAL one fails the PR.
+      # Trivy's database is cached for the day (security.yml scans the
+      # published image every day).
+      - id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.day.outputs.day }}
+          restore-keys: trivy-db-
+      - run: mise run audit:image
+        env:
+          IMAGE: woodmouse:ci

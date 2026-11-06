@@ -213,6 +213,16 @@ The image runs as a non-root user (uid 100) and asks its own `/api/health`
 endpoint for its health check. If you mount a folder from the host instead of a
 named volume, make it writable by that user.
 
+### Staying up to date
+
+Dependencies and the image's base are updated automatically, and a security
+fix leads to a patch release (`1.2.3` → `1.2.4`). To pick those up without
+taking new features unannounced, run the minor tag
+(`ghcr.io/lmxrd/woodmouse:1.2`) and pull it regularly, or let a tool such as
+[Watchtower](https://containrrr.dev/watchtower/) or
+[Diun](https://crazymax.dev/diun/) do it or tell you. `latest` follows every
+release.
+
 ### The API
 
 Every route lives under `/api`. Run with `WOODMOUSE_SWAGGER_UI=1` to browse the

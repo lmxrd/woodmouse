@@ -21,6 +21,8 @@ watchexec = "2.8.0" # backend hot reload (dev:backend)
 zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and static linking
 "github:rust-cross/cargo-zigbuild" = "0.24.0" # builds the static release binaries via zig cc (scripts/build-linux.sh)
 "cargo:sea-orm-cli" = "2.0.4" 
+"aqua:google/osv-scanner" = "2.7.0" # known vulnerabilities in the lockfiles (mise run audit)
+"aqua:aquasecurity/trivy" = "0.76.1" # known vulnerabilities in the image (mise run audit:image)
 
 [env]
 DATABASE_URL = "sqlite:woodmouse.db?mode=rwc"
@@ -191,6 +193,23 @@ run = [
 description = "Auto-fix frontend lint and formatting"
 dir = "packages/frontend"
 run = "pnpm fix"
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+# Every day in CI too (security.yml): new advisories come out for
+# dependencies that did not change. A finding to accept goes in
+# osv-scanner.toml, with the reason.
+[tasks.audit]
+description = "Known vulnerabilities in the locked crates and npm packages (osv-scanner: OSV, RustSec and GitHub advisories)"
+run = "osv-scanner scan source --config osv-scanner.toml --lockfile packages/backend/Cargo.lock --lockfile pnpm-lock.yaml"
+
+# The binary is static, so this is about the Alpine base. CI scans the image
+# it builds (IMAGE=woodmouse:ci).
+[tasks."audit:image"]
+description = "Known vulnerabilities in an image's Alpine packages (Trivy): fixable HIGH and CRITICAL ones fail; IMAGE picks it, by default the published one"
+run = 'trivy image --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "${IMAGE:-ghcr.io/lmxrd/woodmouse:latest}"'
 
 # ---------------------------------------------------------------------------
 # Dependencies
