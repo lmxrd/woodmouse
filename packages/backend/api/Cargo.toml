@@ -52,3 +52,6 @@ webpki-roots = "1.0.11"
 [dev-dependencies]
 axum-test.workspace = true
 tokio-tungstenite = "0.30.0"
+
+[lints]
+workspace = true

@@ -16,6 +16,11 @@ rust-version = "1.99.0"
 
 # Dependencies used by more than one crate: versions and shared features live here, a crate adds only
 # what it needs on top (`tokio = { workspace = true, features = [..] }`).
+# No unsafe code in any crate of the workspace (each opts in with `[lints] workspace = true`);
+# `forbid` cannot be allowed again further in.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
 [workspace.dependencies]
 api = { path = "api" }
 entity = { path = "entity" }
@@ -73,3 +78,6 @@ codegen-units = 1
 [profile.dev.package]
 argon2 = { opt-level = 3 }
 blake2 = { opt-level = 3 }
+
+[lints]
+workspace = true

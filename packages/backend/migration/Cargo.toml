@@ -14,3 +14,6 @@ async-trait.workspace = true
 sea-orm-migration = { workspace = true, features = ["cli"] }
 sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
