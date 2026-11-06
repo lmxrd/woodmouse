@@ -94,15 +94,11 @@ impl AppState {
     /// the search triggers, and set up the file storage from the environment. What the server and the
     /// development tools (`seed`) start from.
     pub async fn open(path: &str) -> anyhow::Result<Self> {
-        let db = crate::db::orm(
-            crate::db::connect(path)
-                .await
-                .with_context(|| format!("could not open the database {path}"))?,
-        );
-        // The schema: the migrations in the `migration` crate, each applied once.
-        <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None)
+        // The schema: the migrations in the `migration` crate, each applied once, before the app's
+        // connections are opened (see `db::migrated`).
+        let db = crate::db::migrated(path)
             .await
-            .context("could not apply the migrations")?;
+            .with_context(|| format!("could not open and migrate the database {path}"))?;
         crate::search::ensure_triggers(&db)
             .await
             .map_err(|_| anyhow::anyhow!("could not create the search triggers"))?;

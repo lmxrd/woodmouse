@@ -147,7 +147,10 @@ pub async fn bootstrap_admin(app: &axum::Router) -> String {
         ),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    if res.status() != StatusCode::CREATED {
+        let status = res.status();
+        panic!("bootstrap: {status} {}", body_string(res.into_body()).await);
+    }
     cookie_of(&res)
 }
 
