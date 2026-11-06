@@ -82,6 +82,7 @@
   callback comes back to `/login?error=<code>`; the messages in `lib/sso.ts` must cover the backend's
   `SsoError` codes (`routes/oidc.rs`), so keep the two lists in step.
 - Rules of Hooks: call every hook before any early `return` (the lint has no react-hooks plugin to catch it).
+- Ask for a confirmation with `useConfirm` (`src/components/common/confirm-dialog.tsx`), never `window.confirm`.
 
 - Themes: colours live in `src/lib/themes.ts` (palettes in light and dark, turned into CSS at startup) and are
   read through the semantic tokens in `index.css`; never hardcode colours in components. `useTheme` (in

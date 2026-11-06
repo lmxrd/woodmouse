@@ -9,7 +9,7 @@ import { useWatch } from "../notifications/watch-button";
 import { afterIdAt } from "../../lib/position";
 import { subtreeIds } from "../../lib/page-tree";
 import { ActionMenu } from "../common/action-menu";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { MovePageDialog } from "./move-page-dialog";
 import { usePageActions } from "./use-page-actions";
 
@@ -34,7 +34,7 @@ export function PageMenu({
   const { data: pages = [] } = useQuery(listPagesOptions({ path: { id: workspaceId } }));
   const { createPage, movePage, deletePage } = usePageActions(workspaceId);
   const [moving, setMoving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const confirm = useConfirm();
   const { watching, toggle: toggleWatch } = useWatch("page", page.id);
 
   const siblings = pages
@@ -44,6 +44,24 @@ export function PageMenu({
   const others = siblings.filter((p) => p.id !== page.id);
   const reorder = (to: number) => movePage(page.id, { after_id: afterIdAt(others, to) });
   const subpages = subtreeIds(pages, page.id).size - 1;
+  const confirmDelete = async () => {
+    const confirmed = await confirm({
+      title: `Delete "${page.title}"?`,
+      description:
+        subpages > 0
+          ? `This also deletes its ${subpages} ${subpages === 1 ? "subpage" : "subpages"}. You can restore them from the trash.`
+          : "You can restore it from the trash.",
+      action: "Delete page",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    deletePage(
+      page.id,
+      leaveOnDelete
+        ? () => void navigate({ to: "/w/$workspaceId/wiki", params: { workspaceId } })
+        : undefined,
+    );
+  };
 
   return (
     <>
@@ -68,7 +86,7 @@ export function PageMenu({
             onSelect: () => window.location.assign(pageExportUrl(page.id)),
           },
           ...(canWrite
-            ? [{ label: "Delete…", destructive: true, onSelect: () => setDeleting(true) }]
+            ? [{ label: "Delete…", destructive: true, onSelect: () => void confirmDelete() }]
             : []),
         ]}
       />
@@ -78,25 +96,6 @@ export function PageMenu({
         page={page}
         pages={pages}
         onMove={(parentId) => movePage(page.id, { parent_id: parentId })}
-      />
-      <ConfirmDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title={`Delete "${page.title}"?`}
-        description={
-          subpages > 0
-            ? `This also deletes its ${subpages} ${subpages === 1 ? "subpage" : "subpages"}. You can restore them from the trash.`
-            : "You can restore it from the trash."
-        }
-        confirmLabel="Delete page"
-        onConfirm={() =>
-          deletePage(
-            page.id,
-            leaveOnDelete
-              ? () => void navigate({ to: "/w/$workspaceId/wiki", params: { workspaceId } })
-              : undefined,
-          )
-        }
       />
     </>
   );

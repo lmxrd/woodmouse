@@ -4,7 +4,7 @@ import { adminAuditLogOptions, adminRedactRevisionMutation } from "woodmouse-sdk
 
 import { userLabel } from "../../lib/user";
 import { useFormatters } from "../../lib/use-formatters";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { Button } from "../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
@@ -45,7 +45,7 @@ export function AuditTab({
 }) {
   const { dateTime } = useFormatters();
   const [limit, setLimit] = useState(PAGE);
-  const [redacting, setRedacting] = useState<string | null>(null);
+  const confirm = useConfirm();
   const { data: entries } = useQuery(adminAuditLogOptions({ query: { action, limit } }));
   const redact = useMutation({
     ...adminRedactRevisionMutation(),
@@ -92,7 +92,22 @@ export function AuditTab({
                 ) : null}
               </span>
               {revision ? (
-                <Button variant="ghost" size="xs" onClick={() => setRedacting(revision)}>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: "Redact this version?",
+                        description:
+                          "Its content is removed for good. The version and this log entry stay.",
+                        action: "Redact",
+                        destructive: true,
+                      })
+                    )
+                      redact.mutate({ path: { id: revision } });
+                  }}
+                >
                   Redact content
                 </Button>
               ) : null}
@@ -108,14 +123,6 @@ export function AuditTab({
           </Button>
         </div>
       ) : null}
-      <ConfirmDialog
-        open={redacting !== null}
-        onOpenChange={(open) => !open && setRedacting(null)}
-        title="Redact this version?"
-        description="Its content is removed for good. The version and this log entry stay."
-        confirmLabel="Redact"
-        onConfirm={() => redacting && redact.mutate({ path: { id: redacting } })}
-      />
     </section>
   );
 }

@@ -8,7 +8,7 @@ import type { TaskSort } from "../../lib/project-search";
 import { isDone } from "../../lib/task";
 import { useFormatters } from "../../lib/use-formatters";
 import { ActionMenu } from "../common/action-menu";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { TaskTable } from "../task/task-table";
 import { CompleteSprintDialog, SprintFormDialog } from "./sprint-dialogs";
 
@@ -45,7 +45,7 @@ export function SprintGroups({
   const { date } = useFormatters();
   const [editing, setEditing] = useState<SprintView | null>(null);
   const [completing, setCompleting] = useState<SprintView | null>(null);
-  const [deleting, setDeleting] = useState<SprintView | null>(null);
+  const confirm = useConfirm();
   const remove = useMutation({
     ...deleteSprintMutation(),
   });
@@ -102,7 +102,18 @@ export function SprintGroups({
                       {
                         label: "Delete sprint…",
                         destructive: true,
-                        onSelect: () => setDeleting(s),
+                        onSelect: async () => {
+                          if (
+                            await confirm({
+                              title: `Delete "${s.name}"?`,
+                              description:
+                                "Its tasks go back to the backlog. You can restore the sprint from the trash, but not which tasks were in it.",
+                              action: "Delete sprint",
+                              destructive: true,
+                            })
+                          )
+                            remove.mutate({ path: { id: s.id } });
+                        },
                       },
                     ]}
                   />
@@ -150,14 +161,6 @@ export function SprintGroups({
           onOpenChange={(next) => !next && setEditing(null)}
         />
       ) : null}
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(next) => !next && setDeleting(null)}
-        title={`Delete "${deleting?.name ?? ""}"?`}
-        description="Its tasks go back to the backlog. You can restore the sprint from the trash, but not which tasks were in it."
-        confirmLabel="Delete sprint"
-        onConfirm={() => deleting && remove.mutate({ path: { id: deleting.id } })}
-      />
     </>
   );
 }

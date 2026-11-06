@@ -34,7 +34,7 @@ import { afterIdAt, provisionalPosition } from "../../lib/position";
 import { taskFilterQuery } from "../../lib/project-search";
 import { useWorkspaceRole } from "../../lib/use-workspace-role";
 import { ActionMenu } from "../common/action-menu";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { InlineAdd } from "../common/inline-add";
 import { ProjectFilters } from "../views/project-filters";
 import { RenameInput } from "../common/rename-input";
@@ -115,7 +115,7 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
   });
   const { canWrite } = useWorkspaceRole(workspaceId);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<List | null>(null);
+  const confirm = useConfirm();
   const [showAllDone, setShowAllDone] = useState(false);
   const [dragging, setDragging] = useState<TaskResponse | null>(null);
 
@@ -188,11 +188,19 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
   const toggleCompleted = (task: TaskResponse, isCompleted: boolean) =>
     updateTask.mutate({ path: { id: task.id }, body: { is_completed: isCompleted } });
 
-  const deletingCount = tasks.filter((t) => deleting && t.list_id === deleting.id).length;
-  const deleteDescription =
-    deletingCount === 0
-      ? "You can restore it from the trash."
-      : `This also deletes its ${deletingCount} ${deletingCount === 1 ? "task" : "tasks"}, including completed ones. You can restore them from the trash.`;
+  const confirmDeleteList = async (list: List) => {
+    const deletingCount = tasks.filter((t) => t.list_id === list.id).length;
+    const confirmed = await confirm({
+      title: `Delete "${list.name}"?`,
+      description:
+        deletingCount === 0
+          ? "You can restore it from the trash."
+          : `This also deletes its ${deletingCount} ${deletingCount === 1 ? "task" : "tasks"}, including completed ones. You can restore them from the trash.`,
+      action: "Delete list",
+      destructive: true,
+    });
+    if (confirmed) deleteList.mutate({ path: { id: list.id } });
+  };
 
   const cardProps = (task: TaskResponse) => ({
     task,
@@ -282,7 +290,7 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
                         {
                           label: "Delete list…",
                           destructive: true,
-                          onSelect: () => setDeleting(list),
+                          onSelect: () => void confirmDeleteList(list),
                         },
                       ]}
                     />
@@ -355,14 +363,6 @@ export function Board({ projectId, workspaceId }: { projectId: string; workspace
             }
           />
         ) : null}
-        <ConfirmDialog
-          open={deleting !== null}
-          onOpenChange={(open) => !open && setDeleting(null)}
-          title={`Delete "${deleting?.name ?? ""}"?`}
-          description={deleteDescription}
-          confirmLabel="Delete list"
-          onConfirm={() => deleting && deleteList.mutate({ path: { id: deleting.id } })}
-        />
       </div>
       <DragOverlay>{dragging ? <TaskCardOverlay {...cardProps(dragging)} /> : null}</DragOverlay>
     </DndContext>

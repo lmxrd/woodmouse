@@ -13,7 +13,7 @@ import { CalendarLinks } from "../components/calendarlinks/calendar-links";
 import { ResponsiveDialog } from "../components/common/responsive-dialog";
 import { Board } from "../components/board/board";
 import { CalendarView } from "../components/calendar/calendar-view";
-import { ConfirmDialog } from "../components/common/confirm-dialog";
+import { useConfirm } from "../components/common/confirm-dialog";
 import { TimelineView } from "../components/timeline/timeline-view";
 import { ProjectViewMenu } from "../components/views/project-view-menu";
 import { RenameInput } from "../components/common/rename-input";
@@ -56,7 +56,7 @@ function ProjectPage() {
     },
   });
   const [renaming, setRenaming] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirm = useConfirm();
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
 
@@ -129,7 +129,18 @@ function ProjectPage() {
                     {
                       label: "Delete project…",
                       destructive: true,
-                      onSelect: () => setConfirmDelete(true),
+                      onSelect: async () => {
+                        if (
+                          await confirm({
+                            title: `Delete "${project?.name ?? ""}"?`,
+                            description:
+                              "This also deletes all of its lists and tasks. You can restore it from the trash.",
+                            action: "Delete project",
+                            destructive: true,
+                          })
+                        )
+                          remove.mutate({ path: { id: projectId } });
+                      },
                     },
                   ]
                 : []),
@@ -179,14 +190,6 @@ function ProjectPage() {
           </div>
         </form>
       </ResponsiveDialog>
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title={`Delete "${project?.name ?? ""}"?`}
-        description="This also deletes all of its lists and tasks. You can restore it from the trash."
-        confirmLabel="Delete project"
-        onConfirm={() => remove.mutate({ path: { id: projectId } })}
-      />
     </>
   );
 }

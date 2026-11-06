@@ -9,7 +9,7 @@ import {
 } from "woodmouse-sdk/react-query";
 
 import { useFormatters } from "../../lib/use-formatters";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { Field } from "../common/field";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -38,7 +38,7 @@ export function ApiKeysSection() {
   const { data: keys } = useQuery(listApiKeysOptions());
   const { dateOf, when } = useFormatters();
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
-  const [revoking, setRevoking] = useState<{ id: string; name: string } | null>(null);
+  const confirm = useConfirm();
   const revoke = useMutation({ ...revokeApiKeyMutation() });
   if (!me) return null;
   const isAdmin = me.super_admin || me.global_role === "admin";
@@ -79,7 +79,18 @@ export function ApiKeysSection() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setRevoking({ id: key.id, name: key.name })}
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Revoke ${key.name}?`,
+                      description:
+                        "Anything using it stops working at once. This cannot be undone.",
+                      action: "Revoke",
+                      destructive: true,
+                    })
+                  )
+                    revoke.mutate({ path: { id: key.id } });
+                }}
               >
                 Revoke
               </Button>
@@ -87,14 +98,6 @@ export function ApiKeysSection() {
           ))}
         </div>
       ) : null}
-      <ConfirmDialog
-        open={revoking !== null}
-        onOpenChange={(open) => !open && setRevoking(null)}
-        title={`Revoke ${revoking?.name ?? "this key"}?`}
-        description="Anything using it stops working at once. This cannot be undone."
-        confirmLabel="Revoke"
-        onConfirm={() => revoking && revoke.mutate({ path: { id: revoking.id } })}
-      />
     </Section>
   );
 }

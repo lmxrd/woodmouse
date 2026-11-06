@@ -10,7 +10,7 @@ import {
 
 import { calendarFeedUrl } from "../../lib/api";
 import { useFormatters } from "../../lib/use-formatters";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { Button, buttonVariants } from "../ui/button";
 import { NewCalendarLink } from "./new-calendar-link";
 
@@ -53,8 +53,7 @@ export function CalendarLinks({
   const refresh = () => queryClient.invalidateQueries();
   const revoke = useMutation(revokeCalendarLinkMutation());
   const revokeAll = useMutation(revokeCalendarLinksMutation());
-  const [revoking, setRevoking] = useState<CalendarLinkView | null>(null);
-  const [confirmAll, setConfirmAll] = useState(false);
+  const confirm = useConfirm();
   const [creating, setCreating] = useState(false);
 
   const card = (link: CalendarLinkView) => {
@@ -88,7 +87,22 @@ export function CalendarLinks({
           >
             Add to calendar
           </a>
-          <Button size="sm" variant="ghost" onClick={() => setRevoking(link)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: `Revoke "${link.name}"?`,
+                  description:
+                    "The link stops working at once. Calendar apps that use it stop updating.",
+                  action: "Revoke link",
+                  destructive: true,
+                })
+              )
+                revoke.mutate({ path: { id: link.id } });
+            }}
+          >
             Revoke
           </Button>
         </div>
@@ -123,7 +137,18 @@ export function CalendarLinks({
             variant="ghost"
             size="sm"
             className="text-destructive"
-            onClick={() => setConfirmAll(true)}
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: `Revoke ${links.length === 1 ? "this link" : `all ${links.length} links`}?`,
+                  description:
+                    "They stop working at once. Calendar apps that use them stop updating.",
+                  action: "Revoke all",
+                  destructive: true,
+                })
+              )
+                revokeAll.mutate({ query: { workspace_id: workspaceId, project_id: projectId } });
+            }}
           >
             Revoke all
           </Button>
@@ -140,24 +165,6 @@ export function CalendarLinks({
           void refresh();
           void copy(calendarFeedUrl(link.path));
         }}
-      />
-      <ConfirmDialog
-        open={revoking !== null}
-        onOpenChange={(open) => !open && setRevoking(null)}
-        title={`Revoke "${revoking?.name ?? ""}"?`}
-        description="The link stops working at once. Calendar apps that use it stop updating."
-        confirmLabel="Revoke link"
-        onConfirm={() => revoking && revoke.mutate({ path: { id: revoking.id } })}
-      />
-      <ConfirmDialog
-        open={confirmAll}
-        onOpenChange={setConfirmAll}
-        title={`Revoke ${links.length === 1 ? "this link" : `all ${links.length} links`}?`}
-        description="They stop working at once. Calendar apps that use them stop updating."
-        confirmLabel="Revoke all"
-        onConfirm={() =>
-          revokeAll.mutate({ query: { workspace_id: workspaceId, project_id: projectId } })
-        }
       />
     </div>
   );

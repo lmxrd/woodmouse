@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -8,7 +7,7 @@ import {
 } from "woodmouse-sdk/react-query";
 
 import { useWorkspaceRole } from "../../lib/use-workspace-role";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { Field } from "../common/field";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -29,7 +28,7 @@ export function GeneralPanel({ workspaceId }: { workspaceId: string }) {
       void navigate({ to: "/" });
     },
   });
-  const [confirming, setConfirming] = useState(false);
+  const confirm = useConfirm();
   if (!workspace) return null;
 
   return (
@@ -84,20 +83,26 @@ export function GeneralPanel({ workspaceId }: { workspaceId: string }) {
             administrator can bring it back.
           </p>
           <div>
-            <Button variant="destructive" onClick={() => setConfirming(true)}>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `Delete "${workspace.name}"?`,
+                    description:
+                      "Everyone loses access to it. Only the site's administrator can restore it.",
+                    action: "Delete workspace",
+                    destructive: true,
+                  })
+                )
+                  remove.mutate({ path: { id: workspaceId } });
+              }}
+            >
               Delete workspace…
             </Button>
           </div>
         </section>
       ) : null}
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={`Delete "${workspace.name}"?`}
-        description="Everyone loses access to it. Only the site's administrator can restore it."
-        confirmLabel="Delete workspace"
-        onConfirm={() => remove.mutate({ path: { id: workspaceId } })}
-      />
     </div>
   );
 }

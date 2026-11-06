@@ -11,7 +11,7 @@ import {
 } from "woodmouse-sdk/react-query";
 
 import { userLabel } from "../../lib/user";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { Field } from "../common/field";
 import { ResponsiveDialog } from "../common/responsive-dialog";
 import { UserAvatar } from "../common/user-avatar";
@@ -284,8 +284,7 @@ function Memberships({ user }: { user: AdminUser }) {
 
 function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
   const [invite, setInvite] = useState<string | null>(null);
-  const [disabling, setDisabling] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const confirm = useConfirm();
   const resetTotp = useMutation({ ...adminResetTotpMutation() });
   const update = useMutation({
     ...adminUpdateUserMutation(),
@@ -381,7 +380,21 @@ function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
                 recovery codes.
               </p>
               <div>
-                <Button variant="outline" onClick={() => setResetting(true)}>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: `Reset two-factor sign-in for ${userLabel(user)}?`,
+                        description:
+                          "Their password alone signs them in again until they set it up anew. Their recovery codes stop working.",
+                        action: "Reset",
+                        destructive: true,
+                      })
+                    )
+                      resetTotp.mutate({ path: { id: user.id } });
+                  }}
+                >
                   Reset two-factor sign-in
                 </Button>
               </div>
@@ -389,7 +402,21 @@ function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
           ) : null}
           <div>
             {user.active ? (
-              <Button variant="outline" onClick={() => setDisabling(true)}>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Disable ${userLabel(user)}?`,
+                      description:
+                        "They are signed out and cannot sign in. Everything they made stays, and enabling the account brings their access back.",
+                      action: "Disable",
+                      destructive: true,
+                    })
+                  )
+                    update.mutate({ path: { id: user.id }, body: { active: false } });
+                }}
+              >
                 Disable account
               </Button>
             ) : (
@@ -402,22 +429,6 @@ function EditUser({ user, locked }: { user: AdminUser; locked: boolean }) {
           </div>
         </>
       )}
-      <ConfirmDialog
-        open={resetting}
-        onOpenChange={setResetting}
-        title={`Reset two-factor sign-in for ${userLabel(user)}?`}
-        description="Their password alone signs them in again until they set it up anew. Their recovery codes stop working."
-        confirmLabel="Reset"
-        onConfirm={() => resetTotp.mutate({ path: { id: user.id } })}
-      />
-      <ConfirmDialog
-        open={disabling}
-        onOpenChange={setDisabling}
-        title={`Disable ${userLabel(user)}?`}
-        description="They are signed out and cannot sign in. Everything they made stays, and enabling the account brings their access back."
-        confirmLabel="Disable"
-        onConfirm={() => update.mutate({ path: { id: user.id }, body: { active: false } })}
-      />
     </div>
   );
 }

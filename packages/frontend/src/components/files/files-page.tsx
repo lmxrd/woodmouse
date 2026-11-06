@@ -19,7 +19,7 @@ import { useFormatters } from "../../lib/use-formatters";
 import { userLabel } from "../../lib/user";
 import { useWorkspaceRole } from "../../lib/use-workspace-role";
 import { cn } from "../../lib/utils";
-import { ConfirmDialog } from "../common/confirm-dialog";
+import { useConfirm } from "../common/confirm-dialog";
 import { Button, buttonVariants } from "../ui/button";
 import { Input } from "../ui/input";
 import { useUploader } from "./use-uploader";
@@ -41,10 +41,9 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
   const [expanded, setExpanded] = useState<{ id: string; panel: "usage" | "versions" } | null>(
     null,
   );
-  const [deleting, setDeleting] = useState<FileView | null>(null);
+  const confirm = useConfirm();
   const versionInput = useRef<HTMLInputElement>(null);
   const versionTarget = useRef<FileView | null>(null);
-  const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
@@ -113,7 +112,19 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setConfirmCleanup(true)}
+              onClick={async () => {
+                const count = unused?.count ?? 0;
+                const files = unused?.count === 1 ? "file" : "files";
+                if (
+                  await confirm({
+                    title: "Clean up unused files?",
+                    description: `${count} ${files} (${formatBytes(unused?.total_bytes ?? 0)}) aren't attached to anything, including trashed tasks. Deleting them permanently can't be undone.`,
+                    action: `Delete ${count} ${files}`,
+                    destructive: true,
+                  })
+                )
+                  cleanup.mutate({ path: { id: workspaceId } });
+              }}
               disabled={!unused || unused.count === 0}
             >
               Clean up unused…
@@ -245,7 +256,18 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
                   variant="ghost"
                   size="sm"
                   className="text-destructive"
-                  onClick={() => setDeleting(file)}
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: `Delete "${file.name}"?`,
+                        description:
+                          "It leaves the library and everything it is attached to. You can restore it from the trash.",
+                        action: "Delete file",
+                        destructive: true,
+                      })
+                    )
+                      remove.mutate({ path: { id: file.id } });
+                  }}
                 >
                   Delete
                 </Button>
@@ -272,22 +294,6 @@ export function FilesPage({ workspaceId }: { workspaceId: string }) {
           if (picked && target) void addVersion(target, picked);
           e.target.value = "";
         }}
-      />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete "${deleting?.name ?? ""}"?`}
-        description="It leaves the library and everything it is attached to. You can restore it from the trash."
-        confirmLabel="Delete file"
-        onConfirm={() => deleting && remove.mutate({ path: { id: deleting.id } })}
-      />
-      <ConfirmDialog
-        open={confirmCleanup}
-        onOpenChange={setConfirmCleanup}
-        title="Clean up unused files?"
-        description={`${unused?.count ?? 0} ${unused?.count === 1 ? "file" : "files"} (${formatBytes(unused?.total_bytes ?? 0)}) aren't attached to anything, including trashed tasks. Deleting them permanently can't be undone.`}
-        confirmLabel={`Delete ${unused?.count ?? 0} ${unused?.count === 1 ? "file" : "files"}`}
-        onConfirm={() => cleanup.mutate({ path: { id: workspaceId } })}
       />
     </div>
   );
