@@ -8,7 +8,7 @@ import {
 } from "woodmouse-sdk/react-query";
 
 import { AuthField, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
-import { Button } from "../components/ui/button";
+import { Button, buttonVariants } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { finishLogin } from "../lib/auth";
 import { SSO_LOGIN_URL } from "../lib/sso";
@@ -37,9 +37,9 @@ function InvitePage() {
         title="This link doesn't work"
         description="It may have been used already or expired. Ask the person who invited you for a new one."
       >
-        <Button asChild variant="outline">
-          <Link to="/login">Go to log in</Link>
-        </Button>
+        <Link to="/login" className={buttonVariants({ variant: "outline" })}>
+          Go to log in
+        </Link>
       </AuthSheet>
     );
   }
@@ -60,9 +60,9 @@ function InvitePage() {
         title={`Welcome, ${invite.name || invite.email}`}
         description={`Sign in with ${status.sso ?? "single sign-on"} using ${invite.email} to join Woodmouse.`}
       >
-        <Button asChild size="lg">
-          <a href={SSO_LOGIN_URL}>Sign in with {status.sso ?? "single sign-on"}</a>
-        </Button>
+        <a href={SSO_LOGIN_URL} className={buttonVariants({ size: "lg" })}>
+          Sign in with {status.sso ?? "single sign-on"}
+        </a>
       </AuthSheet>
     );
   }

@@ -52,6 +52,7 @@ export function RoleSelect({
   return (
     <Select
       value={value ?? NO_ACCESS}
+      items={{ [NO_ACCESS]: noneLabel, read: "Read", write: "Write", admin: "Admin" }}
       onValueChange={(next) => onChange(next === NO_ACCESS ? null : (next as Role))}
     >
       <SelectTrigger aria-label={label} size="sm" className={className}>

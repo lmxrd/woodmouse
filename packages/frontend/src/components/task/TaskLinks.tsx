@@ -88,18 +88,24 @@ export function TaskLinks({
       ))}
       {editable ? (
         <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="justify-start font-normal text-muted-foreground"
-            >
-              Link a task…
-            </Button>
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="justify-start font-normal text-muted-foreground"
+              />
+            }
+          >
+            Link a task…
           </PopoverTrigger>
           <PopoverContent align="start" className="w-80 p-2">
-            <Select value={choice} onValueChange={(v) => setChoice(v as typeof choice)}>
+            <Select
+              value={choice}
+              items={CHOICES}
+              onValueChange={(v) => setChoice(v as typeof choice)}
+            >
               <SelectTrigger size="sm" aria-label="Link type" className="mb-2 w-full">
                 <SelectValue />
               </SelectTrigger>

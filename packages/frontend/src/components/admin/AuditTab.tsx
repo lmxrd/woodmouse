@@ -53,7 +53,14 @@ export function AuditTab({
 
   return (
     <section className="flex flex-col gap-3">
-      <Select value={action ?? ALL} onValueChange={(a) => onAction(a === ALL ? undefined : a)}>
+      <Select
+        value={action ?? ALL}
+        items={[
+          { value: ALL, label: "All actions" },
+          ...ACTIONS.map((a) => ({ value: a, label: a.replaceAll("_", " ") })),
+        ]}
+        onValueChange={(a) => onAction(a === ALL || a === null ? undefined : a)}
+      >
         <SelectTrigger aria-label="Action" className="w-56">
           <SelectValue />
         </SelectTrigger>

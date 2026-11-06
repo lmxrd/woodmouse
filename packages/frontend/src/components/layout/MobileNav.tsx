@@ -25,7 +25,6 @@ export function MobileNav({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           showCloseButton={false}
-          aria-describedby={undefined}
           className="inset-y-0 left-0 h-dvh max-w-[280px] translate-x-0 translate-y-0 gap-0 rounded-none p-0 sm:max-w-[280px]"
         >
           <DialogTitle className="sr-only">Menu</DialogTitle>

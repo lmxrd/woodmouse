@@ -26,10 +26,10 @@ export function MemberPicker({
         <UserAvatar key={user.id} name={userLabel(user)} size="md" />
       ))}
       <Popover>
-        <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="xs" aria-label="Edit assignees">
-            {selected.length === 0 ? "Assign" : "+"}
-          </Button>
+        <PopoverTrigger
+          render={<Button type="button" variant="outline" size="xs" aria-label="Edit assignees" />}
+        >
+          {selected.length === 0 ? "Assign" : "+"}
         </PopoverTrigger>
         <PopoverContent align="start" className="w-56 p-1">
           {members.map(({ user }) => (

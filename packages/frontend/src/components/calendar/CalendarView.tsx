@@ -233,6 +233,7 @@ export function CalendarView({
           </Button>
           <Select
             value={zoom}
+            items={{ month: "Month", week: "Week" }}
             onValueChange={(z) =>
               void navigate({
                 search: (prev) => ({ ...prev, zoom: z as Zoom }),

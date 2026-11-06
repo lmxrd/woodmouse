@@ -144,7 +144,7 @@ function CreateForm({
         />
       </Field>
       <Field label="Permission">
-        <Select value={scope} onValueChange={(v) => setScope(v as Role)}>
+        <Select value={scope} items={SCOPE_LABEL} onValueChange={(v) => setScope(v as Role)}>
           <SelectTrigger aria-label="Permission" className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -156,7 +156,7 @@ function CreateForm({
         </Select>
       </Field>
       <Field label="Expires">
-        <Select value={expiry} onValueChange={setExpiry}>
+        <Select value={expiry} items={EXPIRIES} onValueChange={(v) => v && setExpiry(v)}>
           <SelectTrigger aria-label="Expires" className="w-32">
             <SelectValue />
           </SelectTrigger>

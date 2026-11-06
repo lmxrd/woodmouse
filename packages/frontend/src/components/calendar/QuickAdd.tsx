@@ -37,16 +37,18 @@ export function QuickAdd({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={`Add a task due ${localDay(day)}`}
-          className="opacity-0 group-hover/day:opacity-100 focus-visible:opacity-100 max-md:hidden"
-        >
-          +
-        </Button>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Add a task due ${localDay(day)}`}
+            className="opacity-0 group-hover/day:opacity-100 focus-visible:opacity-100 max-md:hidden"
+          />
+        }
+      >
+        +
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-3">
         <form
@@ -70,7 +72,14 @@ export function QuickAdd({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
-          <Select value={target} onValueChange={setListId}>
+          <Select
+            value={target}
+            items={[
+              { value: INBOX, label: "Inbox" },
+              ...lists.map((l) => ({ value: l.id, label: l.name })),
+            ]}
+            onValueChange={(id) => id && setListId(id)}
+          >
             <SelectTrigger size="sm" aria-label="List" className="w-full">
               <SelectValue />
             </SelectTrigger>

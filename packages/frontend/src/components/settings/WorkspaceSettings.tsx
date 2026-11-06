@@ -57,7 +57,7 @@ export function WorkspaceSettings({
           onValueChange={(next) => onTab(next === "members" ? undefined : parseSettingsTab(next))}
           className="mt-3"
         >
-          <TabsList>
+          <TabsList activateOnFocus>
             <TabsTrigger value="members">Members</TabsTrigger>
             <TabsTrigger value="labels">Labels</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>

@@ -224,7 +224,7 @@ function TaskForm({
         <Attachments taskId={task.id} workspaceId={workspaceId} editable={canWrite} />
 
         <Tabs defaultValue="comments">
-          <TabsList>
+          <TabsList activateOnFocus>
             <TabsTrigger value="comments">Comments · {comments?.length ?? 0}</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
@@ -284,6 +284,10 @@ function TaskForm({
         <Field label="List">
           <Select
             value={task.list_id ?? INBOX}
+            items={[
+              { value: INBOX, label: "Inbox" },
+              ...(lists ?? []).map((l) => ({ value: l.id, label: l.name })),
+            ]}
             onValueChange={(listId) => save({ list_id: listId === INBOX ? null : listId })}
           >
             <SelectTrigger aria-label="List" className="w-full">
@@ -302,6 +306,10 @@ function TaskForm({
         <Field label="Sprint">
           <Select
             value={task.sprint_id ?? NO_SPRINT}
+            items={[
+              { value: NO_SPRINT, label: "Backlog" },
+              ...(sprints ?? []).map((s) => ({ value: s.id, label: s.name })),
+            ]}
             onValueChange={(sprint) => save({ sprint_id: sprint === NO_SPRINT ? null : sprint })}
           >
             <SelectTrigger aria-label="Sprint" className="w-full">

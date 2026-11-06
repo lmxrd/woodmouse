@@ -38,7 +38,6 @@ export function HistoryPanel({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        aria-describedby={undefined}
         className="inset-y-0 right-0 left-auto flex h-dvh flex-col max-w-none translate-x-0 translate-y-0 gap-0 rounded-none border-foreground p-0 sm:max-w-3xl"
       >
         <DialogDescription className="sr-only">Earlier versions</DialogDescription>

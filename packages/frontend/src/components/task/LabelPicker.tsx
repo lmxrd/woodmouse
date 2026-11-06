@@ -31,10 +31,10 @@ export function LabelPicker({
         <LabelTag key={label.id} name={label.name} color={label.color} />
       ))}
       <Popover>
-        <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="xs" aria-label="Edit labels">
-            {selected.length === 0 ? "Add label" : "+"}
-          </Button>
+        <PopoverTrigger
+          render={<Button type="button" variant="outline" size="xs" aria-label="Edit labels" />}
+        >
+          {selected.length === 0 ? "Add label" : "+"}
         </PopoverTrigger>
         <PopoverContent align="start" className="w-56 p-1">
           {labels.map((label) => (

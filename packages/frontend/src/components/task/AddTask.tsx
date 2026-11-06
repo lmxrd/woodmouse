@@ -35,7 +35,14 @@ export function AddTask({
 
   return (
     <div className={className ?? "flex flex-wrap items-center gap-2 px-4 py-3 sm:px-6"}>
-      <Select value={target} onValueChange={setPicked}>
+      <Select
+        value={target}
+        items={[
+          { value: INBOX, label: "Inbox" },
+          ...lists.map((l) => ({ value: l.id, label: l.name })),
+        ]}
+        onValueChange={(id) => id && setPicked(id)}
+      >
         <SelectTrigger size="sm" aria-label="Add to" className="w-40">
           <SelectValue />
         </SelectTrigger>

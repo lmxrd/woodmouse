@@ -29,6 +29,15 @@
   app shell (`RootLayout`, `Sidebar`), `common/` the small pieces used everywhere (dialogs, fields, avatars) and `ui/`
   the shadcn primitives. Shared helpers and
   clients go in `src/lib/` (e.g. `queryClient`).
+- shadcn/ui runs on Base UI (`@base-ui/react`, style `base-vega` in `components.json`), not Radix. There is no
+  `asChild`: pass the element to `render` (`<PopoverTrigger render={<Button variant="outline" />}>Edit</PopoverTrigger>`),
+  and style a link as a button with `buttonVariants` on the `<a>`/`<Link>` itself. A `Select` shows the raw value
+  unless the root gets `items` (a `{ value: label }` record or `{ value, label }[]`); its `onValueChange` can pass
+  `null`, and "nothing chosen" is `null`, not `undefined` (that would make it uncontrolled). Menu items act on
+  `onClick` (Base UI has no `onSelect`), a `DropdownMenuLabel` must sit in a `DropdownMenuGroup`, and a tab list
+  needs `activateOnFocus` for the arrow keys to switch tabs. The woodmouse look (no shadows, solid `ring-2` focus
+  rings, borders on popups, square checkboxes, the monospace `Badge` with `solid`/`signal` variants, the outline
+  button's border hover, the boxed tab list) lives in `ui/`: keep it when updating a component from the registry.
 - The SDK validates requests and responses against the spec (`validator: true`, zod): a backend answer
   that does not fit its OpenAPI document throws, so fix the backend's schema, not the frontend.
 - Data fetching: TanStack Query (`useQuery`/`useMutation`). Tune defaults in
@@ -50,7 +59,9 @@
 - `tsconfig.json` keeps a `paths` entry for `@/*` only so the shadcn CLI can
   resolve its targets. After `pnpm dlx shadcn@latest add <name>`, rewrite the
   generated `@/lib/utils` and `@/components/ui/*` imports to relative paths
-  (`../../lib/utils`, `./button`); `pnpm check` fails if one is left behind.
+  (`../../lib/utils`, `./button`); `pnpm check` fails if one is left behind. The base styles list `cn` as a
+  registry dependency, so the CLI installs an unrelated npm package called `cn` and imports from `"cn"`: remove
+  the package (`pnpm remove cn`) and point the import at `../../lib/utils`.
 
 - **View state belongs in the URL.** Anything that changes what a list, board, calendar, timeline or page shows
   (filters, sort, dates, zoom, search) is a validated search param (`validateSearch`; project views share

@@ -7,6 +7,10 @@
 /* `dark:` follows the `.dark` class on the root element, set by applyTheme (see src/lib/themes.ts). */
 @custom-variant dark (&:is(.dark *));
 
+/* The shadcn base styles write `data-horizontal:`/`data-vertical:`; Base UI sets `data-orientation`. */
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
 /*
  * Woodmouse theme ("Workshop"): paper ground, pine ink, one orange signal.
  * shadcn components read the semantic tokens below, so the look changes here

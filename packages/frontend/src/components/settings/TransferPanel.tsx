@@ -272,7 +272,6 @@ function UnmappedUsers({
     else delete next[email];
     onChange(next);
   };
-  const action = (email: string) => userMap[email]?.action ?? "none";
   return (
     <div className="flex flex-col gap-2 border border-border p-3">
       <p className="text-sm font-medium">
@@ -294,7 +293,12 @@ function UnmappedUsers({
               </span>
             </span>
             <Select
-              value={action(p.email)}
+              value={choice?.action ?? null}
+              items={[
+                { value: "map", label: "Use a member" },
+                { value: "create", label: "Create the person" },
+                { value: "skip", label: "Leave out" },
+              ]}
               onValueChange={(a) => {
                 if (a === "skip") set(p.email, { action: "skip" });
                 else if (a === "create") set(p.email, { action: "create", role: "write" });
@@ -315,7 +319,10 @@ function UnmappedUsers({
             {choice?.action === "map" ? (
               <Select
                 value={choice.user_id}
-                onValueChange={(id) => set(p.email, { action: "map", user_id: id })}
+                items={members.map((m) => ({ value: m.id, label: m.name }))}
+                onValueChange={(id) => {
+                  if (id) set(p.email, { action: "map", user_id: id });
+                }}
               >
                 <SelectTrigger size="sm" aria-label={`Member for ${p.email}`} className="w-44">
                   <SelectValue />
@@ -332,6 +339,7 @@ function UnmappedUsers({
             {choice?.action === "create" ? (
               <Select
                 value={choice.role}
+                items={{ read: "Read", write: "Write", admin: "Admin" }}
                 onValueChange={(role) =>
                   set(p.email, { action: "create", role: role as "read" | "write" | "admin" })
                 }

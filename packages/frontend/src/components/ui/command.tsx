@@ -30,7 +30,8 @@ function CommandDialog({
   value,
   onValueChange,
   ...props
-}: React.ComponentProps<typeof Dialog> & {
+}: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
+  children?: React.ReactNode;
   /** Set to false when the results are already filtered and ranked (by the server). */
   shouldFilter?: boolean;
   /** The highlighted item, when the owner controls it. */

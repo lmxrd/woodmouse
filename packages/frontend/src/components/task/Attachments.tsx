@@ -122,10 +122,10 @@ export function Attachments({
             {isUploading ? "Uploading…" : "Upload"}
           </Button>
           <Popover open={libraryOpen} onOpenChange={setLibraryOpen}>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="ghost" size="sm" className="font-normal">
-                Attach from library…
-              </Button>
+            <PopoverTrigger
+              render={<Button type="button" variant="ghost" size="sm" className="font-normal" />}
+            >
+              Attach from library…
             </PopoverTrigger>
             <PopoverContent align="start" className="max-h-72 w-80 overflow-y-auto p-1">
               {available.length === 0 ? (
