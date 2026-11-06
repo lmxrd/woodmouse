@@ -16,6 +16,7 @@ on:
     paths:
       - packages/backend/Cargo.lock
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - osv-scanner.toml
       - .github/workflows/security.yml
 

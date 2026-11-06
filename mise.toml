@@ -203,7 +203,7 @@ run = "pnpm fix"
 # osv-scanner.toml, with the reason.
 [tasks.audit]
 description = "Known vulnerabilities in the locked crates and npm packages (osv-scanner: OSV, RustSec and GitHub advisories)"
-run = "osv-scanner scan source --lockfile packages/backend/Cargo.lock --lockfile pnpm-lock.yaml"
+run = "osv-scanner scan source --config osv-scanner.toml --lockfile packages/backend/Cargo.lock --lockfile pnpm-lock.yaml"
 
 # The binary is static, so this is about the Alpine base. CI scans the image
 # it builds (IMAGE=woodmouse:ci).
