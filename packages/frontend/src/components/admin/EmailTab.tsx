@@ -80,7 +80,11 @@ export function EmailTab() {
             />
           </Field>
           <Field label="Security">
-            <Select value={tls ?? data.tls ?? env.tls} onValueChange={setTls}>
+            <Select
+              value={tls ?? data.tls ?? env.tls}
+              items={{ starttls: "STARTTLS", tls: "TLS", none: "None" }}
+              onValueChange={setTls}
+            >
               <SelectTrigger aria-label="Security" className="w-40">
                 <SelectValue />
               </SelectTrigger>

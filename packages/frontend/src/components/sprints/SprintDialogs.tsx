@@ -149,7 +149,14 @@ export function CompleteSprintDialog({
             : `${unfinished} unfinished ${unfinished === 1 ? "task" : "tasks"} will move:`}
         </p>
         {unfinished > 0 ? (
-          <Select value={target} onValueChange={setTarget}>
+          <Select
+            value={target}
+            items={[
+              { value: BACKLOG, label: "To the backlog" },
+              ...others.map((s) => ({ value: s.id, label: `To ${s.name}` })),
+            ]}
+            onValueChange={(v) => v && setTarget(v)}
+          >
             <SelectTrigger aria-label="Move unfinished tasks to" className="w-full">
               <SelectValue />
             </SelectTrigger>

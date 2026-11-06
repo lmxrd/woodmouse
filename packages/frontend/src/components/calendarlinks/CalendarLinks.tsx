@@ -11,7 +11,7 @@ import {
 import { calendarFeedUrl } from "../../lib/api";
 import { useFormatters } from "../../lib/useFormatters";
 import { ConfirmDialog } from "../common/ConfirmDialog";
-import { Button } from "../ui/button";
+import { Button, buttonVariants } from "../ui/button";
 import { NewCalendarLink } from "./NewCalendarLink";
 
 const SCOPE_LABEL: Record<LinkScope, string> = {
@@ -81,10 +81,13 @@ export function CalendarLinks({
           <Button size="sm" onClick={() => void copy(url)}>
             Copy link
           </Button>
-          <Button size="sm" variant="outline" asChild>
-            {/* webcal:// opens the device's calendar app to subscribe */}
-            <a href={url.replace(/^https?:/, "webcal:")}>Add to calendar</a>
-          </Button>
+          {/* webcal:// opens the device's calendar app to subscribe */}
+          <a
+            href={url.replace(/^https?:/, "webcal:")}
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+          >
+            Add to calendar
+          </a>
           <Button size="sm" variant="ghost" onClick={() => setRevoking(link)}>
             Revoke
           </Button>

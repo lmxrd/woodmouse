@@ -16,17 +16,17 @@ export interface ActionItem {
 export function ActionMenu({ label, items }: { label: string; items: ActionItem[] }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon-xs" aria-label={label}>
-          ⋯
-        </Button>
+      <DropdownMenuTrigger
+        render={<Button type="button" variant="ghost" size="icon-xs" aria-label={label} />}
+      >
+        ⋯
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {items.map((item) => (
           <DropdownMenuItem
             key={item.label}
             variant={item.destructive ? "destructive" : "default"}
-            onSelect={item.onSelect}
+            onClick={item.onSelect}
           >
             {item.label}
           </DropdownMenuItem>

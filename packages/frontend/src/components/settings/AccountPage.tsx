@@ -144,6 +144,7 @@ function DisplaySection({ me }: { me: PublicUser }) {
         <Field label="Clock">
           <Select
             value={me.time_format}
+            items={TIME_LABEL}
             onValueChange={(time_format) => update.mutate({ body: { time_format } })}
           >
             <SelectTrigger aria-label="Clock" className="w-36">
@@ -163,6 +164,7 @@ function DisplaySection({ me }: { me: PublicUser }) {
       <Field label="Week starts on">
         <Select
           value={me.week_start}
+          items={{ monday: "Monday", sunday: "Sunday" }}
           onValueChange={(week_start) => update.mutate({ body: { week_start } })}
         >
           <SelectTrigger aria-label="Week starts on" className="w-44">
@@ -193,7 +195,7 @@ function TimezoneField({ me, onChange }: { me: PublicUser; onChange: (timezone: 
   return (
     <Field label="Timezone">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={me.timezone ?? undefined} onValueChange={onChange}>
+        <Select value={me.timezone ?? null} onValueChange={(zone) => zone && onChange(zone)}>
           <SelectTrigger aria-label="Timezone" className="w-64">
             <SelectValue placeholder="Not set" />
           </SelectTrigger>

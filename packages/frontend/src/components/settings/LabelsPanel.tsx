@@ -29,14 +29,12 @@ export function LabelsPanel({ workspaceId }: { workspaceId: string }) {
     <li key={label.id} className="flex items-center gap-3 border-b border-border px-4 py-2.5">
       {canEdit ? (
         <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={`Color of ${label.name}`}
-              className="size-4 shrink-0 ring-offset-2 ring-offset-card hover:ring-2 hover:ring-ring"
-              style={{ backgroundColor: label.color }}
-            />
-          </PopoverTrigger>
+          <PopoverTrigger
+            type="button"
+            aria-label={`Color of ${label.name}`}
+            className="size-4 shrink-0 ring-offset-2 ring-offset-card hover:ring-2 hover:ring-ring"
+            style={{ backgroundColor: label.color }}
+          />
           <PopoverContent align="start" className="flex w-auto gap-1.5 p-2">
             {LABEL_COLORS.map((color) => (
               <button
