@@ -12,7 +12,11 @@
   sign in as `admin@woodmouse.test`, `sara@woodmouse.test` or `ola@woodmouse.test` (the `seed` binary, `backend/src/bin/seed.rs`; it is not part of the release build)
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
-- `mise run test` — each stack's tests (cargo test, vitest)
+- `mise run test` — each stack's tests: the backend's unit and integration tests (cargo test; integration
+  through axum-test) and the frontend's unit tests (vitest)
+- `mise run test:e2e` — the Playwright smoke tests (`packages/e2e`) against the image: builds it, starts it with
+  a fresh database file in a volume (`scripts/e2e.sh`; `ENGINE`, `IMAGE`, `E2E_PORT`), installs Chromium only;
+  CI runs it after the image build
 - `mise run gen:spec` / `gen:sdk` — the OpenAPI spec, then the frontend's SDK generated from it
 - `mise run build` — the release binary for this machine (its OS and CPU), frontend embedded, in
   `dist/woodmouse`

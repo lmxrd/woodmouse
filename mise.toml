@@ -189,6 +189,16 @@ run = "pnpm test"
 # Fixes
 # ---------------------------------------------------------------------------
 
+# The Playwright smoke tests against the image (scripts/e2e.sh): first setup, signing out and in,
+# two-factor sign-in, a project and a task. Only Chromium is installed.
+[tasks."test:e2e"]
+description = "Build the image, start it with a fresh database in a volume, and run the Playwright smoke tests"
+depends = ["build:docker", "install:frontend"]
+run = """
+pnpm --filter woodmouse-e2e exec playwright install chromium
+scripts/e2e.sh
+"""
+
 [tasks.fix]
 description = "Auto-fix in each stack"
 depends = ["fix:backend", "fix:frontend"]

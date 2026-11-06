@@ -35,7 +35,8 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 | `mise run fix`          | Applies the format and lint fixes                                                                 |
 | `mise run audit`        | Known vulnerabilities in `Cargo.lock` and `pnpm-lock.yaml` (osv-scanner; also daily in CI)        |
 | `mise run audit:image`  | Known vulnerabilities in the image's Alpine packages (Trivy); `IMAGE=` picks it, default the published one |
-| `mise run test`         | The backend tests (integration tests over the API, and unit tests) and the frontend tests (vitest)  |
+| `mise run test`         | The backend tests (integration tests over the API through axum-test, and unit tests) and the frontend tests (vitest) |
+| `mise run test:e2e`     | Builds the image, starts it with a fresh database in a volume and runs the Playwright smoke tests in `packages/e2e` (podman or docker) |
 | `mise run gen:spec`     | Writes the OpenAPI spec to `packages/backend/target/specs/`                                       |
 | `mise run gen:sdk`      | Generates the frontend's SDK in `packages/sdk` from the spec (not committed)                      |
 | `mise run build`        | Builds the frontend and the release binary for this machine (its OS and CPU), into `dist/woodmouse` |
@@ -53,6 +54,7 @@ The JavaScript side is a pnpm workspace with one lockfile at the root.
 packages/backend/    the Rust server: axum, utoipa (OpenAPI) and SeaORM on SQLite
 packages/frontend/   the React app (Vite, TanStack Router and Query, Tailwind)
 packages/sdk/        the frontend's API client, generated from the OpenAPI spec; never edited
+packages/e2e/        the Playwright smoke tests, run against the built image
 .github/             CI, the release workflow and Dependabot
 mise.toml            the tools (other than Node, pnpm, Rust) and every task
 package.json         the Node (devEngines.runtime) and pnpm (packageManager) versions
