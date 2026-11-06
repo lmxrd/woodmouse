@@ -62,7 +62,10 @@
   so writers queue in the app instead of meeting SQLite's "database is locked"), and `writer.begin()` starts a
   transaction (`tx.commit().await?`). There is no global DB mutex. Never hold the writer while calling `Rooms`
   (they take it themselves).
-- Shared route helpers (PATCH `double_option`, text validation, downloads) are in `src/api.rs`; env settings go through `src/config.rs`.
+- Shared route helpers (PATCH `double_option`, text validation, downloads) are in `src/api.rs`; env settings go through `src/config.rs`:
+  variables are unprefixed (`DATABASE_PATH`, `SWAGGER_UI`, `TRUST_PROXY`, `OIDC_*`, `TOTP_REQUIRED`; the README's
+  table lists them), every yes/no one goes through `config::flag` (a bad value stops the start), and logging
+  follows `RUST_LOG` (`info` by default).
 - Handlers live in `src/routes/`; every handler carries a `#[utoipa::path]`
   annotation. The annotation is the single source of truth — register new
   handlers in `src/routes/mod.rs` via `utoipa_axum::routes!` (group handlers
@@ -170,9 +173,9 @@
   `login_failed` (`data.method = "sso"`, `data.reason` = the code, the account as target when known). Tests: `tests/it/oidc.rs` runs a stand-in provider (real RS256 tokens, keys in
   `tests/it/fixtures/oidc_key_*.pem`, PKCS#1 from `openssl genrsa -traditional 2048`).
 - **Single sign-on only** (`OIDC_ONLY`, `EnvSettings::only`): `Oidc::require_password_login` (403) guards password
-  login, the TOTP step, invite acceptance and password changes; `AuthStatus.password_login` tells the frontend.
-  It needs `OIDC_ISSUER` and `OIDC_CLIENT_ID` from the environment and forces `enabled` on (so the admin page cannot
-  lock everyone out); bootstrap still works, and invited people get in through the provider by verified email.
+  login, invite acceptance and password changes (not the TOTP step: single sign-on asks for codes too);
+  `AuthStatus.password_login` tells the frontend. It needs `OIDC_ISSUER` and `OIDC_CLIENT_ID` from the environment
+  and keeps the settings page's on/off switch on (`oidc::switched_on`, so the admin page cannot lock everyone out); bootstrap still works, and invited people get in through the provider by verified email.
 - **Two-factor sign-in** (`src/totp.rs`, the `/auth/totp/*` and `/auth/login/totp` routes): TOTP through
   `totp-rs` (SHA-1, 6 digits, 30 s, one step of skew), the secret base32 in `UserTotp` (`enabled_at` `None` while
   being set up), `last_step` refusing a code's step a second time (totp-rs leaves replay to its caller), and ten
