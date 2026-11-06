@@ -14,7 +14,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
@@ -69,7 +70,11 @@ pub struct NotificationFilters {
     tag = "notifications",
     security(("session_cookie" = [])),
     params(NotificationFilters),
-    responses((status = 200, description = "Notifications", body = [NotificationView]))
+    responses(
+        (status = 200, description = "Notifications", body = [NotificationView]),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn list_notifications(
     State(state): State<AppState>,
@@ -117,7 +122,11 @@ pub struct UnreadCount {
     path = "/notifications/unread-count",
     tag = "notifications",
     security(("session_cookie" = [])),
-    responses((status = 200, description = "The unread count", body = UnreadCount))
+    responses(
+        (status = 200, description = "The unread count", body = UnreadCount),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn unread_notification_count(
     State(state): State<AppState>,
@@ -140,7 +149,10 @@ pub async fn unread_notification_count(
     params(("id" = uuid::Uuid, Path, description = "Notification id")),
     responses(
         (status = 204, description = "Marked read"),
-        (status = 404, description = "Not yours")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not yours", body = ErrorBody)
     )
 )]
 pub async fn mark_notification_read(
@@ -173,7 +185,11 @@ pub async fn mark_notification_read(
     path = "/notifications/read-all",
     tag = "notifications",
     security(("session_cookie" = [])),
-    responses((status = 204, description = "All marked read"))
+    responses(
+        (status = 204, description = "All marked read"),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn mark_all_notifications_read(
     State(state): State<AppState>,
@@ -240,7 +256,11 @@ async fn settings_of(db: &impl Db, user_id: uuid::Uuid) -> Result<NotificationSe
     path = "/notification-settings",
     tag = "notifications",
     security(("session_cookie" = [])),
-    responses((status = 200, description = "Preferences", body = Settings))
+    responses(
+        (status = 200, description = "Preferences", body = Settings),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn get_notification_settings(
     State(state): State<AppState>,
@@ -264,16 +284,19 @@ pub async fn get_notification_settings(
     request_body = UpdateSettings,
     responses(
         (status = 200, description = "Updated preferences", body = Settings),
-        (status = 400, description = "Invalid hour")
+        (status = 400, description = "Invalid hour", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_notification_settings(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<UpdateSettings>,
+    ApiJson(input): ApiJson<UpdateSettings>,
 ) -> Result<Json<Settings>, ApiError> {
     if input.digest_hour.is_some_and(|h| !(0..=23).contains(&h)) {
-        return Err(ApiError::bad_request("the hour must be 0 to 23"));
+        return Err(ApiError::bad_request("The hour must be 0 to 23"));
     }
     let db = state.writer().await?;
     let current = settings_of(&*db, user.id).await?;
@@ -379,7 +402,13 @@ async fn set_watch(
     tag = "notifications",
     security(("session_cookie" = [])),
     params(("id" = uuid::Uuid, Path, description = "Task id")),
-    responses((status = 200, description = "Watch state", body = Watching), (status = 404, description = "No such task"))
+    responses(
+        (status = 200, description = "Watch state", body = Watching),
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such task", body = ErrorBody)
+    )
 )]
 pub async fn get_task_watch(
     State(state): State<AppState>,
@@ -401,13 +430,20 @@ pub async fn get_task_watch(
     security(("session_cookie" = [])),
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     request_body = Watching,
-    responses((status = 200, description = "Watch state", body = Watching), (status = 404, description = "No such task"))
+    responses(
+        (status = 200, description = "Watch state", body = Watching),
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such task", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+    )
 )]
 pub async fn set_task_watch(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<Watching>,
+    ApiJson(input): ApiJson<Watching>,
 ) -> Result<Json<Watching>, ApiError> {
     let db = state.writer().await?;
     access::require_task_access(&*db, &user, id, Role::Read).await?;
@@ -422,7 +458,13 @@ pub async fn set_task_watch(
     tag = "notifications",
     security(("session_cookie" = [])),
     params(("id" = uuid::Uuid, Path, description = "Page id")),
-    responses((status = 200, description = "Watch state", body = Watching), (status = 404, description = "No such page"))
+    responses(
+        (status = 200, description = "Watch state", body = Watching),
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page", body = ErrorBody)
+    )
 )]
 pub async fn get_page_watch(
     State(state): State<AppState>,
@@ -444,13 +486,20 @@ pub async fn get_page_watch(
     security(("session_cookie" = [])),
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     request_body = Watching,
-    responses((status = 200, description = "Watch state", body = Watching), (status = 404, description = "No such page"))
+    responses(
+        (status = 200, description = "Watch state", body = Watching),
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+    )
 )]
 pub async fn set_page_watch(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<Watching>,
+    ApiJson(input): ApiJson<Watching>,
 ) -> Result<Json<Watching>, ApiError> {
     let db = state.writer().await?;
     access::require_page_access(&*db, &user, id, Role::Read).await?;

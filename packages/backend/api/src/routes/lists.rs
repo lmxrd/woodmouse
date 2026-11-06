@@ -11,7 +11,8 @@ use crate::access;
 use crate::api::required;
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use crate::{ordering, time, trash};
 use entity::{List, Role};
@@ -45,8 +46,10 @@ pub struct UpdateList {
     params(("project_id" = uuid::Uuid, Path, description = "Project id")),
     responses(
         (status = 200, description = "The project's lists", body = [List]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_lists(
@@ -76,16 +79,18 @@ pub async fn list_lists(
     request_body = CreateList,
     responses(
         (status = 201, description = "List created", body = List),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_list(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(project_id): Path<uuid::Uuid>,
-    Json(input): Json<CreateList>,
+    ApiJson(input): ApiJson<CreateList>,
 ) -> Result<(StatusCode, Json<List>), ApiError> {
     let name = required(&input.name, "name")?;
 
@@ -121,8 +126,10 @@ pub async fn create_list(
     params(("id" = uuid::Uuid, Path, description = "List id")),
     responses(
         (status = 200, description = "The list", body = List),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No list with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_list(
@@ -145,16 +152,18 @@ pub async fn get_list(
     request_body = UpdateList,
     responses(
         (status = 200, description = "List updated", body = List),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No list with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_list(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateList>,
+    ApiJson(input): ApiJson<UpdateList>,
 ) -> Result<Json<List>, ApiError> {
     let db = state.writer().await?;
     let (list, _) = access::require_list(&*db, &user, id, Role::Write).await?;
@@ -175,8 +184,10 @@ pub async fn update_list(
     params(("id" = uuid::Uuid, Path, description = "List id")),
     responses(
         (status = 204, description = "List deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No list with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn delete_list(

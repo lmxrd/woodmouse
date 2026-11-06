@@ -10,7 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::live::{self, close};
 use crate::state::AppState;
 use entity::Role;
@@ -39,7 +39,10 @@ pub struct LiveSession {
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 200, description = "How to connect", body = LiveSession),
-        (status = 404, description = "No such page, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page, or no access", body = ErrorBody)
     )
 )]
 pub async fn live_session(
@@ -78,7 +81,10 @@ pub struct LiveQuery {
     params(("id" = uuid::Uuid, Path, description = "Page id"), LiveQuery),
     responses(
         (status = 101, description = "Switching to the WebSocket protocol"),
-        (status = 404, description = "No such page, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page, or no access", body = ErrorBody)
     )
 )]
 pub async fn live_socket(

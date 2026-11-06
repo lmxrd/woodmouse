@@ -19,7 +19,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time::DateTime;
@@ -83,8 +83,10 @@ pub struct TrashItem {
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Deleted items", body = [TrashItem]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or not enough access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or not enough access", body = ErrorBody)
     )
 )]
 pub async fn list_trash(
@@ -384,9 +386,11 @@ pub async fn list_trash(
     ),
     responses(
         (status = 204, description = "Restored"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "Not in this workspace's trash, or not enough access"),
-        (status = 409, description = "Its project, list or parent task is still deleted")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not in this workspace's trash, or not enough access", body = ErrorBody),
+        (status = 409, description = "Its project, list or parent task is still deleted", body = ErrorBody)
     )
 )]
 pub async fn restore_item(
@@ -535,7 +539,7 @@ pub async fn restore_item(
                 .deleted_at
                 .is_some()
             {
-                return Err(ApiError::conflict("restore its project first"));
+                return Err(ApiError::conflict("Restore its project first"));
             }
             saved_views::ActiveModel {
                 id: Unchanged(item_id),
@@ -559,7 +563,7 @@ pub async fn restore_item(
                 .deleted_at
                 .is_some()
             {
-                return Err(ApiError::conflict("restore its task first"));
+                return Err(ApiError::conflict("Restore its task first"));
             }
             comments::ActiveModel {
                 id: Unchanged(item_id),

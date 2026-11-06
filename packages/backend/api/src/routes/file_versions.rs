@@ -17,7 +17,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::routes::auth::PublicUser;
 use crate::routes::files::{FileView, file_view, serve_blob};
 use crate::state::AppState;
@@ -96,8 +96,10 @@ async fn load(db: &impl Db, user: &User, id: uuid::Uuid, min_role: Role) -> Resu
     params(("id" = uuid::Uuid, Path, description = "File id")),
     responses(
         (status = 200, description = "Versions, newest first", body = [FileVersionView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No file with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No file with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_file_versions(
@@ -144,8 +146,10 @@ pub async fn list_file_versions(
     ),
     responses(
         (status = 200, description = "The version's content", content_type = "application/octet-stream"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such version, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such version, or no access", body = ErrorBody)
     )
 )]
 pub async fn file_version_content(
@@ -184,11 +188,12 @@ pub async fn file_version_content(
     params(("id" = uuid::Uuid, Path, description = "File id")),
     responses(
         (status = 201, description = "Version stored", body = FileView),
-        (status = 400, description = "Missing or empty file"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No file with that id, or no access"),
-        (status = 409, description = "Same content as the current version"),
-        (status = 413, description = "Larger than the upload limit")
+        (status = 400, description = "Missing or empty file", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No file with that id, or no access", body = ErrorBody),
+        (status = 409, description = "Same content as the current version", body = ErrorBody),
+        (status = 413, description = "Larger than the upload limit", body = ErrorBody)
     )
 )]
 pub async fn upload_file_version(
@@ -203,25 +208,25 @@ pub async fn upload_file_version(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::new(e.status(), "invalid upload"))?
+        .map_err(|e| ApiError::new(e.status(), "Invalid upload"))?
     {
         if field.name() == Some("file") {
             let content_type = field.content_type().map(str::to_string);
             let bytes = field
                 .bytes()
                 .await
-                .map_err(|e| ApiError::new(e.status(), "upload failed or too large"))?;
+                .map_err(|e| ApiError::new(e.status(), "Upload failed or too large"))?;
             upload = Some((content_type, bytes.to_vec()));
         }
     }
     let (content_type, bytes) =
-        upload.ok_or_else(|| ApiError::bad_request("a file is required"))?;
+        upload.ok_or_else(|| ApiError::bad_request("A file is required"))?;
     if bytes.is_empty() {
-        return Err(ApiError::bad_request("the file is empty"));
+        return Err(ApiError::bad_request("The file is empty"));
     }
     if bytes.len() as u64 > state.files.max_upload_bytes {
         return Err(ApiError::payload_too_large(format!(
-            "files can be at most {} MB",
+            "Files can be at most {} MB",
             state.files.max_upload_bytes / (1024 * 1024)
         )));
     }
@@ -232,7 +237,7 @@ pub async fn upload_file_version(
     let file = files::Entity::find_by_id(id).one_or_not_found(db).await?;
     if file.sha256 == sha256 {
         return Err(ApiError::conflict(
-            "this is the same content as the current version",
+            "This is the same content as the current version",
         ));
     }
     let mime = content_type.filter(|c| !c.is_empty()).unwrap_or_else(|| {
@@ -244,7 +249,7 @@ pub async fn upload_file_version(
     let key = format!("{}/{}", file.workspace_id, uuid::Uuid::new_v4());
     store.put(&key, bytes.clone()).await.map_err(|e| {
         tracing::error!(error = %e, "storing an upload failed");
-        ApiError::internal("could not store the file")
+        ApiError::internal("Could not store the file")
     })?;
 
     let workspace_id = file.workspace_id;
@@ -314,8 +319,10 @@ pub async fn upload_file_version(
     params(("id" = uuid::Uuid, Path, description = "File id")),
     responses(
         (status = 204, description = "File deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No file with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No file with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn delete_file(

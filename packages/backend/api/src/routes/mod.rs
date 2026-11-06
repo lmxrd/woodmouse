@@ -70,6 +70,8 @@ pub fn api(state: AppState) -> OpenApiRouter<AppState> {
         ))
         // Outermost: a cross-site request that changes something is refused before anything else.
         .layer(middleware::from_fn(crate::csrf::protect))
+        // Every error answer in the one shape, extractors' plain-text rejections included.
+        .layer(middleware::map_response(crate::extract::error_bodies))
 }
 
 /// The OpenAPI document of [`api`], for the `specs` binary (`cargo specs`).

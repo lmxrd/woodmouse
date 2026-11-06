@@ -27,7 +27,8 @@ use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
 use crate::config;
 use crate::db::prelude::*;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::oidc::{self, CALLBACK_PATH, Config, LOGIN_TTL_SECS, Pending};
 use crate::state::AppState;
 use crate::time;
@@ -134,7 +135,9 @@ pub fn callback_url(config: Option<&Config>, headers: &HeaderMap) -> Option<Stri
     get,
     path = "/auth/oidc/login",
     tag = "auth",
-    responses((status = 303, description = "To the provider, or to `/login?error=<code>`"))
+    responses(
+        (status = 303, description = "To the provider, or to `/login?error=<code>`")
+    )
 )]
 pub async fn oidc_login(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match start_login(&state, &headers).await {
@@ -218,7 +221,9 @@ pub struct CallbackParams {
     path = "/auth/oidc/callback",
     tag = "auth",
     params(CallbackParams),
-    responses((status = 303, description = "To `/` signed in, or to `/login?error=<code>`"))
+    responses(
+        (status = 303, description = "To `/` signed in, or to `/login?error=<code>`")
+    )
 )]
 pub async fn oidc_callback(
     State(state): State<AppState>,
@@ -656,7 +661,9 @@ async fn oidc_view(state: &AppState, headers: &HeaderMap) -> Result<OidcSettings
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Single sign-on settings", body = OidcSettingsView),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_get_oidc(
@@ -697,15 +704,18 @@ pub struct UpdateOidcSettings {
     request_body = UpdateOidcSettings,
     responses(
         (status = 200, description = "Saved settings", body = OidcSettingsView),
-        (status = 400, description = "Invalid value, a field set by the environment, or the provider could not be reached"),
-        (status = 404, description = "Not the super admin")
+        (status = 400, description = "Invalid value, a field set by the environment, or the provider could not be reached", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn admin_update_oidc(
     State(state): State<AppState>,
     headers: HeaderMap,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<UpdateOidcSettings>,
+    ApiJson(input): ApiJson<UpdateOidcSettings>,
 ) -> Result<Json<OidcSettingsView>, ApiError> {
     access::require_super_admin(&user)?;
     // Spawned and awaited: a request dropped halfway (the admin closes the tab) cannot leave the
@@ -715,7 +725,7 @@ pub async fn admin_update_oidc(
         async move { save(&state, user.id, input).await }
     });
     task.await
-        .map_err(|_| ApiError::internal("saving the settings failed"))??;
+        .map_err(|_| ApiError::internal("Saving the settings failed"))??;
     Ok(Json(oidc_view(&state, &headers).await?))
 }
 
@@ -757,7 +767,7 @@ async fn save(
     ] {
         if locked && given {
             return Err(ApiError::bad_request(format!(
-                "this setting comes from {variable} and cannot be changed here"
+                "This setting comes from {variable} and cannot be changed here"
             )));
         }
     }
@@ -766,13 +776,13 @@ async fn save(
         && !(oidc::secure_url(issuer) && openidconnect::IssuerUrl::new(issuer.clone()).is_ok())
     {
         return Err(ApiError::bad_request(
-            "the issuer must be an https URL (http only on localhost)",
+            "The issuer must be an https URL (http only on localhost)",
         ));
     }
     let redirect_url = clean(input.redirect_url);
     if let Some(url) = &redirect_url {
         oidc::check_redirect_url(url)
-            .map_err(|e| ApiError::bad_request(format!("the redirect URL {e}")))?;
+            .map_err(|e| ApiError::bad_request(format!("The redirect URL {e}")))?;
     }
     let display_name = clean(input.display_name);
     if display_name
@@ -780,7 +790,7 @@ async fn save(
         .is_some_and(|n| n.chars().count() > 100)
     {
         return Err(ApiError::bad_request(
-            "the display name is longer than 100 characters",
+            "The display name is longer than 100 characters",
         ));
     }
     let new_secret = clean(input.client_secret);
@@ -805,7 +815,7 @@ async fn save(
     // at another issuer could send it to a server of theirs.
     if issuer_changed && env.client_secret.is_some() && env.issuer.is_none() {
         return Err(ApiError::bad_request(
-            "the client secret comes from OIDC_CLIENT_SECRET, so the issuer must come from OIDC_ISSUER",
+            "The client secret comes from OIDC_CLIENT_SECRET, so the issuer must come from OIDC_ISSUER",
         ));
     }
     let client_secret = if env.client_secret.is_some() {
@@ -844,7 +854,7 @@ async fn save(
     // Ask the provider before writing anything, and outside any transaction.
     if let Some(config) = oidc::effective(env, Some(&row)) {
         state.oidc.check(&config.issuer).await.map_err(|e| {
-            ApiError::bad_request(format!("the provider could not be checked: {e}"))
+            ApiError::bad_request(format!("The provider could not be checked: {e}"))
         })?;
     }
 

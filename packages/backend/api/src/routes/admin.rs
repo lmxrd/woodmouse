@@ -17,7 +17,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::integrity::{self, Problem};
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::routes::members::issue_invite;
@@ -115,7 +116,9 @@ async fn memberships_of(
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "All users", body = [AdminUser]),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_list_users(
@@ -175,15 +178,18 @@ pub struct CreatedUser {
     request_body = CreateUser,
     responses(
         (status = 201, description = "The new user and their invite", body = CreatedUser),
-        (status = 400, description = "Invalid email"),
-        (status = 404, description = "Not the super admin"),
-        (status = 409, description = "An account with that email exists")
+        (status = 400, description = "Invalid email", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody),
+        (status = 409, description = "An account with that email exists", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn admin_create_user(
     State(state): State<AppState>,
     CurrentUser { user: admin, .. }: CurrentUser,
-    Json(input): Json<CreateUser>,
+    ApiJson(input): ApiJson<CreateUser>,
 ) -> Result<(StatusCode, Json<CreatedUser>), ApiError> {
     access::require_super_admin(&admin)?;
     validate_identity(&input.email)?;
@@ -195,7 +201,7 @@ pub async fn admin_create_user(
         .await
         .is_ok()
     {
-        return Err(ApiError::conflict("an account with that email exists"));
+        return Err(ApiError::conflict("An account with that email exists"));
     }
     let tx = db.begin().await?;
     let created = users::ActiveModel {
@@ -270,8 +276,11 @@ pub struct Invite {
     params(("id" = uuid::Uuid, Path, description = "User id")),
     responses(
         (status = 200, description = "A new invite", body = Invite),
-        (status = 404, description = "Not the super admin, or no such user"),
-        (status = 409, description = "They already have a password or a single sign-on account")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin, or no such user", body = ErrorBody),
+        (status = 409, description = "They already have a password or a single sign-on account", body = ErrorBody)
     )
 )]
 pub async fn admin_reissue_invite(
@@ -284,7 +293,7 @@ pub async fn admin_reissue_invite(
     let target = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
     if !auth::is_pending(&*db, &target).await? {
         return Err(ApiError::conflict(
-            "this person already has a password or signs in with single sign-on",
+            "This person already has a password or signs in with single sign-on",
         ));
     }
     let tx = db.begin().await?;
@@ -322,21 +331,24 @@ pub struct UpdateUser {
     request_body = UpdateUser,
     responses(
         (status = 200, description = "The updated user", body = AdminUser),
-        (status = 400, description = "The super admin cannot be changed"),
-        (status = 404, description = "Not the super admin, or no such user")
+        (status = 400, description = "The super admin cannot be changed", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin, or no such user", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn admin_update_user(
     State(state): State<AppState>,
     CurrentUser { user: admin, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateUser>,
+    ApiJson(input): ApiJson<UpdateUser>,
 ) -> Result<Json<AdminUser>, ApiError> {
     access::require_super_admin(&admin)?;
     let db = state.writer().await?;
     let user = users::Entity::find_by_id(id).one_or_not_found(&*db).await?;
     if user.super_admin {
-        return Err(ApiError::bad_request("the super admin cannot be changed"));
+        return Err(ApiError::bad_request("The super admin cannot be changed"));
     }
     let (was_active, was_role) = (user.active, user.global_role);
     let tx = db.begin().await?;
@@ -393,7 +405,7 @@ pub async fn admin_update_user(
             .await
             && other.id != id
         {
-            return Err(ApiError::conflict("an account with that email exists"));
+            return Err(ApiError::conflict("An account with that email exists"));
         }
         update.email = Set(email);
         changed = true;
@@ -424,7 +436,10 @@ pub async fn admin_update_user(
     params(("id" = uuid::Uuid, Path, description = "User id")),
     responses(
         (status = 204, description = "Two-factor is off for them"),
-        (status = 404, description = "Not the super admin, no such user, or two-factor is not on")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin, no such user, or two-factor is not on", body = ErrorBody)
     )
 )]
 pub async fn admin_reset_totp(
@@ -471,7 +486,9 @@ pub struct AdminWorkspace {
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "All workspaces", body = [AdminWorkspace]),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_list_workspaces(
@@ -511,7 +528,10 @@ pub async fn admin_list_workspaces(
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 204, description = "Restored"),
-        (status = 404, description = "Not the super admin, or not a deleted workspace")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin, or not a deleted workspace", body = ErrorBody)
     )
 )]
 pub async fn admin_restore_workspace(
@@ -576,7 +596,9 @@ pub struct AuditFilters {
     params(AuditFilters),
     responses(
         (status = 200, description = "Audit entries", body = [AuditEntry]),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_audit_log(
@@ -635,7 +657,10 @@ pub async fn admin_audit_log(
     params(("id" = uuid::Uuid, Path, description = "Revision id")),
     responses(
         (status = 204, description = "Redacted"),
-        (status = 404, description = "Not the super admin, or no such version")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin, or no such version", body = ErrorBody)
     )
 )]
 pub async fn admin_redact_revision(
@@ -670,7 +695,9 @@ pub async fn admin_redact_revision(
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Orphaned rows (empty when all is well)", body = [Problem]),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_integrity(
@@ -742,7 +769,9 @@ async fn email_view(db: &impl Db) -> Result<EmailSettingsView, ApiError> {
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Email settings", body = EmailSettingsView),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_get_email_settings(
@@ -774,14 +803,17 @@ pub struct UpdateEmailSettings {
     request_body = UpdateEmailSettings,
     responses(
         (status = 200, description = "Saved settings", body = EmailSettingsView),
-        (status = 400, description = "Invalid value"),
-        (status = 404, description = "Not the super admin")
+        (status = 400, description = "Invalid value", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn admin_update_email_settings(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<UpdateEmailSettings>,
+    ApiJson(input): ApiJson<UpdateEmailSettings>,
 ) -> Result<Json<EmailSettingsView>, ApiError> {
     access::require_super_admin(&user)?;
     let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
@@ -795,10 +827,10 @@ pub async fn admin_update_email_settings(
         .as_deref()
         .is_some_and(|t| !["starttls", "tls", "none"].contains(&t))
     {
-        return Err(ApiError::bad_request("tls must be starttls, tls or none"));
+        return Err(ApiError::bad_request("Tls must be starttls, tls or none"));
     }
     if input.port.is_some_and(|p| !(1..=65535).contains(&p)) {
-        return Err(ApiError::bad_request("the port must be 1 to 65535"));
+        return Err(ApiError::bad_request("The port must be 1 to 65535"));
     }
     let db = state.writer().await?;
     let existing = email_settings::Entity::find()
@@ -860,14 +892,17 @@ pub struct TestEmailResult {
     request_body = TestEmail,
     responses(
         (status = 200, description = "Sent", body = TestEmailResult),
-        (status = 400, description = "Email is not configured, or the server refused it"),
-        (status = 404, description = "Not the super admin")
+        (status = 400, description = "Email is not configured, or the server refused it", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn admin_test_email(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<TestEmail>,
+    ApiJson(input): ApiJson<TestEmail>,
 ) -> Result<Json<TestEmailResult>, ApiError> {
     access::require_super_admin(&user)?;
     let to = input

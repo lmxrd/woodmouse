@@ -11,7 +11,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use entity::Role;
 
@@ -50,12 +51,12 @@ fn valid(choice: &ThemeChoice) -> Result<(), ApiError> {
     if let Some(palette) = &choice.palette
         && !PALETTES.contains(&palette.as_str())
     {
-        return Err(ApiError::bad_request("unknown palette"));
+        return Err(ApiError::bad_request("Unknown palette"));
     }
     if let Some(accent) = &choice.accent {
         let hex = accent.strip_prefix('#').unwrap_or("");
         if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(ApiError::bad_request("the accent must look like #1f4d3a"));
+            return Err(ApiError::bad_request("The accent must look like #1f4d3a"));
         }
     }
     Ok(())
@@ -78,7 +79,10 @@ fn normalized(choice: ThemeChoice) -> ThemeChoice {
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "The theme", body = ThemeView),
-        (status = 404, description = "No such workspace, or not a member")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not a member", body = ErrorBody)
     )
 )]
 pub async fn get_theme(
@@ -121,15 +125,18 @@ pub async fn get_theme(
     request_body = ThemeChoice,
     responses(
         (status = 200, description = "The workspace theme", body = ThemeChoice),
-        (status = 400, description = "Unknown palette or invalid accent"),
-        (status = 404, description = "No such workspace, or not an admin")
+        (status = 400, description = "Unknown palette or invalid accent", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not an admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn set_workspace_theme(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<ThemeChoice>,
+    ApiJson(input): ApiJson<ThemeChoice>,
 ) -> Result<Json<ThemeChoice>, ApiError> {
     valid(&input)?;
     let input = normalized(input);
@@ -160,15 +167,18 @@ pub async fn set_workspace_theme(
     request_body = ThemeChoice,
     responses(
         (status = 200, description = "Your choice", body = ThemeChoice),
-        (status = 400, description = "Unknown palette, invalid accent, or you are not a member"),
-        (status = 404, description = "No such workspace, or no access")
+        (status = 400, description = "Unknown palette, invalid accent, or you are not a member", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn set_my_theme(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<ThemeChoice>,
+    ApiJson(input): ApiJson<ThemeChoice>,
 ) -> Result<Json<ThemeChoice>, ApiError> {
     valid(&input)?;
     let input = normalized(input);
@@ -181,7 +191,7 @@ pub async fn set_my_theme(
         .await?
     else {
         return Err(ApiError::bad_request(
-            "only members can set their own theme for a workspace",
+            "Only members can set their own theme for a workspace",
         ));
     };
     workspace_members::Entity::update_many()

@@ -373,14 +373,14 @@ pub fn decode(text: &str) -> Result<Vec<BlockData>, ApiError> {
     }
     let envelope: Envelope = serde_json::from_str(text).map_err(|e| {
         tracing::error!(%e, "stored page content is unreadable");
-        ApiError::internal("stored page content is unreadable")
+        ApiError::internal("Stored page content is unreadable")
     })?;
     match envelope.version {
         CONTENT_VERSION => Ok(envelope.blocks),
         other => {
             tracing::error!(version = other, "unknown page content version");
             Err(ApiError::internal(
-                "stored page content has an unknown version",
+                "Stored page content has an unknown version",
             ))
         }
     }

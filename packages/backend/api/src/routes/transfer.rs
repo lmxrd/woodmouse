@@ -16,7 +16,8 @@ use crate::access;
 use crate::api::attachment;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use crate::transfer::{self, Export, ImportOptions, ImportReport, Parts, UserChoice};
 use entity::Role;
@@ -43,7 +44,7 @@ fn ids(text: &Option<String>) -> Result<Vec<uuid::Uuid>, ApiError> {
         .filter(|s| !s.is_empty())
         .map(|s| {
             s.parse()
-                .map_err(|_| ApiError::bad_request("invalid project id"))
+                .map_err(|_| ApiError::bad_request("Invalid project id"))
         })
         .collect()
 }
@@ -67,8 +68,10 @@ pub struct ExportQuery {
     params(("id" = uuid::Uuid, Path, description = "Workspace id"), ExportQuery),
     responses(
         (status = 200, description = "A JSON file", body = Export, content_type = "application/json"),
-        (status = 400, description = "Unknown part"),
-        (status = 404, description = "No workspace with that id, or no access (members need an admin)")
+        (status = 400, description = "Unknown part", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access (members need an admin)", body = ErrorBody)
     )
 )]
 pub async fn export_workspace(
@@ -91,7 +94,7 @@ pub async fn export_workspace(
         .iter()
         .find(|p| !["projects", "labels", "wiki", "members"].contains(&p.as_str()))
     {
-        return Err(ApiError::bad_request(format!("unknown part `{bad}`")));
+        return Err(ApiError::bad_request(format!("Unknown part `{bad}`")));
     }
     let parts = Parts {
         projects: wanted.iter().any(|p| p == "projects"),
@@ -107,7 +110,7 @@ pub async fn export_workspace(
         .await?;
     let export = transfer::build_export(db, &workspace, &parts, &ids(&query.project_ids)?).await?;
     let text = serde_json::to_string_pretty(&export)
-        .map_err(|_| ApiError::internal("could not write the export"))?;
+        .map_err(|_| ApiError::internal("Could not write the export"))?;
     Ok(attachment(
         "woodmouse-export.json",
         "application/json",
@@ -132,7 +135,10 @@ pub struct CsvQuery {
     params(("id" = uuid::Uuid, Path, description = "Workspace id"), CsvQuery),
     responses(
         (status = 200, description = "A CSV file", body = String, content_type = "text/csv"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn export_tasks_csv(
@@ -190,8 +196,11 @@ pub struct ImportRequest {
     request_body = ImportRequest,
     responses(
         (status = 200, description = "What was (or would be) imported", body = ImportReport),
-        (status = 400, description = "The file cannot be read at all"),
-        (status = 404, description = "No workspace with that id, or not enough access"),
+        (status = 400, description = "The file cannot be read at all", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or not enough access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
         (status = 422, description = "Nothing was imported: the file has problems or people need a choice", body = ImportReport)
     )
 )]
@@ -199,7 +208,7 @@ pub async fn import_workspace_data(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<ImportRequest>,
+    ApiJson(input): ApiJson<ImportRequest>,
 ) -> Result<Response, ApiError> {
     let mut parse_report = ImportReport::default();
     let data: Export = match input.format.as_str() {
@@ -218,16 +227,16 @@ pub async fn import_workspace_data(
         },
         "json" => {
             let data: Export = serde_json::from_str(&input.text)
-                .map_err(|e| ApiError::bad_request(format!("the JSON cannot be read: {e}")))?;
+                .map_err(|e| ApiError::bad_request(format!("The JSON cannot be read: {e}")))?;
             if data.version != transfer::VERSION {
                 return Err(ApiError::bad_request(format!(
-                    "unsupported export version {}",
+                    "Unsupported export version {}",
                     data.version
                 )));
             }
             data
         }
-        other => return Err(ApiError::bad_request(format!("unknown format `{other}`"))),
+        other => return Err(ApiError::bad_request(format!("Unknown format `{other}`"))),
     };
     let db = state.writer().await?;
     let role = access::require_access(&*db, &user, id, Role::Write).await?;

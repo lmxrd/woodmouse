@@ -13,7 +13,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
@@ -64,8 +64,10 @@ pub struct ActivityFilters {
     params(("id" = uuid::Uuid, Path, description = "Workspace id"), ActivityFilters),
     responses(
         (status = 200, description = "Activity entries", body = [ActivityView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_activity(

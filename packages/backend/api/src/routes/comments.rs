@@ -14,7 +14,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::revisions;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
@@ -53,7 +54,7 @@ pub struct CommentBody {
 fn validate_body(body: &str) -> Result<String, ApiError> {
     let body = body.trim();
     if body.is_empty() {
-        return Err(ApiError::bad_request("comment cannot be empty"));
+        return Err(ApiError::bad_request("Comment cannot be empty"));
     }
     Ok(body.to_string())
 }
@@ -119,8 +120,10 @@ async fn load(
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "The task's comments", body = [CommentView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_comments(
@@ -149,16 +152,18 @@ pub async fn list_comments(
     request_body = CommentBody,
     responses(
         (status = 201, description = "Comment added", body = CommentView),
-        (status = 400, description = "Empty comment"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "Empty comment", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn add_comment(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<CommentBody>,
+    ApiJson(input): ApiJson<CommentBody>,
 ) -> Result<(StatusCode, Json<CommentView>), ApiError> {
     let body = validate_body(&input.body)?;
     let db = state.writer().await?;
@@ -220,16 +225,18 @@ pub async fn add_comment(
     request_body = CommentBody,
     responses(
         (status = 200, description = "Comment updated", body = CommentView),
-        (status = 400, description = "Empty comment"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such comment, no access, or not yours")
+        (status = 400, description = "Empty comment", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such comment, no access, or not yours", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_comment(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<CommentBody>,
+    ApiJson(input): ApiJson<CommentBody>,
 ) -> Result<Json<CommentView>, ApiError> {
     let body = validate_body(&input.body)?;
     let db = state.writer().await?;
@@ -273,8 +280,10 @@ pub async fn update_comment(
     params(("id" = uuid::Uuid, Path, description = "Comment id")),
     responses(
         (status = 204, description = "Comment deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such comment, no access, or not yours")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such comment, no access, or not yours", body = ErrorBody)
     )
 )]
 pub async fn delete_comment(

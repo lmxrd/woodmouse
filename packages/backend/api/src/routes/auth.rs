@@ -12,7 +12,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::sessions::{self, AuthSession};
 use crate::state::AppState;
 use crate::totp;
@@ -154,7 +155,7 @@ pub struct LoginRequest {
 /// The display name is optional; only the email must be valid.
 pub(crate) fn validate_identity(email: &str) -> Result<(), ApiError> {
     if email.trim().is_empty() || !email.contains('@') {
-        return Err(ApiError::bad_request("email is invalid"));
+        return Err(ApiError::bad_request("Email is invalid"));
     }
     Ok(())
 }
@@ -162,7 +163,7 @@ pub(crate) fn validate_identity(email: &str) -> Result<(), ApiError> {
 pub(crate) fn validate_password(password: &str) -> Result<(), ApiError> {
     if password.len() < 8 {
         return Err(ApiError::bad_request(
-            "password must be at least 8 characters",
+            "Password must be at least 8 characters",
         ));
     }
     Ok(())
@@ -178,7 +179,9 @@ fn validate_credentials(email: &str, password: &str) -> Result<(), ApiError> {
     get,
     path = "/auth/status",
     tag = "auth",
-    responses((status = 200, description = "Auth status", body = AuthStatus))
+    responses(
+        (status = 200, description = "Auth status", body = AuthStatus)
+    )
 )]
 pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatus>, ApiError> {
     let db = state.db();
@@ -201,21 +204,23 @@ pub async fn auth_status(State(state): State<AppState>) -> Result<Json<AuthStatu
     request_body = BootstrapRequest,
     responses(
         (status = 201, description = "Super admin created and logged in", body = PublicUser),
-        (status = 409, description = "A user already exists"),
-        (status = 400, description = "Invalid input")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 409, description = "A user already exists", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn bootstrap(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
-    Json(input): Json<BootstrapRequest>,
+    ApiJson(input): ApiJson<BootstrapRequest>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     validate_credentials(&input.email, &input.password)?;
 
     let db = state.writer().await?;
     if !users::Entity::find().all(&*db).await?.is_empty() {
         return Err(ApiError::conflict(
-            "bootstrap is closed: a user already exists",
+            "Bootstrap is closed: a user already exists",
         ));
     }
 
@@ -272,15 +277,17 @@ impl TotpChallenge {
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
         (status = 202, description = "The password is right; a two-factor code, or setting it up, is needed", body = TotpChallenge),
-        (status = 401, description = "Invalid credentials"),
-        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Invalid credentials", body = ErrorBody),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn login(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
-    Json(input): Json<LoginRequest>,
+    ApiJson(input): ApiJson<LoginRequest>,
 ) -> Result<Response, ApiError> {
     state.oidc.require_password_login()?;
     let email = input.email.trim().to_lowercase();
@@ -343,7 +350,10 @@ pub struct TotpCode {
     request_body = TotpCode,
     responses(
         (status = 200, description = "Logged in", body = PublicUser),
-        (status = 401, description = "Wrong code, or no current challenge (start again from the password)")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Wrong code, or no current challenge (start again from the password)", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn login_totp(
@@ -351,7 +361,7 @@ pub async fn login_totp(
     mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     headers: axum::http::HeaderMap,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     // No `OIDC_ONLY` check: a challenge exists only after a first factor, single sign-on's included.
     let challenge = totp::read_challenge(
@@ -420,7 +430,11 @@ pub async fn login_totp(
     path = "/auth/logout",
     tag = "auth",
     security(("session_cookie" = [])),
-    responses((status = 204, description = "Logged out"))
+    responses(
+        (status = 204, description = "Logged out"),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn logout(
     State(state): State<AppState>,
@@ -449,7 +463,8 @@ pub async fn logout(
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "The current user", body = Me),
-        (status = 401, description = "Not logged in")
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
     )
 )]
 pub async fn me(
@@ -485,43 +500,45 @@ pub struct UpdateMe {
     request_body = UpdateMe,
     responses(
         (status = 200, description = "The updated user", body = Me),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 409, description = "That email is already taken")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 409, description = "That email is already taken", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_me(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<UpdateMe>,
+    ApiJson(input): ApiJson<UpdateMe>,
 ) -> Result<Json<Me>, ApiError> {
     if let Some(format) = &input.date_format
         && !DATE_FORMATS.contains(&format.as_str())
     {
-        return Err(ApiError::bad_request("unknown date format"));
+        return Err(ApiError::bad_request("Unknown date format"));
     }
     if let Some(format) = &input.time_format
         && !TIME_FORMATS.contains(&format.as_str())
     {
-        return Err(ApiError::bad_request("unknown time format"));
+        return Err(ApiError::bad_request("Unknown time format"));
     }
 
     if let Some(week_start) = &input.week_start
         && !WEEK_STARTS.contains(&week_start.as_str())
     {
-        return Err(ApiError::bad_request("unknown week start"));
+        return Err(ApiError::bad_request("Unknown week start"));
     }
 
     if let Some(mode) = &input.theme_mode
         && !crate::routes::themes::MODES.contains(&mode.as_str())
     {
-        return Err(ApiError::bad_request("unknown theme mode"));
+        return Err(ApiError::bad_request("Unknown theme mode"));
     }
 
     if let Some(zone) = &input.timezone
         && jiff::tz::TimeZone::get(zone).is_err()
     {
-        return Err(ApiError::bad_request("unknown timezone"));
+        return Err(ApiError::bad_request("Unknown timezone"));
     }
 
     let writer = state.writer().await?;
@@ -537,7 +554,7 @@ pub async fn update_me(
                     .await
                 && other.id != user.id
             {
-                return Err(ApiError::conflict("that email is already taken"));
+                return Err(ApiError::conflict("That email is already taken"));
             }
             Some(email)
         }
@@ -591,17 +608,18 @@ pub struct ChangePassword {
     request_body = ChangePassword,
     responses(
         (status = 204, description = "Password changed"),
-        (status = 400, description = "The new password is too short"),
-        (status = 401, description = "Not logged in, or the current password is wrong"),
-        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)"),
-        (status = 409, description = "The password changed meanwhile; try again")
+        (status = 400, description = "The new password is too short", body = ErrorBody),
+        (status = 401, description = "Not logged in, or the current password is wrong", body = ErrorBody),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)", body = ErrorBody),
+        (status = 409, description = "The password changed meanwhile; try again", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn change_password(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<ChangePassword>,
+    ApiJson(input): ApiJson<ChangePassword>,
 ) -> Result<StatusCode, ApiError> {
     state.oidc.require_password_login()?;
     if let Some(current) = &user.password_hash
@@ -628,7 +646,7 @@ pub async fn change_password(
         .await?
         .rows_affected;
     if updated != 1 {
-        return Err(ApiError::conflict("the password changed meanwhile"));
+        return Err(ApiError::conflict("The password changed meanwhile"));
     }
     audit::record(
         &tx,
@@ -697,8 +715,9 @@ pub struct RecoveryCodes {
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "The new secret", body = TotpSetup),
-        (status = 401, description = "Not logged in"),
-        (status = 409, description = "Two-factor is already on (turn it off first)")
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 409, description = "Two-factor is already on (turn it off first)", body = ErrorBody)
     )
 )]
 pub async fn totp_setup(
@@ -713,7 +732,7 @@ async fn start_setup(state: &AppState, user: &User) -> Result<TotpSetup, ApiErro
     let db = state.writer().await?;
     let tx = db.begin().await?;
     if totp::enabled(&tx, user.id).await?.is_some() {
-        return Err(ApiError::conflict("two-factor sign-in is already on"));
+        return Err(ApiError::conflict("Two-factor sign-in is already on"));
     }
     let secret = totp::new_secret();
     // Before anything is stored: an email an authenticator app cannot take is refused here.
@@ -757,9 +776,11 @@ async fn slow_down(state: &AppState, user: &User, address: Option<&str>) {
     request_body = TotpCode,
     responses(
         (status = 200, description = "Two-factor is on", body = RecoveryCodes),
-        (status = 400, description = "Wrong code, or no setup started"),
-        (status = 401, description = "Not logged in"),
-        (status = 409, description = "Two-factor is already on")
+        (status = 400, description = "Wrong code, or no setup started", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 409, description = "Two-factor is already on", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn totp_enable(
@@ -767,7 +788,7 @@ pub async fn totp_enable(
     mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
     slow_down(&state, &user, address.as_deref()).await;
     let db = state.writer().await?;
@@ -791,13 +812,13 @@ async fn finish_setup(
     let row = entity::user_totp::Entity::find_by_id(user.id)
         .one(tx)
         .await?
-        .ok_or_else(|| ApiError::bad_request("start the setup first"))?;
+        .ok_or_else(|| ApiError::bad_request("Start the setup first"))?;
     if row.enabled_at.is_some() {
-        return Err(ApiError::conflict("two-factor sign-in is already on"));
+        return Err(ApiError::conflict("Two-factor sign-in is already on"));
     }
     if !totp::accept_app_code(tx, &row, code.trim()).await? {
         state.login_limits.failed(&user.email, address);
-        return Err(ApiError::bad_request("that code is not right"));
+        return Err(ApiError::bad_request("That code is not right"));
     }
     entity::user_totp::ActiveModel {
         user_id: Unchanged(user.id),
@@ -825,12 +846,12 @@ async fn require_code(
 ) -> Result<totp::Proof, ApiError> {
     let row = totp::enabled(tx, user.id)
         .await?
-        .ok_or_else(|| ApiError::bad_request("two-factor sign-in is off"))?;
+        .ok_or_else(|| ApiError::bad_request("Two-factor sign-in is off"))?;
     match totp::verify(tx, &row, code).await? {
         Some(proof) => Ok(proof),
         None => {
             state.login_limits.failed(&user.email, address);
-            Err(ApiError::bad_request("that code is not right"))
+            Err(ApiError::bad_request("That code is not right"))
         }
     }
 }
@@ -844,9 +865,10 @@ async fn require_code(
     request_body = TotpCode,
     responses(
         (status = 204, description = "Two-factor is off"),
-        (status = 400, description = "Wrong code, or two-factor is off already"),
-        (status = 401, description = "Not logged in"),
-        (status = 403, description = "The site requires two-factor (`TOTP_REQUIRED`)")
+        (status = 400, description = "Wrong code, or two-factor is off already", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "The site requires two-factor (`TOTP_REQUIRED`)", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn totp_disable(
@@ -854,11 +876,11 @@ pub async fn totp_disable(
     mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<StatusCode, ApiError> {
     if state.totp_required {
         return Err(ApiError::forbidden(
-            "two-factor sign-in is required on this site",
+            "Two-factor sign-in is required on this site",
         ));
     }
     slow_down(&state, &user, address.as_deref()).await;
@@ -888,15 +910,17 @@ pub async fn totp_disable(
     request_body = TotpCode,
     responses(
         (status = 200, description = "The new recovery codes", body = RecoveryCodes),
-        (status = 400, description = "Wrong code, or two-factor is off"),
-        (status = 401, description = "Not logged in")
+        (status = 400, description = "Wrong code, or two-factor is off", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn totp_recovery_codes(
     State(state): State<AppState>,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
     slow_down(&state, &user, address.as_deref()).await;
     let db = state.writer().await?;
@@ -939,8 +963,9 @@ async fn enroll_challenge(
     tag = "auth",
     responses(
         (status = 200, description = "The new secret", body = TotpSetup),
-        (status = 401, description = "No current setup challenge (start again from the sign-in)"),
-        (status = 409, description = "Two-factor is already on")
+        (status = 401, description = "No current setup challenge (start again from the sign-in)", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 409, description = "Two-factor is already on", body = ErrorBody)
     )
 )]
 pub async fn login_totp_setup(
@@ -967,9 +992,11 @@ pub struct EnrolledLogin {
     request_body = TotpCode,
     responses(
         (status = 200, description = "Two-factor is on and you are signed in", body = EnrolledLogin),
-        (status = 400, description = "Wrong code, or no setup started"),
-        (status = 401, description = "No current setup challenge (start again from the sign-in)"),
-        (status = 409, description = "Two-factor is already on")
+        (status = 400, description = "Wrong code, or no setup started", body = ErrorBody),
+        (status = 401, description = "No current setup challenge (start again from the sign-in)", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 409, description = "Two-factor is already on", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn login_totp_enable(
@@ -977,7 +1004,7 @@ pub async fn login_totp_enable(
     mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     headers: axum::http::HeaderMap,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<(StatusCode, CookieJar, Json<EnrolledLogin>), ApiError> {
     let user = enroll_challenge(&state, &headers).await?;
     slow_down(&state, &user, address.as_deref()).await;
@@ -1017,16 +1044,17 @@ pub async fn login_totp_enable(
     request_body = TotpCode,
     responses(
         (status = 200, description = "The new secret", body = TotpSetup),
-        (status = 400, description = "Wrong code, or two-factor is off"),
-        (status = 401, description = "Not logged in"),
-        (status = 403, description = "Made with an API key")
+        (status = 400, description = "Wrong code, or two-factor is off", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Made with an API key", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn totp_replace(
     State(state): State<AppState>,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<Json<TotpSetup>, ApiError> {
     slow_down(&state, &user, address.as_deref()).await;
     let secret = totp::new_secret();
@@ -1058,10 +1086,11 @@ pub async fn totp_replace(
     request_body = TotpCode,
     responses(
         (status = 204, description = "The new app is the one in use"),
-        (status = 400, description = "Wrong code, or no replacement started"),
-        (status = 401, description = "Not logged in"),
-        (status = 403, description = "Made with an API key"),
-        (status = 409, description = "Another replacement started meanwhile")
+        (status = 400, description = "Wrong code, or no replacement started", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Made with an API key", body = ErrorBody),
+        (status = 409, description = "Another replacement started meanwhile", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn totp_replace_confirm(
@@ -1069,7 +1098,7 @@ pub async fn totp_replace_confirm(
     mut auth_session: AuthSession,
     ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<TotpCode>,
+    ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<StatusCode, ApiError> {
     slow_down(&state, &user, address.as_deref()).await;
     let db = state.writer().await?;
@@ -1077,13 +1106,13 @@ pub async fn totp_replace_confirm(
     let (row, pending) = totp::enabled(&tx, user.id)
         .await?
         .and_then(|row| row.pending_secret.clone().map(|p| (row, p)))
-        .ok_or_else(|| ApiError::bad_request("start the replacement first"))?;
+        .ok_or_else(|| ApiError::bad_request("Start the replacement first"))?;
     // A new secret: the old one's used steps say nothing about it.
     let Some(step) = totp::matching_step(&pending, input.code.trim(), totp::now_unix(), None)
     else {
         drop(tx);
         state.login_limits.failed(&user.email, address.as_deref());
-        return Err(ApiError::bad_request("that code is not right"));
+        return Err(ApiError::bad_request("That code is not right"));
     };
     // Only if it is still the secret just checked (another replacement may have started meanwhile).
     let replaced = entity::user_totp::Entity::update_many()
@@ -1106,7 +1135,7 @@ pub async fn totp_replace_confirm(
         .rows_affected;
     if replaced != 1 {
         return Err(ApiError::conflict(
-            "the replacement changed meanwhile; start again",
+            "The replacement changed meanwhile; start again",
         ));
     }
     audit::record(

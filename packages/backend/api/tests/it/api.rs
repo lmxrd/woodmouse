@@ -323,3 +323,80 @@ async fn workspaces_access_is_enforced() {
     .await;
     assert_eq!(res.status(), StatusCode::OK);
 }
+
+/// Every error answers `{"error": "..."}` in sentence case, extractors' rejections included.
+#[tokio::test]
+async fn every_error_has_the_one_shape() {
+    let app = app().await;
+    let admin = bootstrap_admin(&app).await;
+    let body = |res: axum::http::Response<axum::body::Body>| async move {
+        let status = res.status();
+        let json: serde_json::Value =
+            serde_json::from_str(&body_string(res.into_body()).await).expect("a JSON error body");
+        (
+            status,
+            json["error"]
+                .as_str()
+                .expect("an error message")
+                .to_string(),
+        )
+    };
+    // A path that does not parse.
+    let (status, error) =
+        body(request(&app, get("/api/workspaces/not-a-uuid", Some(&admin))).await).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error.starts_with(char::is_uppercase), "{error}");
+    // Not found.
+    let (status, error) = body(
+        request(
+            &app,
+            get(
+                &format!("/api/workspaces/{}", uuid::Uuid::new_v4()),
+                Some(&admin),
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        (status, error.as_str()),
+        (StatusCode::NOT_FOUND, "Not found")
+    );
+    // A body that is not JSON, and JSON that does not fit.
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/api/workspaces")
+        .header("cookie", &admin)
+        .body(axum::body::Body::from("name=x"))
+        .unwrap();
+    let (status, error) = body(request(&app, req).await).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(error.contains("JSON"), "{error}");
+    let (status, error) = body(
+        request(
+            &app,
+            post_json("/api/workspaces", r#"{"name":1}"#, Some(&admin)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        (status, error.as_str()),
+        (StatusCode::BAD_REQUEST, "Invalid request body")
+    );
+    // A validation message.
+    let (status, error) = body(
+        request(
+            &app,
+            post_json(
+                "/api/auth/bootstrap",
+                r#"{"email":"x","password":"long enough"}"#,
+                None,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(status.is_client_error());
+    assert!(error.starts_with(char::is_uppercase), "{error}");
+}

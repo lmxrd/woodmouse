@@ -1,7 +1,8 @@
 //! The API's error type. Every handler returns `Result<_, ApiError>`; the error becomes a status and a
-//! `{"error": "..."}` body ([`ErrorBody`]). Client errors carry their own message; database errors and
-//! anything unexpected ([`ApiError::Other`], from `anyhow`) are logged with their cause chain and answered
-//! with a bare 500 "internal error", so nothing about the server leaks. A row that is not there is a 404.
+//! `{"error": "..."}` body ([`ErrorBody`]), in sentence case ("Not found"). Client errors carry their own
+//! message; every 500 (a database error, [`ApiError::internal`], anything from `anyhow`) is logged with its
+//! cause and answered with a bare "Internal server error", so nothing about the server leaks. A row that is
+//! not there is a 404.
 
 use axum::{
     Json,
@@ -18,21 +19,21 @@ pub enum ApiError {
     #[error("{0}")]
     BadRequest(String),
     /// Missing or invalid session.
-    #[error("authentication required")]
+    #[error("Authentication required")]
     Unauthorized,
     /// Signed in, but not allowed to do this.
     #[error("{0}")]
     Forbidden(String),
     /// Does not exist *or* is outside the caller's access: the same status for both, so existence is not
     /// leaked.
-    #[error("not found")]
+    #[error("Not found")]
     NotFound,
     #[error("{0}")]
     Conflict(String),
     /// The request body (an upload) exceeds the configured limit.
     #[error("{0}")]
     PayloadTooLarge(String),
-    /// Something on our side failed, with a message the client may see.
+    /// Something on our side failed: the message is for the log, the client gets "Internal server error".
     #[error("{0}")]
     Internal(String),
     /// Any other status (an extractor's rejection, such as a malformed upload).
@@ -47,6 +48,9 @@ pub enum ApiError {
     Other(#[from] anyhow::Error),
 }
 
+/// What every 500 says.
+const INTERNAL: &str = "Internal server error";
+
 /// The body of every error response.
 #[derive(Serialize, ToSchema)]
 pub struct ErrorBody {
@@ -57,7 +61,7 @@ pub struct ErrorBody {
 impl ApiError {
     /// An error with any status. A known status becomes its own variant.
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        let message = message.into();
+        let message = sentence(message.into());
         match status {
             StatusCode::BAD_REQUEST => Self::BadRequest(message),
             StatusCode::FORBIDDEN => Self::Forbidden(message),
@@ -69,7 +73,7 @@ impl ApiError {
     }
 
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self::BadRequest(message.into())
+        Self::BadRequest(sentence(message.into()))
     }
 
     pub fn unauthorized() -> Self {
@@ -77,7 +81,7 @@ impl ApiError {
     }
 
     pub fn forbidden(message: impl Into<String>) -> Self {
-        Self::Forbidden(message.into())
+        Self::Forbidden(sentence(message.into()))
     }
 
     pub fn not_found() -> Self {
@@ -85,11 +89,11 @@ impl ApiError {
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self::Conflict(message.into())
+        Self::Conflict(sentence(message.into()))
     }
 
     pub fn payload_too_large(message: impl Into<String>) -> Self {
-        Self::PayloadTooLarge(message.into())
+        Self::PayloadTooLarge(sentence(message.into()))
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
@@ -109,6 +113,15 @@ impl ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         }
+    }
+}
+
+/// The message with its first letter capitalized: every client message is in sentence case.
+fn sentence(message: String) -> String {
+    let mut chars = message.chars();
+    match chars.next() {
+        Some(first) if first.is_lowercase() => first.to_uppercase().chain(chars).collect(),
+        _ => message,
     }
 }
 
@@ -143,11 +156,11 @@ impl IntoResponse for ApiError {
                     _ => unreachable!(),
                 };
                 tracing::error!(error = %self, cause, "request failed");
-                "internal error".to_string()
+                INTERNAL.to_string()
             }
             Self::Internal(message) => {
                 tracing::error!(error = %message, "request failed");
-                message.clone()
+                INTERNAL.to_string()
             }
             other => other.to_string(),
         };
@@ -173,16 +186,20 @@ mod tests {
         assert_eq!(err.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let err = ApiError::from(anyhow::anyhow!("disk full").context("writing the export"));
         assert_eq!(err.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            ApiError::internal("disk full").status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]
     fn new_picks_the_variant() {
         assert!(matches!(
-            ApiError::new(StatusCode::FORBIDDEN, "no"),
+            ApiError::new(StatusCode::FORBIDDEN, "No"),
             ApiError::Forbidden(_)
         ));
         assert_eq!(
-            ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "x").status(),
+            ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "X").status(),
             StatusCode::UNPROCESSABLE_ENTITY
         );
     }

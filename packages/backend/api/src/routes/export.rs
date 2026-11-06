@@ -10,7 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::api::attachment;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::markdown::page_to_markdown;
 use crate::pages::blocks_of;
 use crate::routes::pages::live_pages;
@@ -52,7 +52,10 @@ fn file_name(title: &str) -> String {
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 200, description = "The page as Markdown", body = String, content_type = "text/markdown"),
-        (status = 404, description = "No such page, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page, or no access", body = ErrorBody)
     )
 )]
 pub async fn export_page(
@@ -130,7 +133,10 @@ fn relative_link(from: &[String], to: &[String]) -> String {
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "A zip archive of Markdown files", body = Vec<u8>, content_type = "application/zip"),
-        (status = 404, description = "No such workspace, or not a member")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not a member", body = ErrorBody)
     )
 )]
 pub async fn export_wiki(
@@ -148,7 +154,7 @@ pub async fn export_wiki(
         .compression_method(zip::CompressionMethod::Deflated);
     let zip_err = |e: &dyn std::fmt::Display| {
         tracing::error!(%e, "building the export archive");
-        ApiError::internal("could not build the archive")
+        ApiError::internal("Could not build the archive")
     };
     for page in &pages {
         let Some(path) = paths.get(&page.id) else {

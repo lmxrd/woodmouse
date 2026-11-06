@@ -19,7 +19,8 @@ use crate::access;
 use crate::api::limited;
 use crate::auth::CurrentUser;
 use crate::config;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::ical::{self, FeedTask};
 use crate::state::AppState;
 use crate::time;
@@ -151,7 +152,11 @@ fn matches(link: &CalendarLink, filter: &LinkFilter) -> bool {
     tag = "calendar",
     security(("session_cookie" = [])),
     params(LinkFilter),
-    responses((status = 200, description = "Your active links", body = Vec<CalendarLinkView>))
+    responses(
+        (status = 200, description = "Your active links", body = Vec<CalendarLinkView>),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn list_calendar_links(
     State(state): State<AppState>,
@@ -196,14 +201,17 @@ const MAX_NAME: usize = 100;
     request_body = CreateLink,
     responses(
         (status = 201, description = "The new link", body = CalendarLinkView),
-        (status = 400, description = "Missing or invalid scope"),
-        (status = 404, description = "No such workspace or project, or no access")
+        (status = 400, description = "Missing or invalid scope", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace or project, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_calendar_link(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<CreateLink>,
+    ApiJson(input): ApiJson<CreateLink>,
 ) -> Result<(StatusCode, Json<CalendarLinkView>), ApiError> {
     let db = state.writer().await?;
     let db = &*db;
@@ -212,7 +220,7 @@ pub async fn create_calendar_link(
         LinkScope::Workspace => {
             let id = input
                 .workspace_id
-                .ok_or_else(|| ApiError::bad_request("a workspace link needs workspace_id"))?;
+                .ok_or_else(|| ApiError::bad_request("A workspace link needs workspace_id"))?;
             access::require_access(db, &user, id, Role::Read).await?;
             let name = workspaces::Entity::find_by_id(id)
                 .one_or_not_found(db)
@@ -223,7 +231,7 @@ pub async fn create_calendar_link(
         LinkScope::Project => {
             let id = input
                 .project_id
-                .ok_or_else(|| ApiError::bad_request("a project link needs project_id"))?;
+                .ok_or_else(|| ApiError::bad_request("A project link needs project_id"))?;
             let workspace = access::require_project_access(db, &user, id, Role::Read).await?;
             let name = projects::Entity::find_by_id(id)
                 .one_or_not_found(db)
@@ -269,7 +277,10 @@ pub async fn create_calendar_link(
     params(("id" = uuid::Uuid, Path, description = "Link id")),
     responses(
         (status = 204, description = "Revoked"),
-        (status = 404, description = "No such link")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such link", body = ErrorBody)
     )
 )]
 pub async fn revoke_calendar_link(
@@ -302,7 +313,11 @@ pub async fn revoke_calendar_link(
     tag = "calendar",
     security(("session_cookie" = [])),
     params(LinkFilter),
-    responses((status = 204, description = "Revoked"))
+    responses(
+        (status = 204, description = "Revoked"),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
+    )
 )]
 pub async fn revoke_calendar_links(
     State(state): State<AppState>,
@@ -461,7 +476,8 @@ const USED_RESOLUTION_SECS: i64 = 300;
     params(("token" = String, Path, description = "The link's secret with a `.ics` ending")),
     responses(
         (status = 200, description = "An iCalendar file", body = String, content_type = "text/calendar"),
-        (status = 404, description = "Unknown or revoked link, or its owner can no longer see it")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 404, description = "Unknown or revoked link, or its owner can no longer see it", body = ErrorBody)
     )
 )]
 pub async fn feed(

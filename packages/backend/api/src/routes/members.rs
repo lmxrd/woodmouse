@@ -16,7 +16,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::auth::{PublicUser, validate_identity};
 use crate::state::AppState;
 use crate::time;
@@ -116,8 +117,10 @@ async fn admin_count(db: &impl Db, workspace_id: uuid::Uuid) -> Result<usize, Ap
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "The workspace's members", body = [Member]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_members(
@@ -164,17 +167,19 @@ pub async fn list_members(
     request_body = AddMember,
     responses(
         (status = 201, description = "Member added", body = AddMemberResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or not an admin"),
-        (status = 409, description = "Already a member")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or not an admin", body = ErrorBody),
+        (status = 409, description = "Already a member", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn add_member(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<AddMember>,
+    ApiJson(input): ApiJson<AddMember>,
 ) -> Result<(StatusCode, Json<AddMemberResponse>), ApiError> {
     let db = state.writer().await?;
     access::require_access(&*db, &user, id, Role::Admin).await?;
@@ -189,7 +194,7 @@ pub async fn add_member(
     {
         Ok(existing) => {
             if !existing.active {
-                return Err(ApiError::bad_request("this account is disabled"));
+                return Err(ApiError::bad_request("This account is disabled"));
             }
             existing
         }
@@ -215,7 +220,7 @@ pub async fn add_member(
         .await?
         .is_some()
     {
-        return Err(ApiError::conflict("already a member of this workspace"));
+        return Err(ApiError::conflict("Already a member of this workspace"));
     }
     workspace_members::ActiveModel {
         user_id: Set(invitee.id),
@@ -270,16 +275,19 @@ pub async fn add_member(
     request_body = UpdateMember,
     responses(
         (status = 200, description = "Role changed", body = Member),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such workspace or member, or not an admin"),
-        (status = 409, description = "Would leave the workspace without an admin")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace or member, or not an admin", body = ErrorBody),
+        (status = 409, description = "Would leave the workspace without an admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_member(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path((id, user_id)): Path<(uuid::Uuid, uuid::Uuid)>,
-    Json(input): Json<UpdateMember>,
+    ApiJson(input): ApiJson<UpdateMember>,
 ) -> Result<Json<Member>, ApiError> {
     let db = state.writer().await?;
     access::require_access(&*db, &user, id, Role::Admin).await?;
@@ -294,7 +302,7 @@ pub async fn update_member(
         && input.role != Role::Admin
         && admin_count(&*db, id).await? <= 1
     {
-        return Err(ApiError::conflict("a workspace needs at least one admin"));
+        return Err(ApiError::conflict("A workspace needs at least one admin"));
     }
     let old_role = membership.role;
     let tx = db.begin().await?;
@@ -337,9 +345,11 @@ pub async fn update_member(
     ),
     responses(
         (status = 204, description = "Member removed"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such workspace or member, or not an admin"),
-        (status = 409, description = "Would leave the workspace without an admin")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace or member, or not an admin", body = ErrorBody),
+        (status = 409, description = "Would leave the workspace without an admin", body = ErrorBody)
     )
 )]
 pub async fn remove_member(
@@ -356,7 +366,7 @@ pub async fn remove_member(
         .await?
         .ok_or_else(ApiError::not_found)?;
     if membership.role == Role::Admin && admin_count(&*db, id).await? <= 1 {
-        return Err(ApiError::conflict("a workspace needs at least one admin"));
+        return Err(ApiError::conflict("A workspace needs at least one admin"));
     }
 
     // Unassign them from this workspace's tasks (live or deleted).
@@ -415,9 +425,11 @@ pub async fn remove_member(
     ),
     responses(
         (status = 201, description = "New invite", body = InviteToken),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such workspace or member, or not an admin"),
-        (status = 409, description = "The member already has a password")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace or member, or not an admin", body = ErrorBody),
+        (status = 409, description = "The member already has a password", body = ErrorBody)
     )
 )]
 pub async fn reissue_invite(
@@ -438,7 +450,7 @@ pub async fn reissue_invite(
         .await?;
     if !auth::is_pending(&*db, &target).await? {
         return Err(ApiError::conflict(
-            "this member has already set a password or signs in with single sign-on",
+            "This member has already set a password or signs in with single sign-on",
         ));
     }
     let invite_token = issue_invite(&*db, user_id).await?;

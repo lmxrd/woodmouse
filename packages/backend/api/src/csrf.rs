@@ -53,7 +53,7 @@ pub async fn protect(request: Request, next: Next) -> Response {
     if allowed(request.method(), request.headers(), public_url.as_deref()) {
         next.run(request).await
     } else {
-        ApiError::forbidden("cross-site request refused").into_response()
+        ApiError::forbidden("Cross-site request refused").into_response()
     }
 }
 

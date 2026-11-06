@@ -10,7 +10,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::search::{self, Kind};
 use crate::state::AppState;
 use entity::{Role, Workspace};
@@ -65,8 +65,10 @@ pub struct SearchHit {
     params(("id" = uuid::Uuid, Path, description = "Workspace id"), SearchParams),
     responses(
         (status = 200, description = "Best matches first", body = Vec<SearchHit>),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such workspace, or not a member")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not a member", body = ErrorBody)
     )
 )]
 pub async fn search(

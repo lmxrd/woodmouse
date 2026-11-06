@@ -19,7 +19,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::storage::sha256_hex;
@@ -180,8 +181,10 @@ fn clean_name(raw: &str) -> String {
     params(("id" = uuid::Uuid, Path, description = "Workspace id"), FileFilters),
     responses(
         (status = 200, description = "The workspace's files", body = [FileView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_files(
@@ -219,11 +222,12 @@ pub async fn list_files(
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 201, description = "File stored", body = FileView),
-        (status = 400, description = "Missing or empty file"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access"),
+        (status = 400, description = "Missing or empty file", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody),
         (status = 409, description = "Identical content is already in the library", body = DuplicateFile),
-        (status = 413, description = "Larger than the upload limit")
+        (status = 413, description = "Larger than the upload limit", body = ErrorBody)
     )
 )]
 pub async fn upload_file(
@@ -239,7 +243,7 @@ pub async fn upload_file(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ApiError::new(e.status(), "invalid upload"))?
+        .map_err(|e| ApiError::new(e.status(), "Invalid upload"))?
     {
         match field.name() {
             Some("file") => {
@@ -248,31 +252,31 @@ pub async fn upload_file(
                 let bytes = field
                     .bytes()
                     .await
-                    .map_err(|e| ApiError::new(e.status(), "upload failed or too large"))?;
+                    .map_err(|e| ApiError::new(e.status(), "Upload failed or too large"))?;
                 upload = Some((name, content_type, bytes.to_vec()));
             }
             Some("task_id") => {
                 let text = field
                     .text()
                     .await
-                    .map_err(|_| ApiError::bad_request("invalid task_id"))?;
+                    .map_err(|_| ApiError::bad_request("Invalid task_id"))?;
                 task_id = Some(
                     text.trim()
                         .parse()
-                        .map_err(|_| ApiError::bad_request("invalid task_id"))?,
+                        .map_err(|_| ApiError::bad_request("Invalid task_id"))?,
                 );
             }
             _ => {}
         }
     }
     let (name, content_type, bytes) =
-        upload.ok_or_else(|| ApiError::bad_request("a file is required"))?;
+        upload.ok_or_else(|| ApiError::bad_request("A file is required"))?;
     if bytes.is_empty() {
-        return Err(ApiError::bad_request("the file is empty"));
+        return Err(ApiError::bad_request("The file is empty"));
     }
     if bytes.len() as u64 > state.files.max_upload_bytes {
         return Err(ApiError::payload_too_large(format!(
-            "files can be at most {} MB",
+            "Files can be at most {} MB",
             state.files.max_upload_bytes / (1024 * 1024)
         )));
     }
@@ -311,7 +315,7 @@ pub async fn upload_file(
     let key = format!("{id}/{}", uuid::Uuid::new_v4());
     store.put(&key, bytes.clone()).await.map_err(|e| {
         tracing::error!(error = %e, "storing an upload failed");
-        ApiError::internal("could not store the file")
+        ApiError::internal("Could not store the file")
     })?;
     let created = files::ActiveModel {
         id: Set(uuid::Uuid::now_v7()),
@@ -354,8 +358,10 @@ pub async fn upload_file(
     params(("id" = uuid::Uuid, Path, description = "File id")),
     responses(
         (status = 200, description = "The file's content", content_type = "application/octet-stream"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No file with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No file with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn file_content(
@@ -386,7 +392,7 @@ pub(crate) async fn serve_blob(
     let store = state
         .files
         .store(backend)
-        .ok_or_else(|| ApiError::internal("this file's storage is not configured"))?;
+        .ok_or_else(|| ApiError::internal("This file's storage is not configured"))?;
     let bytes = store.get(key).await.map_err(|e| {
         tracing::error!(error = %e, key, "reading a stored file failed");
         ApiError::not_found()
@@ -420,7 +426,7 @@ pub(crate) async fn serve_blob(
     );
     headers.insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&disposition).map_err(|_| ApiError::internal("bad file name"))?,
+        HeaderValue::from_str(&disposition).map_err(|_| ApiError::internal("Bad file name"))?,
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
@@ -459,8 +465,10 @@ pub struct FileUsage {
     params(("id" = uuid::Uuid, Path, description = "File id")),
     responses(
         (status = 200, description = "The tasks the file is attached to", body = [FileUsage]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No file with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No file with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn file_usage(
@@ -561,8 +569,10 @@ async fn attach(
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "The task's attachments", body = [FileView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_attachments(
@@ -606,15 +616,18 @@ pub struct AttachFile {
     request_body = AttachFile,
     responses(
         (status = 200, description = "Attached", body = FileView),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such task or file, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such task or file, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn attach_file(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<AttachFile>,
+    ApiJson(input): ApiJson<AttachFile>,
 ) -> Result<Json<FileView>, ApiError> {
     let db = state.writer().await?;
     let db = &*db;
@@ -651,8 +664,10 @@ pub async fn attach_file(
     ),
     responses(
         (status = 204, description = "Detached"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such attachment, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such attachment, or no access", body = ErrorBody)
     )
 )]
 pub async fn detach_file(
@@ -719,8 +734,10 @@ async fn find_unused(db: &impl Db, workspace_id: uuid::Uuid) -> Result<Vec<File>
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "Unreferenced files", body = UnusedFiles),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or not an admin")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or not an admin", body = ErrorBody)
     )
 )]
 pub async fn unused_files(
@@ -753,8 +770,10 @@ pub struct CleanupResult {
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "What was removed", body = CleanupResult),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or not an admin")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or not an admin", body = ErrorBody)
     )
 )]
 pub async fn cleanup_files(
@@ -790,7 +809,7 @@ pub async fn cleanup_files(
             if let Some(store) = state.files.store(&backend) {
                 store.delete(&key).await.map_err(|e| {
                     tracing::error!(error = %e, file = %file.id, "deleting a stored file failed");
-                    ApiError::internal("could not delete a stored file")
+                    ApiError::internal("Could not delete a stored file")
                 })?;
             }
             result.freed_bytes += size;
@@ -818,7 +837,8 @@ pub async fn cleanup_files(
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Server configuration", body = AppConfig),
-        (status = 401, description = "Not logged in")
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
     )
 )]
 pub async fn get_config(
@@ -839,8 +859,10 @@ pub async fn get_config(
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 200, description = "The page's attachments", body = [FileView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No page with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No page with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_page_attachments(
@@ -880,15 +902,18 @@ pub async fn list_page_attachments(
     request_body = AttachFile,
     responses(
         (status = 200, description = "Attached", body = FileView),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such page or file, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page or file, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn attach_page_file(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<AttachFile>,
+    ApiJson(input): ApiJson<AttachFile>,
 ) -> Result<Json<FileView>, ApiError> {
     let db = state.writer().await?;
     let db = &*db;
@@ -926,8 +951,10 @@ pub async fn attach_page_file(
     ),
     responses(
         (status = 204, description = "Detached"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such attachment, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such attachment, or no access", body = ErrorBody)
     )
 )]
 pub async fn detach_page_file(

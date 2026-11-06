@@ -269,6 +269,10 @@ is listed here (and in its release notes), newest last.
 - **Single sign-on asks for `openid email`** unless `OIDC_SCOPES` says
   otherwise (it used to add `profile`); add `profile` to get people's names.
 - **`X-Forwarded-For` is read only with `TRUST_PROXY=true`.**
+- **API error messages** are sentence case ("Not found"), every 500 says
+  "Internal server error", and a JSON body that does not fit its endpoint is a
+  400 (was 422), one without `Content-Type: application/json` a 415. Scripts
+  that matched on the old texts need updating.
 
 ## Contributing
 

@@ -51,7 +51,7 @@ fn generator(secret: Vec<u8>, account: &str) -> Result<Totp, ApiError> {
         .with_account_name(account)
         .with_issuer(Some(ISSUER))
         .build()
-        .map_err(|_| ApiError::bad_request("that account cannot be used in an authenticator app"))
+        .map_err(|_| ApiError::bad_request("That account cannot be used in an authenticator app"))
 }
 
 /// The generator for a stored (base32) secret.
@@ -91,12 +91,12 @@ pub fn new_secret() -> String {
 /// The `otpauth://` URI an authenticator app reads from the QR code.
 pub fn otpauth_uri(secret: &str, account: &str) -> Result<String, ApiError> {
     let bytes = Secret::try_from_base32(secret)
-        .map_err(|_| ApiError::internal("stored secret is not base32"))?
+        .map_err(|_| ApiError::internal("Stored secret is not base32"))?
         .as_bytes()
         .to_vec();
     generator(bytes, account)?
         .to_url()
-        .map_err(|_| ApiError::bad_request("that account cannot be used in an authenticator app"))
+        .map_err(|_| ApiError::bad_request("That account cannot be used in an authenticator app"))
 }
 
 /// A new recovery code: 80 random bits as sixteen base32 characters, `abcd-efgh-ijkl-mnop`.
@@ -350,7 +350,7 @@ pub fn challenge_jar(
     mode: ChallengeMode,
 ) -> Result<SignedCookieJar, ApiError> {
     let value = serde_json::to_string(&Challenge::new(user_id, mode))
-        .map_err(|_| ApiError::internal("could not make the challenge"))?;
+        .map_err(|_| ApiError::internal("Could not make the challenge"))?;
     Ok(SignedCookieJar::new(key.clone()).add(challenge_cookie(value, secure)))
 }
 

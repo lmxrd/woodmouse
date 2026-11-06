@@ -32,7 +32,7 @@ pub fn hash_password(password: &str) -> Result<String, ApiError> {
     Argon2::default()
         .hash_password(password.as_bytes())
         .map(|hash| hash.to_string())
-        .map_err(|_| ApiError::internal("password hashing failed"))
+        .map_err(|_| ApiError::internal("Password hashing failed"))
 }
 
 /// A hash of nothing anyone knows, checked when there is no real one (an unknown email, or an account
@@ -193,7 +193,7 @@ async fn from_api_key(
         .map(|uri| uri.path().to_string())
         .unwrap_or_else(|| parts.uri.path().to_string());
     if !api_key_scope_allows(key.scope, &parts.method, &path) {
-        return Err(ApiError::forbidden("this API key may not do that"));
+        return Err(ApiError::forbidden("This API key may not do that"));
     }
     let stale = key
         .last_used_at

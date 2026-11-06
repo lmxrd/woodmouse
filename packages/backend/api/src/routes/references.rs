@@ -11,7 +11,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use entity::{Role, WikiPage};
 
@@ -64,7 +65,10 @@ async fn backlinks_of(db: &impl Db, target: uuid::Uuid) -> Result<Vec<Backlink>,
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 200, description = "Pages that link here", body = Vec<Backlink>),
-        (status = 404, description = "No such page, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page, or no access", body = ErrorBody)
     )
 )]
 pub async fn page_backlinks(
@@ -86,7 +90,10 @@ pub async fn page_backlinks(
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "Pages that mention the task", body = Vec<Backlink>),
-        (status = 404, description = "No such task, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such task, or no access", body = ErrorBody)
     )
 )]
 pub async fn task_backlinks(
@@ -138,18 +145,21 @@ const MAX_RESOLVE: usize = 500;
     request_body = ResolveRequest,
     responses(
         (status = 200, description = "What was found", body = Resolved),
-        (status = 400, description = "Too many ids"),
-        (status = 404, description = "No such workspace, or not a member")
+        (status = 400, description = "Too many ids", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not a member", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn resolve(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
-    Json(input): Json<ResolveRequest>,
+    ApiJson(input): ApiJson<ResolveRequest>,
 ) -> Result<Json<Resolved>, ApiError> {
     if input.page_ids.len() > MAX_RESOLVE || input.task_ids.len() > MAX_RESOLVE {
-        return Err(ApiError::bad_request("too many ids"));
+        return Err(ApiError::bad_request("Too many ids"));
     }
     let db = state.db();
     access::require_access(db, &user, workspace_id, Role::Read).await?;

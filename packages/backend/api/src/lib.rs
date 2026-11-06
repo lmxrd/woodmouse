@@ -7,6 +7,7 @@ pub mod content;
 pub mod csrf;
 pub mod db;
 pub mod error;
+pub mod extract;
 pub mod ical;
 pub mod integrity;
 pub mod jobs;

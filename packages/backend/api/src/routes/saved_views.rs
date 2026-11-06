@@ -13,7 +13,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
 use crate::time;
@@ -62,10 +63,10 @@ pub struct UpdateView {
 fn validate(name: &str, params: &serde_json::Value) -> Result<String, ApiError> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 80 {
-        return Err(ApiError::bad_request("name must be 1 to 80 characters"));
+        return Err(ApiError::bad_request("Name must be 1 to 80 characters"));
     }
     if !params.is_object() || params.to_string().len() > MAX_PARAMS_BYTES {
-        return Err(ApiError::bad_request("params must be a small JSON object"));
+        return Err(ApiError::bad_request("Params must be a small JSON object"));
     }
     Ok(name.to_string())
 }
@@ -112,8 +113,10 @@ async fn respond(
     params(("id" = uuid::Uuid, Path, description = "Project id")),
     responses(
         (status = 200, description = "Saved views", body = [SavedViewResponse]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_views(
@@ -145,16 +148,18 @@ pub async fn list_views(
     request_body = CreateView,
     responses(
         (status = 201, description = "View saved", body = SavedViewResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or not enough access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or not enough access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_view(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<CreateView>,
+    ApiJson(input): ApiJson<CreateView>,
 ) -> Result<(StatusCode, Json<SavedViewResponse>), ApiError> {
     let name = validate(&input.name, &input.params)?;
     let db = state.writer().await?;
@@ -209,16 +214,18 @@ async fn editable(db: &impl Db, user: &User, id: uuid::Uuid) -> Result<SavedView
     request_body = UpdateView,
     responses(
         (status = 200, description = "View updated", body = SavedViewResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such view, or not yours to change")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such view, or not yours to change", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_view(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateView>,
+    ApiJson(input): ApiJson<UpdateView>,
 ) -> Result<Json<SavedViewResponse>, ApiError> {
     let db = state.writer().await?;
     let view = editable(&*db, &user, id).await?;
@@ -252,8 +259,10 @@ pub async fn update_view(
     params(("id" = uuid::Uuid, Path, description = "Saved view id")),
     responses(
         (status = 204, description = "View deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such view, or not yours to delete")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such view, or not yours to delete", body = ErrorBody)
     )
 )]
 pub async fn delete_view(

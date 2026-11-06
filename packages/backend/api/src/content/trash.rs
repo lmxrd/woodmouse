@@ -196,7 +196,7 @@ pub async fn restore_sprint(db: &impl Db, sprint: &Sprint) -> Result<(), ApiErro
         .deleted_at
         .is_some()
     {
-        return Err(ApiError::conflict("restore its project first"));
+        return Err(ApiError::conflict("Restore its project first"));
     }
     sprints::ActiveModel {
         id: Unchanged(sprint.id),
@@ -231,7 +231,7 @@ pub async fn restore_task(db: &impl Db, task: &Task) -> Result<(), ApiError> {
         .one_or_not_found(db)
         .await?;
     if project.deleted_at.is_some() {
-        return Err(ApiError::conflict("restore its project first"));
+        return Err(ApiError::conflict("Restore its project first"));
     }
     if let Some(list_id) = task.list_id
         && lists::Entity::find_by_id(list_id)
@@ -240,7 +240,7 @@ pub async fn restore_task(db: &impl Db, task: &Task) -> Result<(), ApiError> {
             .deleted_at
             .is_some()
     {
-        return Err(ApiError::conflict("restore its list first"));
+        return Err(ApiError::conflict("Restore its list first"));
     }
     if let Some(parent_id) = task.parent_id
         && tasks::Entity::find_by_id(parent_id)
@@ -249,7 +249,7 @@ pub async fn restore_task(db: &impl Db, task: &Task) -> Result<(), ApiError> {
             .deleted_at
             .is_some()
     {
-        return Err(ApiError::conflict("restore the parent task first"));
+        return Err(ApiError::conflict("Restore the parent task first"));
     }
     let tasks = tasks::Entity::find()
         .filter(tasks::Column::ProjectId.eq(task.project_id))
@@ -271,7 +271,7 @@ pub async fn restore_list(db: &impl Db, list: &List) -> Result<(), ApiError> {
         .deleted_at
         .is_some()
     {
-        return Err(ApiError::conflict("restore its project first"));
+        return Err(ApiError::conflict("Restore its project first"));
     }
     let ids: Vec<uuid::Uuid> = tasks::Entity::find()
         .filter(tasks::Column::ProjectId.eq(list.project_id))
@@ -394,7 +394,7 @@ pub async fn restore_page(db: &impl Db, page: &WikiPage) -> Result<(), ApiError>
             .deleted_at
             .is_some()
     {
-        return Err(ApiError::conflict("restore the parent page first"));
+        return Err(ApiError::conflict("Restore the parent page first"));
     }
     let all = wiki_pages::Entity::find()
         .filter(wiki_pages::Column::WorkspaceId.eq(page.workspace_id))
