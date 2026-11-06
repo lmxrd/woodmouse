@@ -12,7 +12,8 @@ use crate::access;
 use crate::api::required;
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use crate::{time, trash};
 use entity::{Label, Role};
@@ -59,8 +60,10 @@ pub struct LabelWithCount {
     params(("workspace_id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "The workspace's labels", body = [LabelWithCount]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_labels(
@@ -114,16 +117,18 @@ pub async fn list_labels(
     request_body = CreateLabel,
     responses(
         (status = 201, description = "Label created", body = Label),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_label(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
-    Json(input): Json<CreateLabel>,
+    ApiJson(input): ApiJson<CreateLabel>,
 ) -> Result<(StatusCode, Json<Label>), ApiError> {
     let name = required(&input.name, "name")?;
 
@@ -152,16 +157,18 @@ pub async fn create_label(
     request_body = UpdateLabel,
     responses(
         (status = 200, description = "Label updated", body = Label),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No label with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No label with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_label(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateLabel>,
+    ApiJson(input): ApiJson<UpdateLabel>,
 ) -> Result<Json<Label>, ApiError> {
     let db = state.writer().await?;
     let label = labels::Entity::find_by_id(id)
@@ -191,8 +198,10 @@ pub async fn update_label(
     params(("id" = uuid::Uuid, Path, description = "Label id")),
     responses(
         (status = 204, description = "Label deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No label with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No label with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn delete_label(

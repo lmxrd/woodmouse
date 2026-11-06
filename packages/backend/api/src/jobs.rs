@@ -27,20 +27,19 @@ pub async fn checkpoint(state: &AppState) {
 
 /// Run one round of the daily jobs.
 pub async fn run_daily(state: &AppState) {
-    let Ok(db) = state.writer().await else {
-        return;
-    };
+    // Through the session store, which takes the writer turn itself.
+    match crate::sessions::Store::new(state.clone())
+        .delete_expired_count()
+        .await
     {
-        match auth::delete_expired_sessions(&*db).await {
-            Ok(0) => {}
-            Ok(n) => tracing::info!(deleted = n, "removed expired sessions"),
-            Err(_) => tracing::warn!("removing expired sessions failed"),
-        }
+        Ok(0) => {}
+        Ok(n) => tracing::info!(deleted = n, "removed expired sessions"),
+        Err(e) => tracing::warn!(error = %e, "removing expired sessions failed"),
     }
 }
 
-/// Start the jobs: the first round runs a minute after startup, then every 24 hours; email goes out every
-/// minute and deadlines and digests are checked every ten.
+/// Start the jobs: the first round runs a minute after startup, then every 24 hours; email goes out (and
+/// the sign-in limits forget refilled keys) every minute, and deadlines and digests are checked every ten.
 pub fn spawn(state: AppState) {
     let daily = state.clone();
     tokio::spawn(async move {
@@ -62,6 +61,8 @@ pub fn spawn(state: AppState) {
                 send_digests(&state, now).await;
             }
             send_pending_emails(&state, now).await;
+            // Forget sign-in limit keys that have refilled, so their memory stays bounded.
+            state.limits.retain_recent();
             count += 1;
         }
     });

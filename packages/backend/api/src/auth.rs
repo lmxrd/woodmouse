@@ -1,67 +1,26 @@
-//! Session auth: Argon2id password hashing, cookie-backed sessions, and slowing down repeated failed
-//! logins.
+//! Who is asking: Argon2id password hashing, the [`CurrentUser`] extractor and API keys. The limits on
+//! sign-in attempts are in `crate::limits`.
 //!
-//! The session token is an opaque UUID stored in an httpOnly, SameSite=Lax
-//! cookie ([`session_cookie_name`]: `__Host-` prefixed over https). Sessions live in the `sessions` table with an expiry; the
-//! [`CurrentUser`] extractor validates them on every request. It also takes an API key
-//! (`Authorization: Bearer wm_...`, see [`api_key_scope_allows`] and [`role_cap`]) wherever a session works.
+//! Sessions are axum-login on tower-sessions (`crate::sessions`): the [`CurrentUser`] extractor takes the
+//! signed-in user from the request's `AuthSession`, or else an API key (`Authorization: Bearer wm_...`, see
+//! [`api_key_scope_allows`] and [`role_cap`]) wherever a session works.
 
 use crate::db::Db;
 use crate::db::prelude::*;
-use entity::{api_keys, sessions, users};
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use entity::{api_keys, users};
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::time;
-use entity::{ApiKey, Role, Session, User};
+use entity::{ApiKey, Role, User};
+
+pub use crate::sessions::{SECURE_SESSION_COOKIE, SESSION_COOKIE};
 use sha2::{Digest, Sha256};
-
-/// The session cookie's name over plain http (development); see [`session_cookie_name`].
-pub const SESSION_COOKIE: &str = "woodmouse_session";
-/// Its name over https: browsers accept a `__Host-` cookie only with `Secure`, `Path=/` and no `Domain`,
-/// so a sibling subdomain cannot plant a session of its own (login CSRF, cookie tossing).
-pub const SECURE_SESSION_COOKIE: &str = "__Host-woodmouse_session";
-
-/// The session cookie's name: prefixed when the site is https (`WOODMOUSE_SECURE_COOKIES`). Over https
-/// only the prefixed one is read, or a planted plain one would still count.
-pub fn session_cookie_name(secure: bool) -> &'static str {
-    if secure {
-        SECURE_SESSION_COOKIE
-    } else {
-        SESSION_COOKIE
-    }
-}
-
-/// The session cookie. Its removal ([`session_cookie_removal`]) has the same attributes: a browser
-/// ignores a `__Host-` removal without `Secure`.
-fn session_cookie(name: &'static str, token: String, secure: bool) -> Cookie<'static> {
-    let mut cookie = Cookie::new(name, token);
-    cookie.set_path("/");
-    cookie.set_http_only(true);
-    cookie.set_same_site(SameSite::Lax);
-    cookie.set_max_age(::time::Duration::seconds(SESSION_TTL_SECS));
-    if secure {
-        cookie.set_secure(true);
-    }
-    cookie
-}
-
-/// The Set-Cookie that ends the session cookie in the browser (logout).
-pub fn session_cookie_removal(secure: bool) -> CookieJar {
-    let mut cookie = session_cookie(session_cookie_name(secure), String::new(), secure);
-    cookie.make_removal();
-    CookieJar::new().add(cookie)
-}
-const SESSION_TTL_SECS: i64 = 30 * 24 * 60 * 60;
 
 /// Hash a password with Argon2id and the crate's default (OWASP-recommended)
 /// parameters. The PHC string encodes salt and parameters.
@@ -70,7 +29,7 @@ pub fn hash_password(password: &str) -> Result<String, ApiError> {
     Argon2::default()
         .hash_password(password.as_bytes())
         .map(|hash| hash.to_string())
-        .map_err(|_| ApiError::internal("password hashing failed"))
+        .map_err(|_| ApiError::internal("Password hashing failed"))
 }
 
 /// A hash of nothing anyone knows, checked when there is no real one (an unknown email, or an account
@@ -106,69 +65,6 @@ pub fn verify_password(password: &str, phc: &str) -> bool {
         .is_ok()
 }
 
-/// Create a session for `user_id` and the Set-Cookie jar for it.
-pub async fn create_session(
-    db: &impl Db,
-    user_id: uuid::Uuid,
-    secure_cookies: bool,
-) -> Result<(Session, CookieJar), ApiError> {
-    let token = uuid::Uuid::new_v4().to_string();
-    let session = sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token),
-        user_id: Set(user_id),
-        expires_at: Set(time::add_seconds(time::now(), SESSION_TTL_SECS)),
-    }
-    .insert(db)
-    .await?;
-
-    let name = session_cookie_name(secure_cookies);
-    let mut jar = CookieJar::new().add(session_cookie(name, session.token.clone(), secure_cookies));
-    if secure_cookies {
-        // A plain one from before the site used the prefix is never read again; let it go.
-        let mut old = session_cookie(SESSION_COOKIE, String::new(), true);
-        old.make_removal();
-        jar = jar.add(old);
-    }
-    Ok((session, jar))
-}
-
-/// Delete a session by its token (logout). Unknown tokens are fine.
-pub async fn delete_session(db: &impl Db, token: &str) -> Result<(), ApiError> {
-    if let Ok(session) = sessions::Entity::find()
-        .filter(sessions::Column::Token.eq(token))
-        .one_or_not_found(db)
-        .await
-    {
-        sessions::Entity::delete_many()
-            .filter(sessions::Column::Id.eq(session.id))
-            .exec(db)
-            .await?;
-    }
-    Ok(())
-}
-
-/// End every session of a user (when they are disabled, or change their password elsewhere).
-pub async fn delete_sessions_of(
-    db: &impl Db,
-    user_id: uuid::Uuid,
-    except_token: Option<&str>,
-) -> Result<(), ApiError> {
-    for session in sessions::Entity::find()
-        .filter(sessions::Column::UserId.eq(user_id))
-        .all(db)
-        .await?
-    {
-        if Some(session.token.as_str()) != except_token {
-            sessions::Entity::delete_many()
-                .filter(sessions::Column::Id.eq(session.id))
-                .exec(db)
-                .await?;
-        }
-    }
-    Ok(())
-}
-
 /// The users among `ids` linked to an account at a single sign-on provider.
 pub async fn linked_users(
     db: &impl Db,
@@ -193,25 +89,11 @@ pub async fn is_pending(db: &impl Db, user: &User) -> Result<bool, ApiError> {
     Ok(user.password_hash.is_none() && linked_users(db, [user.id]).await?.is_empty())
 }
 
-/// Remove sessions that have expired (a daily job).
-pub async fn delete_expired_sessions(db: &impl Db) -> Result<usize, ApiError> {
-    let now = time::now();
-    let deleted = sessions::Entity::delete_many()
-        .filter(sessions::Column::ExpiresAt.lt(now))
-        .exec(db)
-        .await?
-        .rows_affected;
-    Ok(deleted as usize)
-}
-
 /// The authenticated user, from the session cookie or else an API key. Rejects with 401 when the request
 /// carries no valid (unexpired, unrevoked) session or key, or the account is disabled, and with 403 when an
 /// API key's scope does not allow the request ([`api_key_scope_allows`]).
 pub struct CurrentUser {
     pub user: User,
-    /// Session token, so handlers (logout) can invalidate it. Empty for an API key, which never reaches
-    /// the session's own routes.
-    pub session_token: String,
     /// The API key the request was made with, if not a session.
     pub api_key: Option<ApiKey>,
 }
@@ -308,10 +190,7 @@ async fn from_api_key(
         .map(|uri| uri.path().to_string())
         .unwrap_or_else(|| parts.uri.path().to_string());
     if !api_key_scope_allows(key.scope, &parts.method, &path) {
-        return Err(ApiError::new(
-            axum::http::StatusCode::FORBIDDEN,
-            "this API key may not do that",
-        ));
+        return Err(ApiError::forbidden("This API key may not do that"));
     }
     let stale = key
         .last_used_at
@@ -326,7 +205,6 @@ async fn from_api_key(
     }
     Ok(CurrentUser {
         user,
-        session_token: String::new(),
         api_key: Some(key),
     })
 }
@@ -338,131 +216,25 @@ impl FromRequestParts<AppState> for CurrentUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let jar = CookieJar::from_headers(&parts.headers);
-        let name = session_cookie_name(state.secure_cookies);
-        let Some(token) = jar.get(name).map(|c| c.value().to_string()) else {
-            let bearer = parts
-                .headers
-                .get(axum::http::header::AUTHORIZATION)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|h| h.strip_prefix("Bearer "))
-                .map(str::trim)
-                .filter(|t| t.starts_with(API_KEY_PREFIX));
-            return match bearer {
-                Some(token) => from_api_key(parts, state, token).await,
-                None => Err(ApiError::unauthorized()),
-            };
-        };
-
-        let db = state.db();
-        let session = sessions::Entity::find()
-            .filter(sessions::Column::Token.eq(&token))
-            .one_or_not_found(db)
-            .await
-            .map_err(|_| ApiError::unauthorized())?;
-
-        if time::now() > session.expires_at {
-            return Err(ApiError::unauthorized());
+        // A signed-in session (the auth layer put it in the request), else an API key.
+        if let Some(session) = parts.extensions.get::<crate::sessions::AuthSession>()
+            && let Some(signed_in) = &session.user
+        {
+            return Ok(CurrentUser {
+                user: signed_in.user.clone(),
+                api_key: None,
+            });
         }
-
-        let user = users::Entity::find_by_id(session.user_id)
-            .one_or_not_found(db)
-            .await
-            .map_err(|_| ApiError::unauthorized())?;
-        if !user.active {
-            return Err(ApiError::unauthorized());
+        let bearer = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer "))
+            .map(str::trim)
+            .filter(|t| t.starts_with(API_KEY_PREFIX));
+        match bearer {
+            Some(token) => from_api_key(parts, state, token).await,
+            None => Err(ApiError::unauthorized()),
         }
-
-        Ok(CurrentUser {
-            user,
-            session_token: token,
-            api_key: None,
-        })
-    }
-}
-
-/// Failed logins that count towards slowing down.
-const WINDOW: Duration = Duration::from_secs(15 * 60);
-/// Failures allowed in the window before attempts are delayed.
-const FREE_FAILURES: usize = 5;
-/// The longest a login attempt is made to wait.
-const MAX_DELAY: Duration = Duration::from_secs(30);
-
-/// Recent failed logins per email and per network address, kept in memory only (the address is never
-/// stored). After [`FREE_FAILURES`] failures within [`WINDOW`], each further attempt for that email or
-/// from that address waits longer (1s, 2s, 4s, ... up to [`MAX_DELAY`]). There is no lockout, so nobody
-/// can lock someone else out.
-#[derive(Default)]
-pub struct LoginLimits {
-    failures: Mutex<HashMap<String, Vec<Instant>>>,
-}
-
-impl LoginLimits {
-    fn keys(email: &str, address: Option<&str>) -> Vec<String> {
-        let mut keys = vec![format!("email:{}", email.trim().to_lowercase())];
-        if let Some(address) = address {
-            keys.push(format!("addr:{address}"));
-        }
-        keys
-    }
-
-    /// How long this attempt has to wait before it is checked.
-    pub fn delay(&self, email: &str, address: Option<&str>) -> Duration {
-        let now = Instant::now();
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        let worst = Self::keys(email, address)
-            .iter()
-            .map(|key| {
-                let list = failures.entry(key.clone()).or_default();
-                list.retain(|t| now.duration_since(*t) < WINDOW);
-                list.len()
-            })
-            .max()
-            .unwrap_or(0);
-        if worst < FREE_FAILURES {
-            return Duration::ZERO;
-        }
-        let steps = (worst - FREE_FAILURES).min(10) as u32;
-        Duration::from_secs(1u64 << steps).min(MAX_DELAY)
-    }
-
-    pub fn failed(&self, email: &str, address: Option<&str>) {
-        let now = Instant::now();
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        for key in Self::keys(email, address) {
-            failures.entry(key).or_default().push(now);
-        }
-        // Forget keys with nothing recent, so the map stays small.
-        failures.retain(|_, list| list.iter().any(|t| now.duration_since(*t) < WINDOW));
-    }
-
-    pub fn succeeded(&self, email: &str) {
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        failures.remove(&format!("email:{}", email.trim().to_lowercase()));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn failures_slow_down_after_five() {
-        let limits = LoginLimits::default();
-        for _ in 0..5 {
-            assert_eq!(limits.delay("a@b.c", Some("1.2.3.4")), Duration::ZERO);
-            limits.failed("a@b.c", Some("1.2.3.4"));
-        }
-        assert_eq!(limits.delay("a@b.c", None), Duration::from_secs(1));
-        limits.failed("a@b.c", None);
-        assert_eq!(limits.delay("A@B.C", None), Duration::from_secs(2));
-        // The address alone also counts.
-        assert_eq!(
-            limits.delay("other@b.c", Some("1.2.3.4")),
-            Duration::from_secs(1)
-        );
-        // Success clears the email's count.
-        limits.succeeded("a@b.c");
-        assert_eq!(limits.delay("a@b.c", None), Duration::ZERO);
     }
 }

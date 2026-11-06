@@ -13,7 +13,7 @@ impl Modify for SecurityAddon {
             "session_cookie",
             utoipa::openapi::security::SecurityScheme::ApiKey(
                 utoipa::openapi::security::ApiKey::Cookie(
-                    // `__Host-woodmouse_session` when the site is https (`WOODMOUSE_SECURE_COOKIES`).
+                    // `__Host-woodmouse_session` when the site is https (`PUBLIC_URL` starting with `https://`).
                     utoipa::openapi::security::ApiKeyValue::with_description(
                         "woodmouse_session",
                         "The session cookie; named `__Host-woodmouse_session` over https",

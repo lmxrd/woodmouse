@@ -42,6 +42,9 @@ pub struct Model {
     pub global_role: Option<Role>,
     /// Disabled accounts cannot sign in; everything they made stays.
     pub active: bool,
+    /// Raised each time the account is disabled; part of the session hash, so a disabled account's sessions
+    /// end for good.
+    pub session_generation: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -62,8 +65,6 @@ pub enum Relation {
     Revisions,
     #[sea_orm(has_many = "super::saved_views::Entity")]
     SavedViews,
-    #[sea_orm(has_many = "super::sessions::Entity")]
-    Sessions,
     #[sea_orm(has_many = "super::task_assignees::Entity")]
     TaskAssignees,
     #[sea_orm(has_many = "super::user_identities::Entity")]
@@ -125,12 +126,6 @@ impl Related<super::revisions::Entity> for Entity {
 impl Related<super::saved_views::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SavedViews.def()
-    }
-}
-
-impl Related<super::sessions::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Sessions.def()
     }
 }
 

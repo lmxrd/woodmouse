@@ -1,0 +1,6 @@
+# The Rust toolchain for the backend: rustup and mise both read it. The musl targets are for the static
+# release binary (scripts/build-linux.sh); the host target comes with the toolchain.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "llvm-tools", "rustfmt"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

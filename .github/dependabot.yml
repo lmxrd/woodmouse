@@ -70,9 +70,9 @@ updates:
         patterns: ["*"]
 
   # The base image of the Dockerfile, pinned to an exact Alpine release
-  # (alpine:3.x.y). The image builds nothing, so the toolchains live only
-  # in mise.toml, which Dependabot does not read: a person bumps them
-  # (Node's must be an LTS).
+  # (alpine:3.x.y). The image builds nothing; the toolchains (package.json's
+  # devEngines and packageManager, rust-toolchain.toml) are bumped by a
+  # person (Node's must be an LTS).
   - package-ecosystem: docker
     directory: /
     schedule:

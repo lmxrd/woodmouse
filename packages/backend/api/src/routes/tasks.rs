@@ -19,7 +19,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::revisions::{self, TaskContent};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
@@ -155,12 +156,12 @@ pub(crate) async fn validate_sprint(
     let sprint = sprints::Entity::find_by_id(sprint_id)
         .one_or_not_found(db)
         .await
-        .map_err(|_| ApiError::bad_request("no such sprint"))?;
+        .map_err(|_| ApiError::bad_request("No such sprint"))?;
     if sprint.project_id != project_id || sprint.deleted_at.is_some() {
-        return Err(ApiError::bad_request("no such sprint"));
+        return Err(ApiError::bad_request("No such sprint"));
     }
     if sprint.completed_at.is_some() {
-        return Err(ApiError::conflict("that sprint is completed"));
+        return Err(ApiError::conflict("That sprint is completed"));
     }
     Ok(())
 }
@@ -169,7 +170,7 @@ pub(crate) async fn validate_sprint(
 fn validate_minutes(minutes: Option<i64>) -> Result<(), ApiError> {
     if minutes.is_some_and(|m| !(0..=1_000_000).contains(&m)) {
         return Err(ApiError::bad_request(
-            "work time must be between 0 and 1 000 000 minutes",
+            "Work time must be between 0 and 1 000 000 minutes",
         ));
     }
     Ok(())
@@ -225,8 +226,10 @@ pub struct TaskFilters {
     params(("workspace_id" = uuid::Uuid, Path, description = "Workspace id"), TaskFilters),
     responses(
         (status = 200, description = "The matching tasks", body = [TaskResponse]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access; also an unknown project or list filter")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access; also an unknown project or list filter", body = ErrorBody)
     )
 )]
 pub async fn list_tasks(
@@ -379,16 +382,18 @@ pub async fn list_tasks(
     request_body = CreateTaskRequest,
     responses(
         (status = 201, description = "Task created", body = TaskResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No list with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No list with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_task(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(list_id): Path<uuid::Uuid>,
-    Json(input): Json<CreateTaskRequest>,
+    ApiJson(input): ApiJson<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
     let db = state.writer().await?;
     let (list, workspace_id) = access::require_list(&*db, &user, list_id, Role::Write).await?;
@@ -415,16 +420,18 @@ pub async fn create_task(
     request_body = CreateTaskRequest,
     responses(
         (status = 201, description = "Task created", body = TaskResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_inbox_task(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(project_id): Path<uuid::Uuid>,
-    Json(input): Json<CreateTaskRequest>,
+    ApiJson(input): ApiJson<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
     let db = state.writer().await?;
     let workspace_id = access::require_project_access(&*db, &user, project_id, Role::Write).await?;
@@ -480,7 +487,7 @@ pub(crate) async fn create_task_tx(
 ) -> Result<Task, ApiError> {
     let title = input.title.trim().to_string();
     if title.is_empty() {
-        return Err(ApiError::bad_request("title is required"));
+        return Err(ApiError::bad_request("Title is required"));
     }
     validate_assignees(tx, &input.assignee_ids, workspace_id).await?;
     validate_labels(tx, &input.label_ids, workspace_id).await?;
@@ -620,8 +627,10 @@ pub async fn create_task_in(
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "The task", body = TaskResponse),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_task(
@@ -646,23 +655,25 @@ pub async fn get_task(
     request_body = UpdateTaskRequest,
     responses(
         (status = 200, description = "Task updated", body = TaskResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_task(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateTaskRequest>,
+    ApiJson(input): ApiJson<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, ApiError> {
     let db = state.writer().await?;
     let (current, workspace_id) = access::require_task(&*db, &user, id, Role::Write).await?;
     if let Some(title) = &input.title
         && title.trim().is_empty()
     {
-        return Err(ApiError::bad_request("title cannot be empty"));
+        return Err(ApiError::bad_request("Title cannot be empty"));
     }
     if let Some(assignee_ids) = &input.assignee_ids {
         validate_assignees(&*db, assignee_ids, workspace_id).await?;
@@ -678,7 +689,7 @@ pub async fn update_task(
         if let Some(list_id) = target {
             let (list, _) = access::require_list(&*db, &user, list_id, Role::Write).await?;
             if list.project_id != current.project_id {
-                return Err(ApiError::bad_request("list is in another project"));
+                return Err(ApiError::bad_request("List is in another project"));
             }
         }
         if target != current.list_id {
@@ -697,7 +708,7 @@ pub async fn update_task(
                 .find(|t| t.id == parent_id && t.deleted_at.is_none())
                 .ok_or_else(ApiError::not_found)?;
             if parent_id == id || trash::subtree(&project_tasks, id).contains(&parent_id) {
-                return Err(ApiError::bad_request("a task cannot go below itself"));
+                return Err(ApiError::bad_request("A task cannot go below itself"));
             }
             if parent_task.list_id != current.list_id {
                 new_list = Some(parent_task.list_id);
@@ -708,7 +719,7 @@ pub async fn update_task(
         }
     } else if current.parent_id.is_some() && new_list.is_some() {
         return Err(ApiError::bad_request(
-            "a subtask stays in its parent's list; move the parent instead",
+            "A subtask stays in its parent's list; move the parent instead",
         ));
     }
 
@@ -1081,8 +1092,10 @@ async fn record_changes(
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 204, description = "Task deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn delete_task(
@@ -1119,7 +1132,7 @@ pub(crate) async fn validate_assignees(
     for user_id in assignee_ids {
         if !access::can_see_workspace(db, *user_id, workspace_id).await? {
             return Err(ApiError::bad_request(
-                "assignees must be members of the workspace",
+                "Assignees must be members of the workspace",
             ));
         }
     }
@@ -1145,7 +1158,7 @@ async fn validate_labels(
             .any(|l| l.workspace_id != workspace_id || l.deleted_at.is_some())
     {
         return Err(ApiError::bad_request(
-            "labels must belong to the same workspace",
+            "Labels must belong to the same workspace",
         ));
     }
     Ok(labels)

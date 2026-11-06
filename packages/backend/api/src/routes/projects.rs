@@ -11,7 +11,8 @@ use crate::access;
 use crate::api::{description, required};
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use crate::{time, trash};
 use entity::{Project, Role};
@@ -48,8 +49,10 @@ pub struct UpdateProject {
     params(("workspace_id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "The workspace's projects", body = [Project]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_projects(
@@ -79,16 +82,18 @@ pub async fn list_projects(
     request_body = CreateProject,
     responses(
         (status = 201, description = "Project created", body = Project),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_project(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(workspace_id): Path<uuid::Uuid>,
-    Json(input): Json<CreateProject>,
+    ApiJson(input): ApiJson<CreateProject>,
 ) -> Result<(StatusCode, Json<Project>), ApiError> {
     let name = required(&input.name, "name")?;
     let description = description(&input.description)?;
@@ -118,8 +123,10 @@ pub async fn create_project(
     params(("id" = uuid::Uuid, Path, description = "Project id")),
     responses(
         (status = 200, description = "The project", body = Project),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_project(
@@ -142,16 +149,18 @@ pub async fn get_project(
     request_body = UpdateProject,
     responses(
         (status = 200, description = "Project updated", body = Project),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_project(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateProject>,
+    ApiJson(input): ApiJson<UpdateProject>,
 ) -> Result<Json<Project>, ApiError> {
     let db = state.writer().await?;
     let project = access::require_project(&*db, &user, id, Role::Write).await?;
@@ -176,8 +185,10 @@ pub async fn update_project(
     params(("id" = uuid::Uuid, Path, description = "Project id")),
     responses(
         (status = 204, description = "Project deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn delete_project(

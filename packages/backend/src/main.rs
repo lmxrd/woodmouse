@@ -4,7 +4,7 @@
 //!   GET  /api/health     - liveness probe
 //!   GET  /api/auth/*     - bootstrap (first user), login/logout, me
 //!   /                    - embedded CSR frontend (SPA fallback)
-//!   /swagger-ui         - Swagger UI (only with WOODMOUSE_SWAGGER_UI set)
+//!   /swagger-ui         - Swagger UI (only with SWAGGER_UI set)
 //!
 //! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse check` reports orphaned rows.
 
@@ -18,10 +18,11 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 use utoipa_swagger_ui::SwaggerUi;
 
+use anyhow::Context;
 use api::{routes, state::AppState};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -35,13 +36,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:woodmouse.db".to_string());
 
-    let state = AppState::open(&db_url).await?;
+    let state = AppState::open(&db_url).await.context("could not start")?;
 
     match std::env::args().nth(1).as_deref() {
         None | Some("serve") => {}
         Some("check") => return run_check(&state).await,
         Some(other) => {
-            return Err(format!("unknown command `{other}` (try check)").into());
+            anyhow::bail!("unknown command `{other}` (try check)");
         }
     }
     api::jobs::spawn(state.clone());
@@ -50,9 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(state.clone())
         .split_for_parts();
 
-    // The API's description (swagger-ui) is served only when asked for:
-    // WOODMOUSE_SWAGGER_UI set and not "0", like WOODMOUSE_SECURE_COOKIES.
-    let swagger_ui = std::env::var("WOODMOUSE_SWAGGER_UI").is_ok_and(|v| v != "0");
+    // The API's description (swagger-ui) is served only when asked for (`SWAGGER_UI`).
+    let swagger_ui = api::config::flag("SWAGGER_UI")
+        .map_err(anyhow::Error::msg)?
+        .unwrap_or(false);
     let app = if swagger_ui {
         router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
     } else {
@@ -70,7 +72,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(8000);
     let addr = format!("0.0.0.0:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("could not listen on {addr}"))?;
     if swagger_ui {
         tracing::info!("listening on http://{addr} (swagger-ui at /swagger-ui)");
     } else {
@@ -90,7 +94,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => result?,
-        () = shutdown_signal() => {
+        signal = shutdown_signal() => {
+            signal?;
             // Keep the last seconds of live typing, then let requests finish. Open WebSockets can keep
             // the server from finishing, so give it a few seconds.
             state.rooms.save_all(&state).await;
@@ -105,14 +110,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// `GET /api/health` on this machine, by hand (the runtime image ships no wget or curl).
 /// Succeeds on a 200, fails otherwise.
-async fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
+async fn run_healthcheck() -> anyhow::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8000);
-    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .context("the server is not answering")?;
     stream
         .write_all(b"GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n")
         .await?;
@@ -121,14 +128,14 @@ async fn run_healthcheck() -> Result<(), Box<dyn std::error::Error>> {
     if &head == b"HTTP/1.1 200" || &head == b"HTTP/1.0 200" {
         Ok(())
     } else {
-        Err("the health endpoint did not answer 200".into())
+        anyhow::bail!("the health endpoint did not answer 200")
     }
 }
 
-async fn run_check(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_check(state: &AppState) -> anyhow::Result<()> {
     let problems = api::integrity::check(state.db())
         .await
-        .map_err(|_| "the check failed")?;
+        .context("the check failed")?;
     for p in &problems {
         println!("{} {}: {}", p.table, p.id, p.relation);
     }
@@ -136,29 +143,32 @@ async fn run_check(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
         println!("no problems found");
         Ok(())
     } else {
-        Err(format!("{} problem(s) found", problems.len()).into())
+        anyhow::bail!("{} problem(s) found", problems.len())
     }
 }
 
-/// Resolves on Ctrl+C or SIGTERM (what a container runtime sends on stop).
-async fn shutdown_signal() {
+/// Resolves on Ctrl+C or SIGTERM (what a container runtime sends on stop); an error if neither can be
+/// listened for.
+async fn shutdown_signal() -> anyhow::Result<()> {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
-            .expect("failed to install Ctrl+C handler");
+            .context("could not listen for Ctrl+C")
     };
     #[cfg(unix)]
     let terminate = async {
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install the SIGTERM handler")
+            .context("could not listen for SIGTERM")?
             .recv()
             .await;
+        Ok::<(), anyhow::Error>(())
     };
     #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+    let terminate = std::future::pending::<anyhow::Result<()>>();
     tokio::select! {
-        () = ctrl_c => {},
-        () = terminate => {},
+        result = ctrl_c => result?,
+        result = terminate => result?,
     }
     tracing::info!("shutting down");
+    Ok(())
 }

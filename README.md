@@ -59,10 +59,11 @@ volumes:
 
 Each release has a single Linux program for `amd64` and `arm64`, which runs on
 any Ubuntu or Debian. Download the one for your machine from the
-[releases](https://github.com/lmxrd/woodmouse/releases) (a checksum file sits
-next to it), make it executable and run it:
+[releases](https://github.com/lmxrd/woodmouse/releases), check it against the
+release's `SHA256SUMS`, make it executable and run it:
 
 ```bash
+sha256sum -c SHA256SUMS --ignore-missing
 chmod +x woodmouse-linux-amd64
 ./woodmouse-linux-amd64
 ```
@@ -77,21 +78,22 @@ files (`data/`) in the folder you start it from.
 Everything works without configuration. These environment variables are all
 optional:
 
-| Variable                   | Default                 | Meaning                                                                                  |
-| -------------------------- | ----------------------- | ---------------------------------------------------------------------------------------- |
-| `PORT`                     | `8000`                  | The port to listen on                                                                    |
-| `PUBLIC_URL`               | from the request        | Your address, like `https://tasks.example.com`, for links in calendar events and emails  |
-| `DATABASE_URL`             | `sqlite:woodmouse.db`   | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`)                  |
-| `DATA_DIR`                 | `data`                  | Where uploaded files live (the Docker image uses `/data`)                                |
-| `MAX_UPLOAD_MB`            | `25`                    | The largest accepted upload                                                              |
-| `WOODMOUSE_SECURE_COOKIES` | unset                   | Set to `1` when served over HTTPS: login cookies get `Secure` and the `__Host-` prefix   |
-| `WOODMOUSE_SWAGGER_UI`     | unset                   | Set to `1` to browse the API at `/swagger-ui`                                            |
-| `SMTP_*`                   | unset                   | Email, see below                                                                         |
-| `OIDC_*`                   | unset                   | Single sign-on, see below                                                                |
-| `TOTP_REQUIRED`            | unset                   | `true` to require two-factor sign-in: anyone without it sets it up at their next sign-in |
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `8000` | The port to listen on |
+| `PUBLIC_URL` | from the request | Your address, like `https://tasks.example.com`, for links in emails and calendar events. Starting with `https://`, every cookie gets `Secure` and the `__Host-` prefix |
+| `DATABASE_URL` | `sqlite:woodmouse.db` | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`) |
+| `DATA_DIR` | `data` | Where uploaded files live (the Docker image uses `/data`) |
+| `MAX_UPLOAD_MB` | `25` | The largest accepted upload |
+| `TRUST_PROXY` | unset | `true` behind a reverse proxy that sets `X-Forwarded-For`: the sign-in limits then count by the client's address from it |
+| `SWAGGER_UI` | unset | `true` to browse the API at `/swagger-ui` |
+| `RUST_LOG` | `info` | How much the server logs (`debug`, `warn`, or per module like `api=debug`) |
+| `SMTP_*` | unset | Email, see below |
+| `OIDC_*` | unset | Single sign-on, see below |
+| `TOTP_REQUIRED` | unset | `true` to require two-factor sign-in: anyone without it sets it up at their next sign-in |
 
-The yes/no variables (`TOTP_REQUIRED`, and `OIDC_ENABLED`, `OIDC_AUTO_CREATE`
-and `OIDC_ONLY` below) take `true` or `false`; `1`/`0`, `yes`/`no` and
+The yes/no variables (`TRUST_PROXY`, `SWAGGER_UI`, `TOTP_REQUIRED`, and
+`OIDC_AUTO_CREATE` and `OIDC_ONLY` below) take `true` or `false`; `1`/`0`, `yes`/`no` and
 `on`/`off` work too, in any case. Any other value stops the server from starting.
 
 
@@ -120,9 +122,27 @@ To copy the database while the server runs, use SQLite rather than `cp`:
   `proxy_set_header Connection "upgrade";`; Caddy and Traefik do it by default.
   Without it, pages still work with a Save button instead of live editing.
 - **Run one instance.** Live documents are kept in memory.
-- **Use HTTPS**, and set `WOODMOUSE_SECURE_COOKIES=1` and `PUBLIC_URL`. The
+- **Use HTTPS**, and set `PUBLIC_URL` to your `https://` address. The
   session cookie is then `__Host-woodmouse_session`, which no other subdomain
   can set. Turning the setting on or off signs everyone out once.
+- **Sessions** last 30 days from sign-in. The database keeps only a hash of
+  each session's id, so a copy of it (or of a backup) cannot be used to sign
+  in. Changing your password or your two-factor setting signs out your other
+  sessions; disabling an account ends its sessions for good (enabling it again
+  does not bring them back). Upgrading to the
+  release with this session store signs everyone out once.
+- **Cross-site requests are refused.** A request that changes something and
+  that the browser marks as coming from another site (`Sec-Fetch-Site`, or an
+  `Origin` that is not `PUBLIC_URL`, or this host when `PUBLIC_URL` is unset)
+  gets 403. API keys and other non-browser clients are not affected.
+- **Sign-in attempts are limited**, every attempt counted, right or wrong: 5
+  per email address (then one a minute), 30 per client address (then one every
+  6 seconds; behind a proxy, set `TRUST_PROXY=true` so the real address is
+  used), and 5 two-factor codes or password changes per person (then one a
+  minute). Over a limit the answer is 429 with `Retry-After`.
+- **Cookies** are `HttpOnly`; the session and the two-factor step's are
+  `SameSite=Strict`, and with an `https://` `PUBLIC_URL` all are `Secure` and
+  `__Host-` prefixed.
 
 ### Email
 
@@ -145,17 +165,20 @@ is set wins over its field on that page, which then cannot be changed there.
 | `OIDC_ISSUER`        | The provider's issuer URL (https), like `https://id.example.com/realms/home`                  |
 | `OIDC_CLIENT_ID`     | The client registered at the provider                                                         |
 | `OIDC_CLIENT_SECRET` | Its secret (leave unset for a public client)                                                  |
-| `OIDC_ENABLED`       | `true` or `false`; on by default when `OIDC_ISSUER` is set                                    |
-| `OIDC_DISPLAY_NAME`  | The provider's name on the login button                                                       |
+| `OIDC_LABEL`         | The provider's name on the login button                                                       |
+| `OIDC_SCOPES`        | The scopes asked for, space separated (default `openid email`; add `profile` for names)       |
 | `OIDC_AUTO_CREATE`   | `true` to create an account for someone new whose provider confirms their email               |
 | `OIDC_REDIRECT_URL`  | The callback URL, when the one from `PUBLIC_URL` is wrong                                     |
 | `OIDC_ONLY`          | `true` to turn password sign-in off: single sign-on is the only way in (see below)            |
 
 - **Register the callback URL** at the provider:
   `<PUBLIC_URL>/api/auth/oidc/callback`. The settings page shows it.
-- **Over HTTPS, set `WOODMOUSE_SECURE_COOKIES=1`**; over plain HTTP, leave it
-  unset. When the callback URL and that setting disagree, single sign-on is
-  refused (the login page says it is misconfigured and the server log says why).
+- **Single sign-on is on** once there is an issuer and a client id (from these
+  variables or the settings page). The settings page has an on/off switch;
+  with `OIDC_ONLY` it stays on.
+- **The callback URL must use `PUBLIC_URL`'s scheme** (https or http). When
+  they disagree, single sign-on is refused (the login page says it is
+  misconfigured and the server log says why).
 - **How accounts are found.** The first time, by the email address, and only if
   the provider says it is verified; from then on by the provider's user id, so
   a changed email does not matter. Microsoft Entra ID never says an email is
@@ -204,7 +227,8 @@ who can reset it under **Site admin → Users**.
 
 With `TOTP_REQUIRED=true`, every sign-in (password or single sign-on) of someone
 without two-factor sets it up before going in, and nobody can turn it off.
-Sessions that already exist are left alone. After the super admin resets
+Sessions that already exist are left alone until the person sets it up
+(turning two-factor on signs out their other sessions). After the super admin resets
 someone's two-factor, they set it up again at their next sign-in.
 
 ### Docker notes
@@ -225,7 +249,7 @@ release.
 
 ### The API
 
-Every route lives under `/api`. Run with `WOODMOUSE_SWAGGER_UI=1` to browse the
+Every route lives under `/api`. Run with `SWAGGER_UI=true` to browse the
 API, or load the `openapi.json` attached to each release into any OpenAPI tool.
 
 Scripts and integrations use an **API key** from **Settings → Account**, sent
@@ -235,6 +259,31 @@ administers (site or workspace), and **Admin** (for site and global admins
 only) does what you may. A key can never manage API keys, two-factor sign-in,
 your password, email or sessions. It stops working when it is revoked, when it
 expires, or when your account is disabled. The key is shown once, when made.
+
+## Breaking changes
+
+Woodmouse is before 1.0, so a release can need changes on your side. Each one
+is listed here (and in its release notes), newest last.
+
+### Unreleased
+
+- **Renamed and removed variables.** `WOODMOUSE_SWAGGER_UI` is `SWAGGER_UI`.
+  `WOODMOUSE_SECURE_COOKIES` is gone: a `PUBLIC_URL` starting with
+  `https://` makes cookies secure. `OIDC_DISPLAY_NAME` is `OIDC_LABEL`.
+  `OIDC_ENABLED` is gone: single sign-on is on once it has an issuer and a
+  client id, and the settings page's switch turns it off.
+- **Single sign-on asks for `openid email`** unless `OIDC_SCOPES` says
+  otherwise (it used to add `profile`); add `profile` to get people's names.
+- **`X-Forwarded-For` is read only with `TRUST_PROXY=true`.**
+- **Sign-in limits count every attempt** (they used to slow down only after
+  failures), and answer 429 instead of waiting.
+- **The session cookie is `SameSite=Strict`** (was `Lax`).
+- **With `PUBLIC_URL` set, it is the only allowed origin** for browsers without
+  `Sec-Fetch-Site`; the `Host` no longer counts then.
+- **API error messages** are sentence case ("Not found"), every 500 says
+  "Internal server error", and a JSON body that does not fit its endpoint is a
+  400 (was 422), one without `Content-Type: application/json` a 415. Scripts
+  that matched on the old texts need updating.
 
 ## Contributing
 

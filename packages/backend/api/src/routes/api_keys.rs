@@ -14,7 +14,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use crate::time::{self, DateTime};
 
@@ -73,8 +74,8 @@ impl From<ApiKey> for ApiKeyView {
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Your API keys", body = [ApiKeyView]),
-        (status = 401, description = "Not logged in"),
-        (status = 403, description = "Made with an API key: keys are managed with a session only")
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Made with an API key: keys are managed with a session only", body = ErrorBody)
     )
 )]
 pub async fn list_api_keys(
@@ -118,25 +119,23 @@ pub struct CreatedApiKey {
     request_body = CreateApiKey,
     responses(
         (status = 201, description = "The new key and its token", body = CreatedApiKey),
-        (status = 400, description = "No name, or a bad expiry"),
-        (status = 401, description = "Not logged in"),
-        (status = 403, description = "An admin key without being an admin, or made with an API key")
+        (status = 400, description = "No name, or a bad expiry", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "An admin key without being an admin, or made with an API key", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_api_key(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<CreateApiKey>,
+    ApiJson(input): ApiJson<CreateApiKey>,
 ) -> Result<(StatusCode, Json<CreatedApiKey>), ApiError> {
     let name = input.name.trim().to_string();
     if name.is_empty() || name.chars().count() > 100 {
-        return Err(ApiError::bad_request("a name of 1 to 100 characters"));
+        return Err(ApiError::bad_request("A name of 1 to 100 characters"));
     }
     if input.scope == Role::Admin && !(user.super_admin || user.global_role == Some(Role::Admin)) {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "only an admin may make an admin key",
-        ));
+        return Err(ApiError::forbidden("Only an admin may make an admin key"));
     }
     let now = time::now();
     let expires_at = match input.expires_in_days {
@@ -146,7 +145,7 @@ pub async fn create_api_key(
         }
         Some(_) => {
             return Err(ApiError::bad_request(format!(
-                "expires_in_days must be 1 to {MAX_EXPIRY_DAYS}"
+                "Expires_in_days must be 1 to {MAX_EXPIRY_DAYS}"
             )));
         }
     };
@@ -198,9 +197,10 @@ pub async fn create_api_key(
     params(("id" = uuid::Uuid, Path, description = "API key id")),
     responses(
         (status = 204, description = "Revoked"),
-        (status = 401, description = "Not logged in"),
-        (status = 403, description = "Made with an API key: keys are managed with a session only"),
-        (status = 404, description = "Not your key, or revoked already")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Made with an API key: keys are managed with a session only", body = ErrorBody),
+        (status = 404, description = "Not your key, or revoked already", body = ErrorBody)
     )
 )]
 pub async fn revoke_api_key(

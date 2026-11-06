@@ -2,13 +2,13 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use serde_json::Value;
 
 use crate::common::*;
 
-async fn json(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).expect("valid json")
+async fn json(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).expect("valid json")
 }
 
 async fn member(
@@ -38,16 +38,7 @@ async fn member(
     .insert(db)
     .await
     .unwrap();
-    let token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(user.id),
-        expires_at: Set(crate::common::far_future()),
-    }
-    .insert(db)
-    .await
-    .unwrap();
+    let token = api::sessions::start_session(db, user.id).await.unwrap();
     format!("woodmouse_session={token}")
 }
 
@@ -59,15 +50,10 @@ async fn private_and_shared_views() {
     let writer = member(&db, ws, "w@home.io", entity::Role::Write).await;
     let reader = member(&db, ws, "r@home.io", entity::Role::Read).await;
     let project = json(
-        request(
-            &app,
-            post_json(
-                &format!("/api/workspaces/{ws}/projects"),
-                r#"{"name":"P"}"#,
-                Some(&admin),
-            ),
-        )
-        .await,
+        app.post(&format!("/api/workspaces/{ws}/projects"))
+            .json_text(r#"{"name":"P"}"#)
+            .session(Some(&admin))
+            .await,
     )
     .await["id"]
         .as_str()
@@ -77,13 +63,13 @@ async fn private_and_shared_views() {
     let create = |cookie: String, body: &'static str| {
         let app = app.clone();
         let uri = format!("/api/projects/{project}/views");
-        async move { request(&app, post_json(&uri, body, Some(&cookie))).await }
+        async move { app.post(&uri).json_text(body).session(Some(&cookie)).await }
     };
     let list = |cookie: String| {
         let app = app.clone();
         let uri = format!("/api/projects/{project}/views");
         async move {
-            json(request(&app, get(&uri, Some(&cookie))).await)
+            json(app.get(&uri).session(Some(&cookie)).await)
                 .await
                 .as_array()
                 .unwrap()
@@ -97,7 +83,7 @@ async fn private_and_shared_views() {
         r#"{"name":"Mine","params":{"view":"list","status":"open"}}"#,
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let mine = json(res).await;
     assert_eq!(mine["is_shared"], false);
     assert_eq!(mine["can_edit"], true);
@@ -107,13 +93,13 @@ async fn private_and_shared_views() {
         r#"{"name":"Nope","params":{},"is_shared":true}"#,
     )
     .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
     let res = create(
         writer.clone(),
         r#"{"name":"Due this week","params":{"sort":"due_date"},"is_shared":true}"#,
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let shared = json(res).await;
     let shared_id = shared["id"].as_str().unwrap().to_string();
     create(writer.clone(), r#"{"name":"Writer private","params":{}}"#).await;
@@ -148,9 +134,11 @@ async fn private_and_shared_views() {
             body.to_string(),
         );
         async move {
-            request(&app, patch_json(&uri, &body, Some(&cookie)))
+            app.patch(&uri)
+                .json_text(&body)
+                .session(Some(&cookie))
                 .await
-                .status()
+                .status_code()
         }
     };
     assert_eq!(
@@ -186,25 +174,21 @@ async fn private_and_shared_views() {
     );
 
     // Delete moves it to Trash; the owner sees it there and can restore it.
-    let res = request(
-        &app,
-        delete(&format!("/api/views/{mine_id}"), Some(&reader)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .delete(&format!("/api/views/{mine_id}"))
+        .session(Some(&reader))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(names(&list(reader.clone()).await), ["Due soon"]);
-    let res = request(
-        &app,
-        delete(&format!("/api/views/{shared_id}"), Some(&admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .delete(&format!("/api/views/{shared_id}"))
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     let trash = json(
-        request(
-            &app,
-            get(&format!("/api/workspaces/{ws}/trash"), Some(&admin)),
-        )
-        .await,
+        app.get(&format!("/api/workspaces/{ws}/trash"))
+            .session(Some(&admin))
+            .await,
     )
     .await;
     assert_eq!(
@@ -213,16 +197,14 @@ async fn private_and_shared_views() {
         "the admin sees the shared view, not someone's private one"
     );
     assert_eq!(trash[0]["kind"], "view");
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{ws}/trash/view/{shared_id}/restore"),
-            "{}",
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .post(&format!(
+            "/api/workspaces/{ws}/trash/view/{shared_id}/restore"
+        ))
+        .json_text("{}")
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
         names(&list(writer.clone()).await),
         ["Due soon", "Writer private"]

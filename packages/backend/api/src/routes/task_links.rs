@@ -13,7 +13,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use entity::{LinkKind, Role, TaskLink};
 
@@ -136,8 +137,10 @@ async fn links_of(db: &impl Db, task_id: uuid::Uuid) -> Result<Vec<TaskLink>, Ap
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "The task's links", body = [TaskLinkView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_links(
@@ -161,22 +164,24 @@ pub async fn list_links(
     request_body = AddLink,
     responses(
         (status = 201, description = "Link created", body = TaskLinkView),
-        (status = 400, description = "Invalid link"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such task, or no access"),
-        (status = 409, description = "These tasks are already linked this way")
+        (status = 400, description = "Invalid link", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such task, or no access", body = ErrorBody),
+        (status = 409, description = "These tasks are already linked this way", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn add_link(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<AddLink>,
+    ApiJson(input): ApiJson<AddLink>,
 ) -> Result<(StatusCode, Json<TaskLinkView>), ApiError> {
     let db = state.writer().await?;
     let workspace_id = access::require_task_access(&*db, &user, id, Role::Write).await?;
     if input.related_task_id == id {
-        return Err(ApiError::bad_request("a task cannot link to itself"));
+        return Err(ApiError::bad_request("A task cannot link to itself"));
     }
     // The other task must be live and in the same workspace (otherwise it looks nonexistent).
     let other =
@@ -192,7 +197,7 @@ pub async fn add_link(
             && (l.task_id == input.related_task_id || l.related_task_id == input.related_task_id)
     }) {
         return Err(ApiError::conflict(
-            "these tasks are already linked this way",
+            "These tasks are already linked this way",
         ));
     }
 
@@ -235,8 +240,10 @@ pub async fn add_link(
     ),
     responses(
         (status = 204, description = "Link removed"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such link on this task, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such link on this task, or no access", body = ErrorBody)
     )
 )]
 pub async fn remove_link(
@@ -285,8 +292,10 @@ pub struct LinkFilters {
     params(("id" = uuid::Uuid, Path, description = "Workspace id"), LinkFilters),
     responses(
         (status = 200, description = "The links", body = [LinkEdge]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_workspace_links(

@@ -16,20 +16,20 @@ use yrs::{Doc, GetString, ReadTxn, Transact, WriteTxn, XmlTextPrelim};
 use crate::common::*;
 
 struct Fx {
-    app: axum::Router,
-    addr: std::net::SocketAddr,
+    app: TestServer,
+    /// `host:port` of the real socket the server listens on (the WebSocket client needs one).
+    addr: String,
     cookie: String,
     ws: uuid::Uuid,
 }
 
 async fn fixture() -> Fx {
-    let (app, _db) = app_with_db().await;
+    let state = test_state(api::db::temporary().await);
+    let app = TestServer::builder().http_transport().build(router(state));
+    let url = app.server_address().expect("a real address");
+    let addr = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap());
     let cookie = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &cookie, "Home").await;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let served = app.clone();
-    tokio::spawn(async move { axum::serve(listener, served).await.unwrap() });
     Fx {
         app,
         addr,
@@ -39,27 +39,28 @@ async fn fixture() -> Fx {
 }
 
 impl Fx {
-    async fn json(&self, req: axum::http::Request<axum::body::Body>) -> Value {
-        let res = request(&self.app, req).await;
-        serde_json::from_str(&body_string(res.into_body()).await).unwrap_or(Value::Null)
+    async fn json(&self, req: TestRequest) -> Value {
+        serde_json::from_str(&req.await.text()).unwrap_or(Value::Null)
     }
     async fn page(&self, title: &str) -> String {
         let body = json!({ "title": title }).to_string();
         let v = self
-            .json(post_json(
-                &format!("/api/workspaces/{}/pages", self.ws),
-                &body,
-                Some(&self.cookie),
-            ))
+            .json(
+                self.app
+                    .post(&format!("/api/workspaces/{}/pages", self.ws))
+                    .json_text(&body)
+                    .session(Some(&self.cookie)),
+            )
             .await;
         v["id"].as_str().unwrap().to_string()
     }
     async fn session(&self, page: &str) -> String {
         let v = self
-            .json(get(
-                &format!("/api/pages/{page}/live-session"),
-                Some(&self.cookie),
-            ))
+            .json(
+                self.app
+                    .get(&format!("/api/pages/{page}/live-session"))
+                    .session(Some(&self.cookie)),
+            )
             .await;
         v["epoch"].as_str().unwrap().to_string()
     }
@@ -169,7 +170,11 @@ async fn edits_reach_other_editors_and_are_saved_as_blocks() {
     for _ in 0..30 {
         tokio::time::sleep(Duration::from_millis(250)).await;
         saved = fx
-            .json(get(&format!("/api/pages/{page}"), Some(&fx.cookie)))
+            .json(
+                fx.app
+                    .get(&format!("/api/pages/{page}"))
+                    .session(Some(&fx.cookie)),
+            )
             .await;
         if saved["blocks"][0]["spans"][0]["text"].is_string() {
             break;
@@ -202,16 +207,13 @@ async fn a_stale_epoch_or_a_save_outside_live_editing_closes_the_socket() {
     let mut a = Client::connect(&fx, &page, &epoch).await;
     a.pump(Duration::from_millis(300)).await;
     let body = json!({ "blocks": [{ "type": "paragraph", "spans": [{ "text": "from rest" }] }] });
-    let res = request(
-        &fx.app,
-        put_json(
-            &format!("/api/pages/{page}/blocks"),
-            &body.to_string(),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert!(res.status().is_success());
+    let res = fx
+        .app
+        .put(&format!("/api/pages/{page}/blocks"))
+        .json_text(&body.to_string())
+        .session(Some(&fx.cookie))
+        .await;
+    assert!(res.status_code().is_success());
     assert_eq!(a.pump(Duration::from_secs(2)).await, Some(4001));
 
     // The next session has a new epoch and starts from the saved blocks.

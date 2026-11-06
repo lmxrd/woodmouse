@@ -23,6 +23,10 @@
 
 ## Conventions
 
+- **Dependencies.** Prefer a well-known, maintained crate over writing the same thing ourselves.
+  Propose it first (name, exact version, why) and get approval before adding it. Write it ourselves only when no
+  maintained one fits, and say why in a comment where it lives (for example the session store: the community
+  SQL store needs sqlx 0.8, and two bundled SQLites do not link).
 - Rust edition 2024. The database is SQLite through SeaORM (`src/db.rs`) on top of an sqlx pool; sqlx runs the
   migrations and sets the pragmas (WAL, `foreign_keys`).
 - Models: one SeaORM entity per table in `entity/src/` (`tasks.rs`, ...: `tasks::Entity`, `tasks::Column`,
@@ -31,7 +35,11 @@
   jiff `DateTime` (`entity::time`; an explicit `use super::DateTime;` shadows the generated chrono type), the five enum
   columns are the `ActiveEnum`s in `entity/src/enums.rs`, four rows carry `Serialize`/`ToSchema`, and the actor relations
   the generator cannot write are in `entity/src/relations.rs`. The column type names in the migration (`uuid_text`,
-  `datetime_text`, `json_text`) are what make the generator write `Uuid`, date-time and `Json` fields; the JSON
+  `datetime_text`, `json_text`) are what make the generator write `Uuid`, date-time and `Json` fields. Ids are
+  stored as 16-byte BLOBs all the same (sqlx writes a `Uuid` as its bytes, and SQLite keeps a blob a blob under any
+  declared type; `db::every_id_is_stored_as_sixteen_bytes` checks it): raw SQL compares them with `unhex(..)` and
+  prints them with `lower(hex(..))`, and the API sends the usual hyphenated string. Only the search index
+  (`search_docs`, rebuilt by triggers) keys rows by the 32-character hex text; the JSON
   columns the application reads as JSON (audit and notification `data`, saved view `params`) are `Json`, page and
   revision content stays text. Regenerating keeps most edits
   (`--experimental-preserve-user-modifications`) and the task runs `cargo fmt` over the result; review the
@@ -54,7 +62,10 @@
   so writers queue in the app instead of meeting SQLite's "database is locked"), and `writer.begin()` starts a
   transaction (`tx.commit().await?`). There is no global DB mutex. Never hold the writer while calling `Rooms`
   (they take it themselves).
-- Shared route helpers (PATCH `double_option`, text validation, downloads) are in `src/api.rs`; env settings go through `src/config.rs`.
+- Shared route helpers (PATCH `double_option`, text validation, downloads) are in `src/api.rs`; env settings go through `src/config.rs`:
+  variables are unprefixed (`DATABASE_URL`, a database URL, `SWAGGER_UI`, `TRUST_PROXY`, `OIDC_*`, `TOTP_REQUIRED`; the README's
+  table lists them), every yes/no one goes through `config::flag` (a bad value stops the start), and logging
+  follows `RUST_LOG` (`info` by default).
 - Handlers live in `src/routes/`; every handler carries a `#[utoipa::path]`
   annotation. The annotation is the single source of truth — register new
   handlers in `src/routes/mod.rs` via `utoipa_axum::routes!` (group handlers
@@ -63,8 +74,16 @@
   `target/specs/`.
 - `src/openapi.rs` holds only the base document (title/metadata); paths and
   schemas are collected automatically by `routes!`.
-- Errors: `sea_orm::DbErr` and `sqlx::Error` convert to `ApiError` (`src/error.rs`); a missing row maps to 404,
-  everything else to 500.
+- Errors: `ApiError` (`src/error.rs`) is a `thiserror` enum; build it with its helpers (`bad_request`, `forbidden`,
+  `not_found`, `conflict`, `unauthorized`, `payload_too_large`, `internal`) and answer `{"error": ...}` (`ErrorBody`).
+  `sea_orm::DbErr` and `sqlx::Error` convert with `?` (a missing row is 404, anything else 500), and so does an
+  `anyhow::Error` (`ApiError::Other`; add `.context(..)`): those, and `internal(msg)` (msg is for the log only), are
+  logged and answered with a bare 500 "Internal server error". Client messages are sentence case (the
+  constructors capitalize the first letter: "Not found"). JSON bodies come through `extract::ApiJson` (415 without
+  `Content-Type: application/json`, 400 for a body that does not fit), and `extract::error_bodies` turns any other
+  extractor's plain-text rejection into the same body. Every `#[utoipa::path]` lists its error statuses with
+  `body = ErrorBody` (400 for a body or path id, 401 and 403 on session routes, 403 on every write for CSRF, 415
+  with a JSON body, 404/409/429 where they happen), so the SDK types its errors. The binaries and startup use `anyhow` (`.context(..)`, `bail!`), never `expect`.
 - Schema: SeaORM migrations in `migration/src/` (`m20260101_000001_init.rs` and later, listed in `lib.rs`),
   applied at startup, each once, recorded in `seaql_migrations`. Each runs the `.sql` file beside it, because the
   schema needs what the schema builder does not express (CHECK constraints, foreign key actions, FTS5, table
@@ -89,6 +108,14 @@
   migration only after it ran, so a crash in between runs it again: make each step repeatable.
 - Ordering (tasks, lists, wiki pages): integer `position`s 20 apart (`src/content/ordering.rs`). The API takes
   `after_id` (`null` = first), never a number; neighbours are renumbered only when there is no room.
+- Tests: unit tests beside the code; integration tests in `api/tests/it/` (one binary, `main.rs` lists the
+  modules) drive the real router through axum-test's `TestServer` on a fresh migrated SQLite file
+  (`common::app`, `app_with_db`, `app_with_state`; mock transport, no socket). Requests read
+  `app.post("/api/..").json_text(r#"{..}"#).session(Some(&cookie)).await`, answers `res.status_code()`,
+  `res.text()`, `json_of(&res)`; a test acting as several people passes each one's cookie, and
+  `common::browser` is a server that keeps cookies between requests, as a browser does. The live-editing tests
+  use the HTTP transport (`TestServer::builder().http_transport()`), because the WebSocket client needs a real
+  socket.
 
 ## Conventions by feature
 
@@ -113,9 +140,26 @@
   parent (same `project_id` and `list_id`).
 - **Completion.** `Task.completed_at` is the only state; `PATCH is_completed: bool` makes the server set or clear
   it. Responses carry `completed_at`; filters still take `is_completed`.
-- **Users.** `active` (disabled accounts cannot sign in; sessions are deleted; everything they made stays),
+- **Users.** `active` (disabled accounts cannot sign in and their sessions end for good: disabling raises
+  `session_generation`, which is in the session hash; everything they made stays),
   `global_role` (access to every workspace), `timezone` (the browser's, editable). The super admin's site admin
   routes are in `routes/admin.rs` (users, deleted workspaces, audit log, redaction, integrity check).
+- **Sessions** (`src/sessions.rs`): axum-login on tower-sessions. `sessions::Store` is our own `SessionStore`
+  (the community SQL store needs sqlx 0.8): rows keyed by the SHA-256 of the session id, every write through the
+  writer turn, so call `sessions::sign_in`, `refresh` and `sign_out` with no writer held (commit and `drop(db)`
+  first, or they wait on themselves). The cookie is `woodmouse_session` (`__Host-` over https, `HttpOnly`,
+  `SameSite=Strict`), its expiry set once at sign-in (30 days), so a request writes the session only when it changes.
+  `sessions::Backend::get_user` returns `None` for a disabled account; the session hash is `session_generation`
+  (raised in the same write that disables someone), the password hash and
+  the two-factor secret, so changing the password or two-factor ends the other sessions, and the handler that changed it calls
+  `sessions::refresh` to keep its own. Every sign-in (password, TOTP step, enrolment, SSO callback, invite,
+  bootstrap) ends in `sessions::sign_in`. Tests seed one with `sessions::start_session`. The daily job deletes
+  expired sessions through the store.
+- **CSRF** (`src/csrf.rs`, outermost layer in `routes::api`): Fetch Metadata, as Go's `CrossOriginProtection`.
+  A non-GET/HEAD/OPTIONS request is refused (403) when `Sec-Fetch-Site` is present and not `same-origin`/`none`, or,
+  without it, when `Origin` is present and is not the allowed origin (`PUBLIC_URL` if set, else the `Host`); requests with neither, and
+  `Authorization: Bearer` (API keys), pass. A route meant to be posted to from another site would need an
+  exception there (there is none: the SSO callback and calendar feeds are GETs).
 - **Single sign-on** (OpenID Connect; `src/oidc.rs` for the settings in force, the provider client and its
   metadata cache, the login cookie; `routes/oidc.rs` for `/auth/oidc/login`, `/auth/oidc/callback` and
   `/admin/oidc`). `password_hash` is `None` for someone without a password (invited, or single sign-on only);
@@ -123,37 +167,46 @@
   (`auth::is_pending`, `auth::linked_users`). The login in progress lives in a signed cookie (key made at
   start), never in memory. The callback only redirects, to `/` or `/login?error=<code>`: the codes are the
   `SsoError` enum and the frontend's `lib/sso.ts` messages; keep the two lists in step. Linking or creating
-  and the session are one writer transaction with no network call inside. `OIDC_*` env vars win over the
+  is one writer transaction with no network call inside; the session starts after it is committed. `OIDC_*` env vars win over the
   `OidcSettings` row field by field and lock it (400 from the API); a save holds `Oidc::save` and checks the
   provider before writing. A refused sign-in that came back with our signed login cookie is audited as
   `login_failed` (`data.method = "sso"`, `data.reason` = the code, the account as target when known). Tests: `tests/it/oidc.rs` runs a stand-in provider (real RS256 tokens, keys in
   `tests/it/fixtures/oidc_key_*.pem`, PKCS#1 from `openssl genrsa -traditional 2048`).
 - **Single sign-on only** (`OIDC_ONLY`, `EnvSettings::only`): `Oidc::require_password_login` (403) guards password
-  login, the TOTP step, invite acceptance and password changes; `AuthStatus.password_login` tells the frontend.
-  It needs `OIDC_ISSUER` and `OIDC_CLIENT_ID` from the environment and forces `enabled` on (so the admin page cannot
-  lock everyone out); bootstrap still works, and invited people get in through the provider by verified email.
+  login, invite acceptance and password changes (not the TOTP step: single sign-on asks for codes too);
+  `AuthStatus.password_login` tells the frontend. It needs `OIDC_ISSUER` and `OIDC_CLIENT_ID` from the environment
+  and keeps the settings page's on/off switch on (`oidc::switched_on`, so the admin page cannot lock everyone out); bootstrap still works, and invited people get in through the provider by verified email.
 - **Two-factor sign-in** (`src/totp.rs`, the `/auth/totp/*` and `/auth/login/totp` routes): TOTP through
   `totp-rs` (SHA-1, 6 digits, 30 s, one step of skew), the secret base32 in `UserTotp` (`enabled_at` `None` while
   being set up), `last_step` refusing a code's step a second time (totp-rs leaves replay to its caller), and ten
   single-use recovery codes stored as SHA-256 (`UserRecoveryCode`). A password login of someone with it on answers
   202 `{totp_required}` and a signed 5-minute challenge cookie (`AppState::challenge_key`, made at start), not a
-  session; the second step goes through `LoginLimits`, and a right password alone does not clear the email's
-  failures. Single sign-on asks for it too: the callback sets the same challenge and redirects to
+  session; the second step counts against the per-user code limit (`crate::limits`). Single sign-on asks for it too: the callback sets the same challenge and redirects to
   `/login?step=totp` (`totp::second_step` decides for both). `TOTP_REQUIRED` (`AppState::totp_required`): someone
   without it gets an `Enroll` challenge (15 minutes; `/login?step=totp-setup`, `POST /auth/login/totp/setup` and
-  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched.
+  `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched
+  until they set it up.
   Replacing the app (`/auth/totp/replace`, then `/confirm`) keeps the new secret in `pending_secret` until a code
   from it arrives; the old secret works until then, the recovery codes stay. Random bytes come from `uuid` v4 through SHA-256 (no other
   random source is a direct dependency). `totp_enabled` is on `Me` and `AdminUser`, never on `PublicUser`.
 - **API keys** (`routes/api_keys.rs`, `ApiKey`; `auth::from_api_key`): `wm_` + 32 random bytes (base64url), only
-  the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes a session
-  cookie, else `Authorization: Bearer`. `auth::api_key_scope_allows` gates by method and path (never `/api/auth/*`
+  the SHA-256 kept, `prefix` for lists, revoked with `revoked_at` (never deleted). `CurrentUser` takes the signed-in
+  session (`AuthSession`), else `Authorization: Bearer`. `auth::api_key_scope_allows` gates by method and path (never `/api/auth/*`
   but `GET /api/auth/me`; read = GET/HEAD; write = no `/api/admin/*`), and the auth layer (`auth::authenticate`)
   runs the handler under `auth::role_cap`, which `access::role_in` applies, so a key's workspace role is the lower
   of its scope and the person's. Code that checks roles without `role_in`, or that spawns a task, does not see the
   cap. `last_used_at` is written at most once a minute. Admin keys only for the super admin or a global admin.
-- **Login slow-down** (`auth::LoginLimits`): in memory, per email and per address, 1 s doubling up to a cap,
-  no lockout; addresses are never stored.
+- **Cookies**: `PUBLIC_URL` starting with `https://` (`AppState::secure_cookies`) makes every cookie `Secure` and
+  `__Host-` prefixed (session, 2FA challenge, SSO login); plain otherwise. Session and challenge are
+  `SameSite=Strict` (only the app's own requests need them: links from emails, invites and calendar events land
+  on pages, the SSO callback only sets cookies and redirects, calendar feeds use their own secret); the SSO
+  login cookie stays `Lax`, since the callback is a cross-site navigation. All are `HttpOnly`.
+- **Sign-in limits** (`src/limits.rs`, governor keyed limiters, potoo's quotas): per email 5 then 1/min, per
+  client address 30 then 1 per 6 s (`ClientAddr`: `X-Forwarded-For` only with `TRUST_PROXY`), per user 5 then
+  1/min for two-factor codes and separately for password changes. Every attempt counts; over a limit,
+  `ApiError::TooManyRequests` answers 429 with `Retry-After`. Password sign-in counts email and address, the code
+  step and enrolment at sign-in count user and address, the settings' code checks count the user. Tests use
+  `Limits::generous()` except `tests/it/limits.rs`; `jobs` calls `retain_recent()` every minute.
 - **Jobs and operations**: `jobs.rs` runs daily (expired sessions) and sends notification email; there is no
   built-in backup, operators copy the database and the files directory themselves. `woodmouse check` runs the
   integrity check. On SIGTERM/Ctrl+C the server saves the open live-editing rooms before exiting, and a clean

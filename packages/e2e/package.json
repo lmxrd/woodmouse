@@ -1,0 +1,13 @@
+{
+  "name": "woodmouse-e2e",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end smoke tests: Playwright against the built image (mise run test:e2e).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}

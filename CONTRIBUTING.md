@@ -7,7 +7,8 @@ way are the changes we want.
 ## Getting set up
 
 Install [mise](https://mise.jdx.dev) and run `mise install`. It brings the pinned
-Rust toolchain, Node, pnpm and zig. Then:
+Rust toolchain (from `rust-toolchain.toml`), Node and pnpm (from the root
+`package.json`), zig and the other tools in `mise.toml`. Then:
 
 ```bash
 mise run dev      # the backend on :8000 and the Vite dev server on :5173, together
@@ -18,6 +19,11 @@ Open the Vite URL, <http://localhost:5173>. Vite proxies `/api` to the
 backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 `sara@woodmouse.test` or `ola@woodmouse.test`, all with the password
 `password`. To start over, run `mise run clean` and seed again.
+
+The dev database is `packages/backend/woodmouse.db` (`DATABASE_URL` in
+`mise.toml`'s `[env]`). Inside the repository mise sets it for every tool it
+runs, `cargo` included, so it wins over one set in your shell; to use another
+file, run the built binary directly or change `mise.toml` locally.
 
 ## Tasks
 
@@ -34,9 +40,11 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 | `mise run fix`          | Applies the format and lint fixes                                                                 |
 | `mise run audit`        | Known vulnerabilities in `Cargo.lock` and `pnpm-lock.yaml` (osv-scanner; also daily in CI)        |
 | `mise run audit:image`  | Known vulnerabilities in the image's Alpine packages (Trivy); `IMAGE=` picks it, default the published one |
-| `mise run test`         | The backend tests (integration tests over the API, and unit tests) and the frontend tests (vitest)  |
+| `mise run test`         | The backend tests (integration tests over the API through axum-test, and unit tests) and the frontend tests (vitest) |
+| `mise run test:e2e`     | Builds the image, starts it with a fresh database in a volume and runs the Playwright smoke tests in `packages/e2e` (podman or docker) |
 | `mise run gen:spec`     | Writes the OpenAPI spec to `packages/backend/target/specs/`                                       |
 | `mise run gen:sdk`      | Generates the frontend's SDK in `packages/sdk` from the spec (not committed)                      |
+| `mise run build`        | Builds the frontend and the release binary for this machine (its OS and CPU), into `dist/woodmouse` |
 | `mise run build:linux`  | Builds the frontend and the static Linux binary for your machine's CPU architecture, into `dist/` |
 | `mise run build:docker` | Builds the container image from that binary (podman), for your machine's architecture             |
 
@@ -51,8 +59,11 @@ The JavaScript side is a pnpm workspace with one lockfile at the root.
 packages/backend/    the Rust server: axum, utoipa (OpenAPI) and SeaORM on SQLite
 packages/frontend/   the React app (Vite, TanStack Router and Query, Tailwind)
 packages/sdk/        the frontend's API client, generated from the OpenAPI spec; never edited
+packages/e2e/        the Playwright smoke tests, run against the built image
 .github/             CI, the release workflow and Dependabot
-mise.toml            the toolchain and every task
+mise.toml            the tools (other than Node, pnpm, Rust) and every task
+package.json         the Node (devEngines.runtime) and pnpm (packageManager) versions
+rust-toolchain.toml  the Rust toolchain
 ```
 
 Inside the backend:
@@ -68,7 +79,7 @@ api/src/live/          live wiki editing (Yjs rooms over WebSockets)
 api/src/transfer/      import and export
 api/src/jobs.rs        the daily and periodic jobs
 api/src/db.rs          the pool, `Db` and the `prelude` of SeaORM traits
-api/tests/it/          the end-to-end tests
+api/tests/it/          the integration tests, through axum-test's TestServer
 entity/src/            the database models: one generated SeaORM entity per table (`mise run gen:models`), and `DateTime`
 migration/src/         the schema: SeaORM migrations, each running a SQL file (`mise run migrate` applies them)
 ```
@@ -107,9 +118,12 @@ create their search triggers again, because SQLite drops a table's triggers with
 - **Soft deletes only.** Projects, lists, tasks, comments, wiki pages and the
   like are moved to the trash, never destroyed, and every read must hide the
   deleted ones.
-- **Keep it simple.** One binary, one SQLite file. If a change needs a new
-  dependency or a new moving part, first check whether the plain version is
-  enough.
+- **Keep it simple.** One binary, one SQLite file.
+- **Use what the community maintains.** Prefer a well-known, maintained crate
+  or package over writing the same thing ourselves. Propose it in the issue or
+  pull request (name, exact version, why) and get a maintainer's approval
+  before adding it. Write it ourselves only when no maintained one fits, and
+  say why in a comment where it lives.
 - **The URL holds the view.** In the frontend, anything that changes what a
   list, board, calendar, timeline or page shows is a search parameter, so a
   copied link reproduces the view.
@@ -136,8 +150,9 @@ and `packages/sdk/package.json`, plus the changelog. Merging it tags the
 release, and the release workflow:
 
 - builds the static Linux binaries for `amd64` and `arm64` natively, on a
-  runner of each architecture, and attaches them to the release with their
-  checksums and the OpenAPI spec;
+  runner of each architecture, and attaches them to the release with the
+  OpenAPI spec;
+- writes one `SHA256SUMS` for everything attached (both binaries and the spec);
 - packages those same binaries into the Docker image and pushes it to
   `ghcr.io/lmxrd/woodmouse` as one multi-arch image, tagged `1.2.3`, `1.2` and
   `latest`.

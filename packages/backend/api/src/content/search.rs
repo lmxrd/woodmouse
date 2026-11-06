@@ -77,7 +77,7 @@ pub async fn ensure_triggers(db: &impl Db) -> Result<(), ApiError> {
 
 fn err(what: &str, e: impl std::fmt::Display) -> ApiError {
     tracing::error!(%e, "{what}");
-    ApiError::internal("search is unavailable")
+    ApiError::internal("Search is unavailable")
 }
 
 /// The id in the form used by the index (lowercase hex of the stored bytes).

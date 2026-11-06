@@ -10,7 +10,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::tasks::{CreateTaskRequest, TaskResponse, create_task_in, hydrate_tasks};
 use crate::state::AppState;
 use crate::trash;
@@ -30,8 +31,10 @@ pub fn router() -> OpenApiRouter<AppState> {
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "The task's subtasks, flat", body = [TaskResponse]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_subtasks(
@@ -67,16 +70,18 @@ pub async fn list_subtasks(
     request_body = CreateTaskRequest,
     responses(
         (status = 201, description = "Subtask created", body = TaskResponse),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No task with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No task with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_subtask(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<CreateTaskRequest>,
+    ApiJson(input): ApiJson<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), ApiError> {
     let db = state.writer().await?;
     let (parent, workspace_id) = access::require_task(&*db, &user, id, Role::Write).await?;

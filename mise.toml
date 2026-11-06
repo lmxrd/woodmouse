@@ -6,17 +6,15 @@
 # Tools
 # ---------------------------------------------------------------------------
 
+# Node, pnpm and Rust are not here: their versions live where their own tools read them, and mise reads them
+# from there too (`idiomatic_version_file_enable_tools` below):
+#   node  -> package.json `devEngines.runtime` (mise reads only that, not `engines`)
+#   pnpm  -> package.json `packageManager`
+#   rust  -> rust-toolchain.toml (channel, components, the musl targets)
+[settings]
+idiomatic_version_file_enable_tools = ["node", "pnpm", "rust"]
+
 [tools]
-node = "26" # frontend (react-csr / astro-site)
-pnpm = "12" # frontend package manager (jsr: prefix needs >= 12)
-rust = { version = "1.99.0", components = [
-  "clippy",
-  "llvm-tools",
-  "rustfmt",
-], targets = [
-  "x86_64-unknown-linux-musl",
-  "aarch64-unknown-linux-musl",
-] } # backend (rust-api); musl for the static release binary
 watchexec = "2.8.0" # backend hot reload (dev:backend)
 zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and static linking
 "github:rust-cross/cargo-zigbuild" = "0.24.0" # builds the static release binaries via zig cc (scripts/build-linux.sh)
@@ -25,6 +23,7 @@ zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and
 "aqua:aquasecurity/trivy" = "0.76.1" # known vulnerabilities in the image (mise run audit:image)
 
 [env]
+# The dev database, relative to packages/backend (where the backend tasks run).
 DATABASE_URL = "sqlite:woodmouse.db?mode=rwc"
 
 
@@ -32,9 +31,19 @@ DATABASE_URL = "sqlite:woodmouse.db?mode=rwc"
 # Build
 # ---------------------------------------------------------------------------
 
+# The release binary for this machine (macOS or Linux, its own CPU), frontend embedded: dist/woodmouse.
+# The static Linux binaries of the image and the releases are build:linux.
 [tasks.build]
-description = "Build frontend (generates the SDK first), then the static Linux binary with the bundle embedded"
-depends = ["build:linux"]
+description = "Build the release binary for this machine, with the frontend embedded, into dist/woodmouse"
+depends = ["build:frontend"]
+dir = "packages/backend"
+run = '''
+cargo build --release --bin woodmouse
+target_dir="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)"
+mkdir -p ../../dist
+cp "$target_dir/release/woodmouse" ../../dist/woodmouse
+echo "dist/woodmouse"
+'''
 
 [tasks."build:frontend"]
 description = "Build the frontend bundle into frontend/dist"
@@ -176,6 +185,16 @@ run = "pnpm test"
 # ---------------------------------------------------------------------------
 # Fixes
 # ---------------------------------------------------------------------------
+
+# The Playwright smoke tests against the image (scripts/e2e.sh): first setup, signing out and in,
+# two-factor sign-in, a project and a task. Only Chromium is installed.
+[tasks."test:e2e"]
+description = "Build the image, start it with a fresh database in a volume, and run the Playwright smoke tests"
+depends = ["build:docker", "install:frontend"]
+run = """
+pnpm --filter woodmouse-e2e exec playwright install chromium
+scripts/e2e.sh
+"""
 
 [tasks.fix]
 description = "Auto-fix in each stack"

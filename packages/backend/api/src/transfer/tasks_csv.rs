@@ -32,7 +32,7 @@ pub fn tasks_csv(projects: &[ExportProject]) -> Result<String, ApiError> {
     let mut w = csv::Writer::from_writer(vec![]);
     let fail = |e: &dyn std::fmt::Display| {
         tracing::error!(%e, "writing CSV");
-        ApiError::internal("could not write the CSV")
+        ApiError::internal("Could not write the CSV")
     };
     w.write_record(CSV_COLUMNS).map_err(|e| fail(&e))?;
     for p in projects {
@@ -85,12 +85,12 @@ pub fn parse_tasks_csv(
         .from_reader(text.trim_start_matches('\u{feff}').as_bytes());
     let headers: Vec<String> = reader
         .headers()
-        .map_err(|e| ApiError::bad_request(format!("the CSV has no header row: {e}")))?
+        .map_err(|e| ApiError::bad_request(format!("The CSV has no header row: {e}")))?
         .iter()
         .map(|h| h.trim().to_lowercase())
         .collect();
     if !headers.iter().any(|h| h == "title") {
-        return Err(ApiError::bad_request("the CSV needs a `title` column"));
+        return Err(ApiError::bad_request("The CSV needs a `title` column"));
     }
     let col = |name: &str| headers.iter().position(|h| h == name);
     let mut projects: Vec<ExportProject> = vec![];

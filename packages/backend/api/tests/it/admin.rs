@@ -2,13 +2,13 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users};
+use entity::users;
 use serde_json::{Value, json};
 
 use crate::common::*;
 
-async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).unwrap_or(Value::Null)
+async fn json_of(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).unwrap_or(Value::Null)
 }
 
 /// A second, ordinary user with a session; returns (id, cookie).
@@ -25,16 +25,7 @@ async fn seed_user(db: &sea_orm::DatabaseConnection, email: &str) -> (uuid::Uuid
     .insert(db)
     .await
     .unwrap();
-    let token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(user.id),
-        expires_at: Set(far_future()),
-    }
-    .insert(db)
-    .await
-    .unwrap();
+    let token = api::sessions::start_session(db, user.id).await.unwrap();
     (user.id, format!("woodmouse_session={token}"))
 }
 
@@ -48,10 +39,10 @@ async fn only_the_super_admin_gets_in() {
         "/api/admin/audit",
         "/api/admin/integrity",
     ] {
-        let res = request(&app, get(uri, Some(&other))).await;
-        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{uri}");
-        let res = request(&app, get(uri, Some(&admin))).await;
-        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+        let res = app.get(uri).session(Some(&other)).await;
+        assert_eq!(res.status_code(), StatusCode::NOT_FOUND, "{uri}");
+        let res = app.get(uri).session(Some(&admin)).await;
+        assert_eq!(res.status_code(), StatusCode::OK, "{uri}");
     }
 }
 
@@ -61,55 +52,48 @@ async fn disabling_a_user_ends_their_access_and_enabling_restores_it() {
     let admin = bootstrap_admin(&app).await;
     let (id, cookie) = seed_user(&db, "sara@home.io").await;
     assert_eq!(
-        request(&app, get("/api/auth/me", Some(&cookie)))
+        app.get("/api/auth/me")
+            .session(Some(&cookie))
             .await
-            .status(),
+            .status_code(),
         StatusCode::OK
     );
 
-    let res = request(
-        &app,
-        patch_json(
-            &format!("/api/admin/users/{id}"),
-            r#"{"active":false}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = app
+        .patch(&format!("/api/admin/users/{id}"))
+        .json_text(r#"{"active":false}"#)
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(json_of(res).await["active"], false);
     assert_eq!(
-        request(&app, get("/api/auth/me", Some(&cookie)))
+        app.get("/api/auth/me")
+            .session(Some(&cookie))
             .await
-            .status(),
+            .status_code(),
         StatusCode::UNAUTHORIZED,
         "their sessions are gone"
     );
 
     // A global role is set and cleared with null.
-    let res = request(
-        &app,
-        patch_json(
-            &format!("/api/admin/users/{id}"),
-            r#"{"active":true,"global_role":"write"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
+    let res = app
+        .patch(&format!("/api/admin/users/{id}"))
+        .json_text(r#"{"active":true,"global_role":"write"}"#)
+        .session(Some(&admin))
+        .await;
     assert_eq!(json_of(res).await["global_role"], "write");
-    let res = request(
-        &app,
-        patch_json(
-            &format!("/api/admin/users/{id}"),
-            r#"{"global_role":null}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
+    let res = app
+        .patch(&format!("/api/admin/users/{id}"))
+        .json_text(r#"{"global_role":null}"#)
+        .session(Some(&admin))
+        .await;
     assert!(json_of(res).await["global_role"].is_null());
 
     // The log records what happened.
-    let res = request(&app, get("/api/admin/audit?limit=50", Some(&admin))).await;
+    let res = app
+        .get("/api/admin/audit?limit=50")
+        .session(Some(&admin))
+        .await;
     let log = json_of(res).await;
     let actions: Vec<&str> = log
         .as_array()
@@ -129,44 +113,41 @@ async fn deleted_workspaces_are_restored_by_the_super_admin() {
     let ws = create_workspace(&app, &admin, "Home").await;
     let (_, other) = seed_user(&db, "other@home.io").await;
 
-    let res = request(&app, delete(&format!("/api/workspaces/{ws}"), Some(&admin))).await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .delete(&format!("/api/workspaces/{ws}"))
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
-        request(&app, get(&format!("/api/workspaces/{ws}"), Some(&admin)))
+        app.get(&format!("/api/workspaces/{ws}"))
+            .session(Some(&admin))
             .await
-            .status(),
+            .status_code(),
         StatusCode::NOT_FOUND
     );
-    let all = json_of(request(&app, get("/api/admin/workspaces", Some(&admin))).await).await;
+    let all = json_of(app.get("/api/admin/workspaces").session(Some(&admin)).await).await;
     assert_eq!(all.as_array().unwrap().len(), 1);
     assert_eq!(all[0]["name"], "Home");
     assert!(all[0]["deleted_at"].is_string());
     assert_eq!(all[0]["members"], 1);
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/admin/workspaces/{ws}/restore"),
-            "{}",
-            Some(&other),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/admin/workspaces/{ws}/restore"),
-            "{}",
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .post(&format!("/api/admin/workspaces/{ws}/restore"))
+        .json_text("{}")
+        .session(Some(&other))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
+    let res = app
+        .post(&format!("/api/admin/workspaces/{ws}/restore"))
+        .json_text("{}")
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
-        request(&app, get(&format!("/api/workspaces/{ws}"), Some(&admin)))
+        app.get(&format!("/api/workspaces/{ws}"))
+            .session(Some(&admin))
             .await
-            .status(),
+            .status_code(),
         StatusCode::OK
     );
 }
@@ -178,7 +159,7 @@ async fn the_integrity_check_finds_orphans_and_redaction_removes_content() {
     let ws = create_workspace(&app, &admin, "Home").await;
 
     // A normal database is clean.
-    let res = request(&app, get("/api/admin/integrity", Some(&admin))).await;
+    let res = app.get("/api/admin/integrity").session(Some(&admin)).await;
     assert_eq!(json_of(res).await, json!([]));
 
     // A membership of a workspace that does not exist is reported. The database refuses to make one, so
@@ -202,55 +183,38 @@ async fn the_integrity_check_finds_orphans_and_redaction_removes_content() {
         .await
         .unwrap();
     drop(conn);
-    let problems = json_of(request(&app, get("/api/admin/integrity", Some(&admin))).await).await;
+    let problems = json_of(app.get("/api/admin/integrity").session(Some(&admin)).await).await;
     assert_eq!(problems.as_array().unwrap().len(), 1);
     assert_eq!(problems[0]["table"], "workspace_members");
 
     // Redacting a page version removes its content but keeps the version.
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{ws}/pages"),
-            r#"{"title":"Secret"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
+    let res = app
+        .post(&format!("/api/workspaces/{ws}/pages"))
+        .json_text(r#"{"title":"Secret"}"#)
+        .session(Some(&admin))
+        .await;
     let page = json_of(res).await["id"].as_str().unwrap().to_string();
-    request(
-        &app,
-        put_json(
-            &format!("/api/pages/{page}/blocks"),
-            r#"{"blocks":[{"type":"paragraph","spans":[{"text":"password is hunter2"}]}]}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
+    app.put(&format!("/api/pages/{page}/blocks"))
+        .json_text(r#"{"blocks":[{"type":"paragraph","spans":[{"text":"password is hunter2"}]}]}"#)
+        .session(Some(&admin))
+        .await;
     let list = json_of(
-        request(
-            &app,
-            get(&format!("/api/pages/{page}/revisions"), Some(&admin)),
-        )
-        .await,
+        app.get(&format!("/api/pages/{page}/revisions"))
+            .session(Some(&admin))
+            .await,
     )
     .await;
     let rev = list[0]["id"].as_str().unwrap().to_string();
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/admin/revisions/{rev}/redact"),
-            "{}",
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = app
+        .post(&format!("/api/admin/revisions/{rev}/redact"))
+        .json_text("{}")
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     let detail = json_of(
-        request(
-            &app,
-            get(&format!("/api/page-revisions/{rev}"), Some(&admin)),
-        )
-        .await,
+        app.get(&format!("/api/page-revisions/{rev}"))
+            .session(Some(&admin))
+            .await,
     )
     .await;
     assert_eq!(detail["redacted"], true);
@@ -263,18 +227,11 @@ async fn the_super_admin_creates_edits_and_reinvites_users() {
     let admin = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &admin, "Home").await;
 
-    let res = request(
-        &app,
-        post_json(
-            "/api/admin/users",
-            &format!(
+    let res = app.post("/api/admin/users").json_text(&format!(
                 r#"{{"name":"Sara","email":"Sara@Home.io","global_role":"read","memberships":[{{"workspace_id":"{ws}","role":"write"}}]}}"#
-            ),
-            Some(&admin),
-        ),
-    )
+            )).session(Some(&admin))
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let created = json_of(res).await;
     let id = created["user"]["id"].as_str().unwrap().to_string();
     assert_eq!(created["user"]["email"], "sara@home.io");
@@ -285,64 +242,51 @@ async fn the_super_admin_creates_edits_and_reinvites_users() {
     let token = created["invite_token"].as_str().unwrap().to_string();
 
     // The same email twice is a conflict.
-    let res = request(
-        &app,
-        post_json(
-            "/api/admin/users",
-            r#"{"email":"sara@home.io"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let res = app
+        .post("/api/admin/users")
+        .json_text(r#"{"email":"sara@home.io"}"#)
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CONFLICT);
 
     // A fresh invite replaces the old one.
-    let res = request(
-        &app,
-        post_json(&format!("/api/admin/users/{id}/invite"), "{}", Some(&admin)),
-    )
-    .await;
+    let res = app
+        .post(&format!("/api/admin/users/{id}/invite"))
+        .json_text("{}")
+        .session(Some(&admin))
+        .await;
     let fresh = json_of(res).await["invite_token"]
         .as_str()
         .unwrap()
         .to_string();
     assert_ne!(fresh, token);
     assert_eq!(
-        request(&app, get(&format!("/api/invites/{token}"), None))
+        app.get(&format!("/api/invites/{token}"))
             .await
-            .status(),
+            .status_code(),
         StatusCode::NOT_FOUND
     );
 
     // Rename and change the email.
-    let res = request(
-        &app,
-        patch_json(
-            &format!("/api/admin/users/{id}"),
-            r#"{"name":"Sara W","email":"sara.w@home.io"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
+    let res = app
+        .patch(&format!("/api/admin/users/{id}"))
+        .json_text(r#"{"name":"Sara W","email":"sara.w@home.io"}"#)
+        .session(Some(&admin))
+        .await;
     let updated = json_of(res).await;
     assert_eq!(updated["name"], "Sara W");
     assert_eq!(updated["email"], "sara.w@home.io");
 
     // Once they accept, they have a password and no more invites.
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/invites/{fresh}/accept"),
-            r#"{"password":"a good password"}"#,
-            None,
-        ),
-    )
-    .await;
-    assert!(res.status().is_success());
-    let res = request(
-        &app,
-        post_json(&format!("/api/admin/users/{id}/invite"), "{}", Some(&admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let res = app
+        .post(&format!("/api/invites/{fresh}/accept"))
+        .json_text(r#"{"password":"a good password"}"#)
+        .await;
+    assert!(res.status_code().is_success());
+    let res = app
+        .post(&format!("/api/admin/users/{id}/invite"))
+        .json_text("{}")
+        .session(Some(&admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CONFLICT);
 }

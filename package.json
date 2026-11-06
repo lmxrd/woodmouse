@@ -1,0 +1,12 @@
+{
+  "name": "woodmouse-workspace",
+  "private": true,
+  "description": "The workspace root: the Node and pnpm versions for the whole repository (mise reads them from here).",
+  "packageManager": "pnpm@12.18.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0"
+    }
+  }
+}

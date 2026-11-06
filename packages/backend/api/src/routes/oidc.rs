@@ -24,10 +24,11 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::access;
 use crate::audit::{self, Entry};
-use crate::auth::{self, CurrentUser};
+use crate::auth::CurrentUser;
 use crate::config;
 use crate::db::prelude::*;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::oidc::{self, CALLBACK_PATH, Config, LOGIN_TTL_SECS, Pending};
 use crate::state::AppState;
 use crate::time;
@@ -134,7 +135,9 @@ pub fn callback_url(config: Option<&Config>, headers: &HeaderMap) -> Option<Stri
     get,
     path = "/auth/oidc/login",
     tag = "auth",
-    responses((status = 303, description = "To the provider, or to `/login?error=<code>`"))
+    responses(
+        (status = 303, description = "To the provider, or to `/login?error=<code>`")
+    )
 )]
 pub async fn oidc_login(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match start_login(&state, &headers).await {
@@ -153,10 +156,14 @@ async fn start_login(state: &AppState, headers: &HeaderMap) -> Result<Response, 
         tracing::warn!(
             callback,
             secure_cookies = state.secure_cookies,
-            "single sign-on is refused: the callback URL is {} but WOODMOUSE_SECURE_COOKIES is {}; \
-             check PUBLIC_URL, the redirect URL setting and WOODMOUSE_SECURE_COOKIES",
+            "single sign-on is refused: the callback URL is {} but PUBLIC_URL makes cookies {}; \
+             check PUBLIC_URL and the redirect URL setting",
             if https { "https" } else { "http" },
-            if state.secure_cookies { "on" } else { "off" },
+            if state.secure_cookies {
+                "secure"
+            } else {
+                "plain"
+            },
         );
         return Err(SsoError::Misconfigured);
     }
@@ -173,8 +180,14 @@ async fn start_login(state: &AppState, headers: &HeaderMap) -> Result<Response, 
             CsrfToken::new_random,
             Nonce::new_random,
         )
-        .add_scope(Scope::new("email".to_string()))
-        .add_scope(Scope::new("profile".to_string()))
+        // `openid` is added by the client itself.
+        .add_scopes(
+            config
+                .scopes
+                .iter()
+                .filter(|s| *s != "openid")
+                .map(|s| Scope::new(s.clone())),
+        )
         .set_pkce_challenge(challenge)
         .url();
     let pending = Pending {
@@ -208,10 +221,13 @@ pub struct CallbackParams {
     path = "/auth/oidc/callback",
     tag = "auth",
     params(CallbackParams),
-    responses((status = 303, description = "To `/` signed in, or to `/login?error=<code>`"))
+    responses(
+        (status = 303, description = "To `/` signed in, or to `/login?error=<code>`")
+    )
 )]
 pub async fn oidc_callback(
     State(state): State<AppState>,
+    mut auth_session: crate::sessions::AuthSession,
     headers: HeaderMap,
     params: Result<Query<CallbackParams>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
@@ -228,7 +244,16 @@ pub async fn oidc_callback(
     };
     let removal = oidc::login_cookie_removal(secure);
     match outcome {
-        Ok(SignedIn::Session(session)) => (session.add(removal), Redirect::to("/")).into_response(),
+        // The account's transaction is committed (and the writer turn given back): now the session.
+        Ok(SignedIn::User(user)) => {
+            match crate::sessions::sign_in(&mut auth_session, &state, &user).await {
+                Ok(session) => (session.add(removal), Redirect::to("/")).into_response(),
+                Err(e) => {
+                    tracing::error!(error = %e, "single sign-on could not start the session");
+                    (CookieJar::new().add(removal), SsoError::Failed.redirect()).into_response()
+                }
+            }
+        }
         // Two-factor first: the challenge cookie, and the login page's code (or setup) step.
         Ok(SignedIn::Challenge(challenge, to)) => {
             (challenge, CookieJar::new().add(removal), Redirect::to(to)).into_response()
@@ -421,8 +446,8 @@ impl From<sea_orm::DbErr> for SignInError {
 
 /// How a single sign-on ends.
 enum SignedIn {
-    /// With a session.
-    Session(CookieJar),
+    /// Signed in as this user (the session is started once the transaction is committed).
+    User(entity::User),
     /// With a two-factor challenge, and where the login page asks for the code or the setup.
     Challenge(SignedCookieJar, &'static str),
 }
@@ -503,9 +528,8 @@ async fn sign_in(
             .data(serde_json::json!({ "method": "sso" })),
     )
     .await?;
-    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
-    Ok(SignedIn::Session(jar))
+    Ok(SignedIn::User(user))
 }
 
 async fn create_user(
@@ -604,10 +628,7 @@ async fn oidc_view(state: &AppState, headers: &HeaderMap) -> Result<OidcSettings
         |f: fn(&entity::OidcSettings) -> &Option<String>| row.as_ref().and_then(|r| f(r).clone());
     let config = state.oidc.config();
     Ok(OidcSettingsView {
-        enabled: env
-            .enabled
-            .or(row.as_ref().map(|r| r.enabled))
-            .unwrap_or(env.issuer.is_some()),
+        enabled: oidc::switched_on(env, row.as_ref()),
         issuer: env.issuer.clone().or(stored(|r| &r.issuer)),
         client_id: env.client_id.clone().or(stored(|r| &r.client_id)),
         has_secret: env.client_secret.is_some() || stored(|r| &r.client_secret).is_some(),
@@ -618,7 +639,8 @@ async fn oidc_view(state: &AppState, headers: &HeaderMap) -> Result<OidcSettings
             .or(row.as_ref().map(|r| r.auto_create))
             .unwrap_or(false),
         locked: OidcLocked {
-            enabled: env.enabled.is_some(),
+            // With OIDC_ONLY, single sign-on cannot be switched off.
+            enabled: env.only == Some(true),
             issuer: env.issuer.is_some(),
             client_id: env.client_id.is_some(),
             client_secret: env.client_secret.is_some(),
@@ -639,7 +661,9 @@ async fn oidc_view(state: &AppState, headers: &HeaderMap) -> Result<OidcSettings
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Single sign-on settings", body = OidcSettingsView),
-        (status = 404, description = "Not the super admin")
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody)
     )
 )]
 pub async fn admin_get_oidc(
@@ -680,15 +704,18 @@ pub struct UpdateOidcSettings {
     request_body = UpdateOidcSettings,
     responses(
         (status = 200, description = "Saved settings", body = OidcSettingsView),
-        (status = 400, description = "Invalid value, a field set by the environment, or the provider could not be reached"),
-        (status = 404, description = "Not the super admin")
+        (status = 400, description = "Invalid value, a field set by the environment, or the provider could not be reached", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "Not the super admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn admin_update_oidc(
     State(state): State<AppState>,
     headers: HeaderMap,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<UpdateOidcSettings>,
+    ApiJson(input): ApiJson<UpdateOidcSettings>,
 ) -> Result<Json<OidcSettingsView>, ApiError> {
     access::require_super_admin(&user)?;
     // Spawned and awaited: a request dropped halfway (the admin closes the tab) cannot leave the
@@ -698,7 +725,7 @@ pub async fn admin_update_oidc(
         async move { save(&state, user.id, input).await }
     });
     task.await
-        .map_err(|_| ApiError::internal("saving the settings failed"))??;
+        .map_err(|_| ApiError::internal("Saving the settings failed"))??;
     Ok(Json(oidc_view(&state, &headers).await?))
 }
 
@@ -710,11 +737,7 @@ async fn save(
     let env = state.oidc.env();
     let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     for (locked, given, variable) in [
-        (
-            env.enabled.is_some(),
-            input.enabled.is_some(),
-            "OIDC_ENABLED",
-        ),
+        (env.only == Some(true), input.enabled.is_some(), "OIDC_ONLY"),
         (env.issuer.is_some(), input.issuer.is_some(), "OIDC_ISSUER"),
         (
             env.client_id.is_some(),
@@ -729,7 +752,7 @@ async fn save(
         (
             env.display_name.is_some(),
             input.display_name.is_some(),
-            "OIDC_DISPLAY_NAME",
+            "OIDC_LABEL",
         ),
         (
             env.redirect_url.is_some(),
@@ -744,7 +767,7 @@ async fn save(
     ] {
         if locked && given {
             return Err(ApiError::bad_request(format!(
-                "this setting comes from {variable} and cannot be changed here"
+                "This setting comes from {variable} and cannot be changed here"
             )));
         }
     }
@@ -753,13 +776,13 @@ async fn save(
         && !(oidc::secure_url(issuer) && openidconnect::IssuerUrl::new(issuer.clone()).is_ok())
     {
         return Err(ApiError::bad_request(
-            "the issuer must be an https URL (http only on localhost)",
+            "The issuer must be an https URL (http only on localhost)",
         ));
     }
     let redirect_url = clean(input.redirect_url);
     if let Some(url) = &redirect_url {
         oidc::check_redirect_url(url)
-            .map_err(|e| ApiError::bad_request(format!("the redirect URL {e}")))?;
+            .map_err(|e| ApiError::bad_request(format!("The redirect URL {e}")))?;
     }
     let display_name = clean(input.display_name);
     if display_name
@@ -767,7 +790,7 @@ async fn save(
         .is_some_and(|n| n.chars().count() > 100)
     {
         return Err(ApiError::bad_request(
-            "the display name is longer than 100 characters",
+            "The display name is longer than 100 characters",
         ));
     }
     let new_secret = clean(input.client_secret);
@@ -792,7 +815,7 @@ async fn save(
     // at another issuer could send it to a server of theirs.
     if issuer_changed && env.client_secret.is_some() && env.issuer.is_none() {
         return Err(ApiError::bad_request(
-            "the client secret comes from OIDC_CLIENT_SECRET, so the issuer must come from OIDC_ISSUER",
+            "The client secret comes from OIDC_CLIENT_SECRET, so the issuer must come from OIDC_ISSUER",
         ));
     }
     let client_secret = if env.client_secret.is_some() {
@@ -810,7 +833,7 @@ async fn save(
         enabled: input
             .enabled
             .or(stored.as_ref().map(|r| r.enabled))
-            .unwrap_or(env.issuer.is_some()),
+            .unwrap_or(true),
         issuer,
         client_id: keep(env.client_id.is_some(), clean(input.client_id), |r| {
             &r.client_id
@@ -831,7 +854,7 @@ async fn save(
     // Ask the provider before writing anything, and outside any transaction.
     if let Some(config) = oidc::effective(env, Some(&row)) {
         state.oidc.check(&config.issuer).await.map_err(|e| {
-            ApiError::bad_request(format!("the provider could not be checked: {e}"))
+            ApiError::bad_request(format!("The provider could not be checked: {e}"))
         })?;
     }
 

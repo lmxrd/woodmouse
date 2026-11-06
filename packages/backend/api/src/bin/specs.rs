@@ -7,10 +7,12 @@
 //! is opened — no query could run anyway, only the OpenAPI half of the
 //! routes is used.
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+use anyhow::Context;
+
+fn main() -> anyhow::Result<()> {
     // This crate is `api/`; the specs go to the workspace root's `target/`, where the SDK and CI read them.
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/specs");
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
     let openapi = api::routes::api_doc();
     std::fs::write(dir.join("openapi.json"), openapi.to_pretty_json()?)?;

@@ -1,7 +1,7 @@
 //! Notifications, watching, email (instant and digest), deadlines and the email settings.
 
 use api::db::prelude::*;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use std::sync::Arc;
 
 use api::mail::Outbox;
@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use crate::common::*;
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     state: AppState,
     outbox: Arc<Outbox>,
     admin: String,
@@ -22,18 +22,17 @@ struct Fx {
     project: String,
 }
 
-async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).unwrap_or(Value::Null)
+async fn json_of(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).unwrap_or(Value::Null)
 }
 
 async fn fixture() -> Fx {
     let db = api::db::temporary().await;
     let outbox = Arc::new(Outbox::default());
-    let state = AppState::new(db.clone()).with_mailer(outbox.clone());
-    let app = api::routes::api(state.clone())
-        .with_state(state.clone())
-        .split_for_parts()
-        .0;
+    let state = AppState::new(db.clone())
+        .with_limits(api::limits::Limits::generous())
+        .with_mailer(outbox.clone());
+    let app = server(router(state.clone()));
     let admin = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &admin, "Home").await;
 
@@ -58,26 +57,13 @@ async fn fixture() -> Fx {
     .insert(&db)
     .await
     .unwrap();
-    let token = uuid::Uuid::new_v4().to_string();
-    sessions::ActiveModel {
-        id: Set(uuid::Uuid::now_v7()),
-        token: Set(token.clone()),
-        user_id: Set(sara.id),
-        expires_at: Set(far_future()),
-    }
-    .insert(&db)
-    .await
-    .unwrap();
+    let token = api::sessions::start_session(&db, sara.id).await.unwrap();
 
-    let res = request(
-        &app,
-        post_json(
-            &format!("/api/workspaces/{ws}/projects"),
-            r#"{"name":"P"}"#,
-            Some(&admin),
-        ),
-    )
-    .await;
+    let res = app
+        .post(&format!("/api/workspaces/{ws}/projects"))
+        .json_text(r#"{"name":"P"}"#)
+        .session(Some(&admin))
+        .await;
     let project = json_of(res).await["id"].as_str().unwrap().to_string();
     Fx {
         app,
@@ -99,15 +85,12 @@ impl Fx {
         cookie: &str,
         body: Value,
     ) -> (StatusCode, Value) {
-        let b = body.to_string();
         let req = match method {
-            "POST" => post_json(uri, &b, Some(cookie)),
-            "PATCH" => patch_json(uri, &b, Some(cookie)),
-            "PUT" => put_json(uri, &b, Some(cookie)),
-            _ => get(uri, Some(cookie)),
+            "GET" => self.app.get(uri),
+            method => self.app.method(method.parse().unwrap(), uri).json(&body),
         };
-        let res = request(&self.app, req).await;
-        (res.status(), json_of(res).await)
+        let res = req.session(Some(cookie)).await;
+        (res.status_code(), json_of(res).await)
     }
     async fn task(&self, extra: Value) -> String {
         let mut body = json!({"title": "Order oak"});

@@ -51,7 +51,7 @@ fn generator(secret: Vec<u8>, account: &str) -> Result<Totp, ApiError> {
         .with_account_name(account)
         .with_issuer(Some(ISSUER))
         .build()
-        .map_err(|_| ApiError::bad_request("that account cannot be used in an authenticator app"))
+        .map_err(|_| ApiError::bad_request("That account cannot be used in an authenticator app"))
 }
 
 /// The generator for a stored (base32) secret.
@@ -91,12 +91,12 @@ pub fn new_secret() -> String {
 /// The `otpauth://` URI an authenticator app reads from the QR code.
 pub fn otpauth_uri(secret: &str, account: &str) -> Result<String, ApiError> {
     let bytes = Secret::try_from_base32(secret)
-        .map_err(|_| ApiError::internal("stored secret is not base32"))?
+        .map_err(|_| ApiError::internal("Stored secret is not base32"))?
         .as_bytes()
         .to_vec();
     generator(bytes, account)?
         .to_url()
-        .map_err(|_| ApiError::bad_request("that account cannot be used in an authenticator app"))
+        .map_err(|_| ApiError::bad_request("That account cannot be used in an authenticator app"))
 }
 
 /// A new recovery code: 80 random bits as sixteen base32 characters, `abcd-efgh-ijkl-mnop`.
@@ -321,13 +321,14 @@ pub fn challenge_cookie_name(secure: bool) -> &'static str {
     }
 }
 
-/// The challenge cookie (its value is signed by the caller's jar). `SameSite=Lax`, not Strict: after
-/// single sign-on it is set on the way back from the provider, a cross-site navigation.
+/// The challenge cookie (its value is signed by the caller's jar). `SameSite=Strict`: only the login
+/// page's own requests read it. After single sign-on it is set on the way back from the provider (a
+/// browser stores a Strict cookie from a cross-site answer; it only does not send it cross-site).
 pub fn challenge_cookie(value: String, secure: bool) -> Cookie<'static> {
     let mut cookie = Cookie::new(challenge_cookie_name(secure), value);
     cookie.set_path("/");
     cookie.set_http_only(true);
-    cookie.set_same_site(SameSite::Lax);
+    cookie.set_same_site(SameSite::Strict);
     cookie.set_max_age(::time::Duration::seconds(ENROLL_TTL_SECS));
     if secure {
         cookie.set_secure(true);
@@ -350,7 +351,7 @@ pub fn challenge_jar(
     mode: ChallengeMode,
 ) -> Result<SignedCookieJar, ApiError> {
     let value = serde_json::to_string(&Challenge::new(user_id, mode))
-        .map_err(|_| ApiError::internal("could not make the challenge"))?;
+        .map_err(|_| ApiError::internal("Could not make the challenge"))?;
     Ok(SignedCookieJar::new(key.clone()).add(challenge_cookie(value, secure)))
 }
 
@@ -463,5 +464,19 @@ mod tests {
         );
         assert!(uri.contains(&format!("secret={secret}")), "{uri}");
         assert!(uri.contains("issuer=Woodmouse"), "{uri}");
+    }
+
+    #[test]
+    fn the_challenge_cookie_is_strict_and_prefixed_over_https() {
+        let cookie = challenge_cookie("x".into(), true).to_string();
+        assert!(cookie.starts_with("__Host-woodmouse_2fa=x"), "{cookie}");
+        for part in ["Secure", "HttpOnly", "SameSite=Strict", "Path=/"] {
+            assert!(cookie.contains(part), "{cookie} lacks {part}");
+        }
+        let plain = challenge_cookie("x".into(), false).to_string();
+        assert!(
+            plain.starts_with("woodmouse_2fa=x") && !plain.contains("Secure"),
+            "{plain}"
+        );
     }
 }

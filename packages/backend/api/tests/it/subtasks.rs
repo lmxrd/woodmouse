@@ -6,20 +6,20 @@ use serde_json::Value;
 use crate::common::*;
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     cookie: String,
     ws: uuid::Uuid,
     project: String,
     list: String,
 }
 
-async fn json(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).expect("valid json")
+async fn json(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).expect("valid json")
 }
 
-async fn make(app: &axum::Router, cookie: &str, uri: &str, body: &str) -> String {
-    let res = request(app, post_json(uri, body, Some(cookie))).await;
-    assert_eq!(res.status(), StatusCode::CREATED, "POST {uri}");
+async fn make(app: &TestServer, cookie: &str, uri: &str, body: &str) -> String {
+    let res = app.post(uri).json_text(body).session(Some(cookie)).await;
+    assert_eq!(res.status_code(), StatusCode::CREATED, "POST {uri}");
     json(res).await["id"].as_str().unwrap().to_string()
 }
 
@@ -70,17 +70,17 @@ impl Fx {
         .await
     }
     async fn get(&self, uri: &str) -> Value {
-        let res = request(&self.app, get(uri, Some(&self.cookie))).await;
-        assert_eq!(res.status(), StatusCode::OK, "GET {uri}");
+        let res = self.app.get(uri).session(Some(&self.cookie)).await;
+        assert_eq!(res.status_code(), StatusCode::OK, "GET {uri}");
         json(res).await
     }
     async fn patch(&self, id: &str, body: &str) -> StatusCode {
-        request(
-            &self.app,
-            patch_json(&format!("/api/tasks/{id}"), body, Some(&self.cookie)),
-        )
-        .await
-        .status()
+        self.app
+            .patch(&format!("/api/tasks/{id}"))
+            .json_text(body)
+            .session(Some(&self.cookie))
+            .await
+            .status_code()
     }
     async fn titles(&self, query: &str) -> Vec<String> {
         self.get(&format!("/api/workspaces/{}/tasks{query}", self.ws))
@@ -201,12 +201,12 @@ async fn deleting_and_restoring_a_subtree() {
     let _a1 = fx.subtask(&a, "A1").await;
 
     // Deleting a middle task takes its children; the trash lists only the root.
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/tasks/{a}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{a}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
         fx.get(&format!("/api/tasks/{top}")).await["subtask_total"],
         0
@@ -216,38 +216,34 @@ async fn deleting_and_restoring_a_subtree() {
     assert_eq!(trash[0]["name"], "A");
     assert_eq!(trash[0]["child_count"], 1);
 
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/trash/task/{a}/restore", fx.ws),
-            "{}",
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/trash/task/{a}/restore", fx.ws))
+        .json_text("{}")
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
         fx.get(&format!("/api/tasks/{top}")).await["subtask_total"],
         2
     );
 
     // Deleting the parent hides everything; a subtask cannot be restored before its parent.
-    request(
-        &fx.app,
-        delete(&format!("/api/tasks/{top}"), Some(&fx.cookie)),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/tasks/{top}"))
+        .session(Some(&fx.cookie))
+        .await;
     assert!(fx.titles("?include_subtasks=true").await.is_empty());
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/trash/task/{top}/restore", fx.ws),
-            "{}",
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .post(&format!(
+            "/api/workspaces/{}/trash/task/{top}/restore",
+            fx.ws
+        ))
+        .json_text("{}")
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(fx.titles("?include_subtasks=true").await.len(), 3);
 }
 
@@ -257,16 +253,13 @@ async fn task_links() {
     let a = fx.task("A").await;
     let b = fx.task("B").await;
 
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/tasks/{a}/links"),
-            &format!(r#"{{"related_task_id":"{b}","kind":"blocks"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/tasks/{a}/links"))
+        .json_text(&format!(r#"{{"related_task_id":"{b}","kind":"blocks"}}"#))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let created = json(res).await;
     assert_eq!(created["direction"], "outgoing");
     assert_eq!(created["task"]["title"], "B");
@@ -280,59 +273,48 @@ async fn task_links() {
 
     // The same pair and kind, in either direction, is a conflict; another kind is fine.
     for (from, to) in [(&a, &b), (&b, &a)] {
-        let res = request(
-            &fx.app,
-            post_json(
-                &format!("/api/tasks/{from}/links"),
-                &format!(r#"{{"related_task_id":"{to}","kind":"blocks"}}"#),
-                Some(&fx.cookie),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let res = fx
+            .app
+            .post(&format!("/api/tasks/{from}/links"))
+            .json_text(&format!(r#"{{"related_task_id":"{to}","kind":"blocks"}}"#))
+            .session(Some(&fx.cookie))
+            .await;
+        assert_eq!(res.status_code(), StatusCode::CONFLICT);
     }
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/tasks/{a}/links"),
-            &format!(r#"{{"related_task_id":"{b}","kind":"relates_to"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = fx
+        .app
+        .post(&format!("/api/tasks/{a}/links"))
+        .json_text(&format!(
+            r#"{{"related_task_id":"{b}","kind":"relates_to"}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::CREATED);
 
     // Self-links are refused; unknown tasks are 404.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/tasks/{a}/links"),
-            &format!(r#"{{"related_task_id":"{a}","kind":"blocks"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/tasks/{a}/links"),
-            &format!(
-                r#"{{"related_task_id":"{}","kind":"blocks"}}"#,
-                uuid::Uuid::new_v4()
-            ),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .post(&format!("/api/tasks/{a}/links"))
+        .json_text(&format!(r#"{{"related_task_id":"{a}","kind":"blocks"}}"#))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
+    let res = fx
+        .app
+        .post(&format!("/api/tasks/{a}/links"))
+        .json_text(&format!(
+            r#"{{"related_task_id":"{}","kind":"blocks"}}"#,
+            uuid::Uuid::new_v4()
+        ))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     // A link to a deleted task is hidden.
-    request(
-        &fx.app,
-        delete(&format!("/api/tasks/{b}"), Some(&fx.cookie)),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/tasks/{b}"))
+        .session(Some(&fx.cookie))
+        .await;
     assert!(
         fx.get(&format!("/api/tasks/{a}/links"))
             .await
@@ -343,28 +325,27 @@ async fn task_links() {
 
     // Removing works from either end.
     let b2 = fx.task("B2").await;
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/tasks/{a}/links"),
-            &format!(r#"{{"related_task_id":"{b2}","kind":"duplicates"}}"#),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .post(&format!("/api/tasks/{a}/links"))
+        .json_text(&format!(
+            r#"{{"related_task_id":"{b2}","kind":"duplicates"}}"#
+        ))
+        .session(Some(&fx.cookie))
+        .await;
     let dup = json(res).await["id"].as_str().unwrap().to_string();
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/tasks/{b2}/links/{dup}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/tasks/{a}/links/{link_id}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{b2}/links/{dup}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{a}/links/{link_id}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert!(
         fx.get(&format!("/api/tasks/{a}/links"))
             .await

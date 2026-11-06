@@ -19,7 +19,8 @@ use crate::api::limited;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::{BlockData, validate_blocks};
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::revisions::{self, PageContent};
 use crate::routes::auth::PublicUser;
 use crate::state::AppState;
@@ -193,8 +194,10 @@ pub(crate) async fn detail(db: &impl Db, page: WikiPage) -> Result<PageDetail, A
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "The page tree, flattened", body = [PageSummary]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_pages(
@@ -244,16 +247,18 @@ async fn check_parent(
     request_body = CreatePage,
     responses(
         (status = 201, description = "Page created", body = PageDetail),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such workspace or parent page, or not enough access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace or parent page, or not enough access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_page(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<CreatePage>,
+    ApiJson(input): ApiJson<CreatePage>,
 ) -> Result<(StatusCode, Json<PageDetail>), ApiError> {
     let title = clean_title(input.title.as_deref().unwrap_or(""))?;
     let db = state.writer().await?;
@@ -309,8 +314,10 @@ pub async fn create_page(
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 200, description = "The page", body = PageDetail),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No page with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No page with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_page(
@@ -333,16 +340,18 @@ pub async fn get_page(
     request_body = UpdatePage,
     responses(
         (status = 200, description = "Page updated", body = PageDetail),
-        (status = 400, description = "Invalid input, or a page cannot go below itself"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No such page or parent, or not enough access")
+        (status = 400, description = "Invalid input, or a page cannot go below itself", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page or parent, or not enough access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_page(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdatePage>,
+    ApiJson(input): ApiJson<UpdatePage>,
 ) -> Result<Json<PageDetail>, ApiError> {
     let title = input.title.as_deref().map(clean_title).transpose()?;
     let db = state.writer().await?;
@@ -356,7 +365,7 @@ pub async fn update_page(
     {
         check_parent(&*db, page.workspace_id, parent_id).await?;
         if trash::page_subtree(&all, id).contains(&parent_id) {
-            return Err(ApiError::bad_request("a page cannot go below itself"));
+            return Err(ApiError::bad_request("A page cannot go below itself"));
         }
     }
 
@@ -435,17 +444,19 @@ pub async fn update_page(
     request_body = SaveBlocks,
     responses(
         (status = 200, description = "The saved page", body = PageDetail),
-        (status = 400, description = "A block is invalid"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No page with that id, or not enough access"),
-        (status = 409, description = "The page changed since `base_version`")
+        (status = 400, description = "A block is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No page with that id, or not enough access", body = ErrorBody),
+        (status = 409, description = "The page changed since `base_version`", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn save_blocks(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<SaveBlocks>,
+    ApiJson(input): ApiJson<SaveBlocks>,
 ) -> Result<Json<PageDetail>, ApiError> {
     validate_blocks(&input.blocks)?;
     let (page_detail, changed) = {
@@ -457,7 +468,7 @@ pub async fn save_blocks(
             && !input.force
         {
             return Err(ApiError::conflict(
-                "the page was changed by someone else since you opened it",
+                "The page was changed by someone else since you opened it",
             ));
         }
         let tx = db.begin().await?;
@@ -481,8 +492,10 @@ pub async fn save_blocks(
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 204, description = "Page deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No page with that id, or not enough access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No page with that id, or not enough access", body = ErrorBody)
     )
 )]
 pub async fn delete_page(
@@ -537,8 +550,11 @@ const PRESENCE_SECS: u64 = 30;
     request_body(content = PingPresence, description = "Optional"),
     responses(
         (status = 200, description = "Other current editors", body = Vec<Editor>),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No page with that id, or not enough access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No page with that id, or not enough access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn ping_presence(

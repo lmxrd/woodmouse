@@ -1,10 +1,12 @@
-# The JavaScript packages: the frontend, and the SDK generated from the
-# backend's OpenAPI spec (`mise run gen:sdk`) that the frontend imports.
+# The JavaScript packages: the frontend, the SDK generated from the
+# backend's OpenAPI spec (`mise run gen:sdk`) that the frontend imports, and
+# the Playwright smoke tests (`mise run test:e2e`).
 # One install and one lockfile at this root, so both resolve a single copy of
 # react-query and zod.
 packages:
   - packages/frontend
   - packages/sdk
+  - packages/e2e
 
 # A version published less than a day ago is not installed (pnpm picks an
 # older one that fits, or fails): most hijacked releases are found and pulled

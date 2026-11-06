@@ -75,23 +75,27 @@ async fn assert_kept(db: &DatabaseConnection, with_password: uuid::Uuid, invited
         count(db, "SELECT count(*) FROM pragma_foreign_key_check").await,
         0
     );
-    let admin = entity::users::Entity::find_by_id(with_password)
-        .one(db)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(
-        admin
-            .password_hash
-            .is_some_and(|h| h.starts_with("$argon2id$"))
+    // Raw queries: this runs before later migrations add columns the entity has.
+    let password_of = |id: uuid::Uuid| {
+        format!(
+            "SELECT count(*) FROM users WHERE id = x'{}' AND {}",
+            id.simple(),
+            "password_hash"
+        )
+    };
+    assert_eq!(
+        count(
+            db,
+            &format!("{} LIKE '$argon2id$%'", password_of(with_password))
+        )
+        .await,
+        1
     );
     // The empty string that meant "no password" is NULL now.
-    let invitee = entity::users::Entity::find_by_id(invited)
-        .one(db)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(invitee.password_hash, None);
+    assert_eq!(
+        count(db, &format!("{} IS NULL", password_of(invited))).await,
+        1
+    );
     // Every pooled connection still enforces foreign keys.
     let pool = db.get_sqlite_connection_pool();
     let mut held = vec![];
@@ -124,7 +128,8 @@ async fn the_users_rebuild_keeps_every_row_and_can_run_again() {
     migration::Migrator::up(&db, Some(1)).await.unwrap();
     let (with_password, invited) = seed_before_sso(&db).await;
 
-    migration::Migrator::up(&db, None).await.unwrap();
+    // Only the single sign-on migration: a later one replaces the sessions table.
+    migration::Migrator::up(&db, Some(1)).await.unwrap();
     assert_kept(&db, with_password, invited).await;
     drop(db);
 
@@ -157,7 +162,20 @@ async fn the_users_rebuild_keeps_every_row_and_can_run_again() {
     .unwrap();
     drop(db);
     let db = open(&path).await;
-    migration::Migrator::up(&db, None).await.unwrap();
+    migration::Migrator::up(&db, Some(1)).await.unwrap();
     assert_kept(&db, with_password, invited).await;
+
+    // The session store's migration signs everyone out once: the old sessions go, and the new table is
+    // keyed by a hash of the session id.
+    migration::Migrator::up(&db, None).await.unwrap();
+    assert_eq!(count(&db, "SELECT count(*) FROM sessions").await, 0);
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM pragma_table_info('sessions') WHERE name IN ('id_hash', 'data', 'expires_at')"
+        )
+        .await,
+        3
+    );
     let _ = std::fs::remove_file(&path);
 }

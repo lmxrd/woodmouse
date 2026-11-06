@@ -3,13 +3,13 @@
 use api::db::prelude::*;
 use axum::http::StatusCode;
 use entity::users;
-use entity::{sessions, workspace_members};
+use entity::workspace_members;
 use serde_json::{Value, json};
 
 use crate::common::*;
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     db: sea_orm::DatabaseConnection,
     cookie: String,
     ws: uuid::Uuid,
@@ -27,27 +27,27 @@ async fn fixture() -> Fx {
     }
 }
 
-async fn body_json(res: axum::http::Response<axum::body::Body>) -> Value {
-    let text = body_string(res.into_body()).await;
+async fn body_json(res: TestResponse) -> Value {
+    let text = res.text();
     serde_json::from_str(&text).unwrap_or(Value::String(text))
 }
 
 impl Fx {
-    async fn call(&self, req: axum::http::Request<axum::body::Body>) -> (StatusCode, Value) {
-        let res = request(&self.app, req).await;
-        (res.status(), body_json(res).await)
+    async fn call(&self, req: TestRequest) -> (StatusCode, Value) {
+        let res = req.await;
+        (res.status_code(), body_json(res).await)
     }
     async fn post(&self, cookie: &str, uri: &str, body: Value) -> (StatusCode, Value) {
-        self.call(post_json(uri, &body.to_string(), Some(cookie)))
+        self.call(self.app.post(uri).json(&body).session(Some(cookie)))
             .await
     }
     async fn get(&self, cookie: &str, uri: &str) -> (StatusCode, Value) {
-        self.call(get(uri, Some(cookie))).await
+        self.call(self.app.get(uri).session(Some(cookie))).await
     }
     /// The feed at a link's path, fetched without logging in.
     async fn feed(&self, path: &str) -> (StatusCode, String) {
-        let res = request(&self.app, get(path, None)).await;
-        (res.status(), body_string(res.into_body()).await)
+        let res = self.app.get(path).await;
+        (res.status_code(), res.text())
     }
     async fn member(&self, email: &str) -> String {
         let db = &self.db;
@@ -72,16 +72,7 @@ impl Fx {
         .insert(db)
         .await
         .unwrap();
-        let token = uuid::Uuid::new_v4().to_string();
-        sessions::ActiveModel {
-            id: Set(uuid::Uuid::now_v7()),
-            token: Set(token.clone()),
-            user_id: Set(user.id),
-            expires_at: Set(crate::common::far_future()),
-        }
-        .insert(db)
-        .await
-        .unwrap();
+        let token = api::sessions::start_session(db, user.id).await.unwrap();
         format!("woodmouse_session={token}")
     }
 }
@@ -128,16 +119,13 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
             let id = t["id"].as_str().unwrap().to_string();
             let mut body = dates;
             body["assignee_ids"] = json!([me]);
-            let res = request(
-                &fx.app,
-                patch_json(
-                    &format!("/api/tasks/{id}"),
-                    &body.to_string(),
-                    Some(&fx.cookie),
-                ),
-            )
-            .await;
-            assert_eq!(res.status(), StatusCode::OK);
+            let res = fx
+                .app
+                .patch(&format!("/api/tasks/{id}"))
+                .json_text(&body.to_string())
+                .session(Some(&fx.cookie))
+                .await;
+            assert_eq!(res.status_code(), StatusCode::OK);
             id
         }
     };
@@ -148,16 +136,13 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
     .await;
     let done = task("Pay deposit", json!({ "due_date": DAY })).await;
     task("Someday", json!({})).await;
-    let res = request(
-        &fx.app,
-        patch_json(
-            &format!("/api/tasks/{done}"),
-            r#"{"is_completed":true}"#,
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .patch(&format!("/api/tasks/{done}"))
+        .json_text(r#"{"is_completed":true}"#)
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
 
     let make = |scope: Value| fx.post(&fx.cookie, "/api/calendar-links", scope);
     let (status, mine) = make(json!({ "scope": "user", "name": "Phone" })).await;
@@ -180,7 +165,7 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
         assert!(text.contains("SUMMARY:\u{2713} Pay deposit"));
         assert!(!text.contains("Someday"));
     }
-    let res = request(&fx.app, get(mine["path"].as_str().unwrap(), None)).await;
+    let res = fx.app.get(mine["path"].as_str().unwrap()).await;
     assert_eq!(
         res.headers()["content-type"],
         "text/calendar; charset=utf-8"
@@ -200,12 +185,12 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
 
     // Revoking one stops its feed and nothing else.
     let id = mine["id"].as_str().unwrap();
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/calendar-links/{id}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/calendar-links/{id}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
         fx.feed(mine["path"].as_str().unwrap()).await.0,
         StatusCode::NOT_FOUND
@@ -220,15 +205,12 @@ async fn feeds_show_dated_tasks_and_revoking_stops_them() {
     );
 
     // Revoke all for a workspace, then everything.
-    let res = request(
-        &fx.app,
-        delete(
-            &format!("/api/calendar-links?workspace_id={}", fx.ws),
-            Some(&fx.cookie),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/calendar-links?workspace_id={}", fx.ws))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(
         fx.feed(wsl["path"].as_str().unwrap()).await.0,
         StatusCode::NOT_FOUND
@@ -271,12 +253,12 @@ async fn links_belong_to_their_owner_and_follow_their_access() {
     // Nobody else sees or revokes it.
     assert_eq!(fx.get(&fx.cookie, "/api/calendar-links").await.1, json!([]));
     let id = link["id"].as_str().unwrap();
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/calendar-links/{id}"), Some(&fx.cookie)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .delete(&format!("/api/calendar-links/{id}"))
+        .session(Some(&fx.cookie))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 
     // When the person loses access the feed stops, and it works again if they return.
     assert_eq!(

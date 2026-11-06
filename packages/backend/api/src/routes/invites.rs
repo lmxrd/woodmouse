@@ -15,7 +15,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::audit::{self, Entry};
 use crate::auth;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::auth::{PublicUser, validate_password};
 use crate::state::AppState;
 use crate::time;
@@ -65,7 +66,8 @@ async fn load_invite(db: &impl Db, token: &str) -> Result<(UserInvite, User), Ap
     params(("token" = String, Path, description = "Invite token")),
     responses(
         (status = 200, description = "The invited user", body = InviteInfo),
-        (status = 404, description = "Unknown, used or expired invite")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 404, description = "Unknown, used or expired invite", body = ErrorBody)
     )
 )]
 pub async fn get_invite(
@@ -89,15 +91,17 @@ pub async fn get_invite(
     request_body = AcceptInvite,
     responses(
         (status = 200, description = "Password set and logged in", body = PublicUser),
-        (status = 400, description = "Invalid password"),
-        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`): sign in with single sign-on instead"),
-        (status = 404, description = "Unknown, used or expired invite")
+        (status = 400, description = "Invalid password", body = ErrorBody),
+        (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`): sign in with single sign-on instead", body = ErrorBody),
+        (status = 404, description = "Unknown, used or expired invite", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn accept_invite(
     State(state): State<AppState>,
+    mut auth_session: crate::sessions::AuthSession,
     Path(token): Path<String>,
-    Json(input): Json<AcceptInvite>,
+    ApiJson(input): ApiJson<AcceptInvite>,
 ) -> Result<(StatusCode, CookieJar, Json<PublicUser>), ApiError> {
     state.oidc.require_password_login()?;
     validate_password(&input.password)?;
@@ -120,7 +124,8 @@ pub async fn accept_invite(
         Entry::admin(Some(user.id), "invite_accepted").target("user", user.id),
     )
     .await?;
-    let (_, jar) = auth::create_session(&tx, user.id, state.secure_cookies).await?;
     tx.commit().await?;
+    drop(db);
+    let jar = crate::sessions::sign_in(&mut auth_session, &state, &user).await?;
     Ok((StatusCode::OK, jar, Json(PublicUser::from(&user))))
 }

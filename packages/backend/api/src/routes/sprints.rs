@@ -16,7 +16,8 @@ use crate::access;
 use crate::api::{limited, required_max};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::routes::tasks::validate_sprint;
 use crate::state::AppState;
 use crate::{time, trash};
@@ -78,7 +79,7 @@ fn view(sprint: &Sprint, tasks: &[Task]) -> SprintView {
 fn check_dates(start: DateTime, end: DateTime) -> Result<(), ApiError> {
     if end < start {
         return Err(ApiError::bad_request(
-            "a sprint cannot end before it starts",
+            "A sprint cannot end before it starts",
         ));
     }
     Ok(())
@@ -108,8 +109,10 @@ async fn load(
     params(("project_id" = uuid::Uuid, Path, description = "Project id")),
     responses(
         (status = 200, description = "The project's sprints", body = [SprintView]),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_sprints(
@@ -156,16 +159,18 @@ pub struct CreateSprint {
     request_body = CreateSprint,
     responses(
         (status = 201, description = "Sprint created", body = SprintView),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No project with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No project with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_sprint(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(project_id): Path<uuid::Uuid>,
-    Json(input): Json<CreateSprint>,
+    ApiJson(input): ApiJson<CreateSprint>,
 ) -> Result<(StatusCode, Json<SprintView>), ApiError> {
     let name = required_max(&input.name, "name", MAX_NAME)?;
     let goal = limited(&input.goal, "goal", MAX_GOAL)?;
@@ -219,16 +224,18 @@ pub struct UpdateSprint {
     request_body = UpdateSprint,
     responses(
         (status = 200, description = "Sprint updated", body = SprintView),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No sprint with that id, or no access")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No sprint with that id, or no access", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_sprint(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateSprint>,
+    ApiJson(input): ApiJson<UpdateSprint>,
 ) -> Result<Json<SprintView>, ApiError> {
     let db = state.writer().await?;
     let (sprint, _) = load(&*db, &user, id, Role::Write).await?;
@@ -275,8 +282,10 @@ pub async fn update_sprint(
     params(("id" = uuid::Uuid, Path, description = "Sprint id")),
     responses(
         (status = 204, description = "Sprint deleted"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No sprint with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No sprint with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn delete_sprint(
@@ -318,26 +327,28 @@ pub struct CompleteSprint {
     request_body = CompleteSprint,
     responses(
         (status = 200, description = "Sprint completed", body = SprintView),
-        (status = 400, description = "The target sprint is not one of the project's"),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No sprint with that id, or no access"),
-        (status = 409, description = "Already completed, or the target is completed")
+        (status = 400, description = "The target sprint is not one of the project's", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No sprint with that id, or no access", body = ErrorBody),
+        (status = 409, description = "Already completed, or the target is completed", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn complete_sprint(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<CompleteSprint>,
+    ApiJson(input): ApiJson<CompleteSprint>,
 ) -> Result<Json<SprintView>, ApiError> {
     let db = state.writer().await?;
     let (sprint, project) = load(&*db, &user, id, Role::Write).await?;
     if sprint.completed_at.is_some() {
-        return Err(ApiError::conflict("this sprint is already completed"));
+        return Err(ApiError::conflict("This sprint is already completed"));
     }
     if let Some(target) = input.move_to {
         if target == id {
-            return Err(ApiError::bad_request("choose another sprint"));
+            return Err(ApiError::bad_request("Choose another sprint"));
         }
         validate_sprint(&*db, sprint.project_id, target).await?;
     }

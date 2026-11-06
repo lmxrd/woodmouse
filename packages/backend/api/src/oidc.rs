@@ -40,7 +40,6 @@ const BACKOFF: Duration = Duration::from_secs(30);
 /// the admin page cannot change it.
 #[derive(Clone, Debug, Default)]
 pub struct EnvSettings {
-    pub enabled: Option<bool>,
     pub issuer: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
@@ -50,20 +49,27 @@ pub struct EnvSettings {
     /// `OIDC_ONLY`: single sign-on is the only way in; password sign-in, invites by password and password
     /// changes are refused. Needs the provider from the environment, and keeps single sign-on on.
     pub only: Option<bool>,
+    /// `OIDC_SCOPES`, space separated; `None` for the default ([`DEFAULT_SCOPES`]). `openid` is always
+    /// asked for.
+    pub scopes: Option<Vec<String>>,
 }
+
+/// The scopes asked for when `OIDC_SCOPES` is unset.
+pub const DEFAULT_SCOPES: &str = "openid email";
 
 impl EnvSettings {
     /// Read `OIDC_*`. A yes/no variable with any other value is an error (the server does not start).
     pub fn from_env() -> Result<Self, String> {
         let env = Self {
-            enabled: config::flag("OIDC_ENABLED")?,
             issuer: config::var("OIDC_ISSUER"),
             client_id: config::var("OIDC_CLIENT_ID"),
             client_secret: config::var("OIDC_CLIENT_SECRET"),
-            display_name: config::var("OIDC_DISPLAY_NAME"),
+            display_name: config::var("OIDC_LABEL"),
             redirect_url: config::var("OIDC_REDIRECT_URL"),
             auto_create: config::flag("OIDC_AUTO_CREATE")?,
             only: config::flag("OIDC_ONLY")?,
+            scopes: config::var("OIDC_SCOPES")
+                .map(|s| s.split_whitespace().map(str::to_string).collect()),
         };
         env.checked()
     }
@@ -71,7 +77,7 @@ impl EnvSettings {
     /// Refuse what cannot be safely put in force. The secret goes to the issuer's token endpoint: with
     /// only the secret from the environment, an issuer stored on the admin page (now or earlier) would
     /// receive it.
-    pub fn checked(mut self) -> Result<Self, String> {
+    pub fn checked(self) -> Result<Self, String> {
         if self.only == Some(true) {
             // Nobody could sign in if single sign-on were off or half set up, so with OIDC_ONLY the
             // provider comes from the environment (the admin page cannot change it) and it stays on.
@@ -80,10 +86,6 @@ impl EnvSettings {
                     "OIDC_ONLY needs OIDC_ISSUER and OIDC_CLIENT_ID to be set too".to_string(),
                 );
             }
-            if self.enabled == Some(false) {
-                return Err("OIDC_ONLY cannot be set with OIDC_ENABLED off".to_string());
-            }
-            self.enabled = Some(true);
         }
         if self.client_secret.is_some() && self.issuer.is_none() {
             return Err("OIDC_CLIENT_SECRET needs OIDC_ISSUER to be set too".to_string());
@@ -114,16 +116,32 @@ pub struct Config {
     pub display_name: String,
     pub redirect_url: Option<String>,
     pub auto_create: bool,
+    /// The scopes asked for (`openid` among them).
+    pub scopes: Vec<String>,
 }
 
-/// What is in force for `env` over `row`. Enabled defaults to on when the environment names an issuer.
+/// Whether the admin page's on/off switch is on: on until it is turned off, and always with `OIDC_ONLY`.
+/// There is no variable for it: single sign-on is on once it has an issuer and a client id.
+pub fn switched_on(env: &EnvSettings, row: Option<&OidcSettings>) -> bool {
+    env.only == Some(true) || row.is_none_or(|r| r.enabled)
+}
+
+/// The scopes to ask for: `OIDC_SCOPES` or the default, with `openid` first.
+pub fn scopes(env: &EnvSettings) -> Vec<String> {
+    let mut scopes: Vec<String> = match &env.scopes {
+        Some(scopes) => scopes.clone(),
+        None => DEFAULT_SCOPES.split(' ').map(str::to_string).collect(),
+    };
+    scopes.retain(|s| s != "openid");
+    scopes.insert(0, "openid".to_string());
+    scopes
+}
+
+/// What is in force for `env` over `row`: present once there is an issuer and a client id (from either),
+/// unless the admin page's switch is off.
 pub fn effective(env: &EnvSettings, row: Option<&OidcSettings>) -> Option<Config> {
     let stored = |f: fn(&OidcSettings) -> &Option<String>| row.and_then(|r| f(r).clone());
-    let enabled = env
-        .enabled
-        .or(row.map(|r| r.enabled))
-        .unwrap_or(env.issuer.is_some());
-    if !enabled {
+    if !switched_on(env, row) {
         return None;
     }
     Some(Config {
@@ -140,6 +158,7 @@ pub fn effective(env: &EnvSettings, row: Option<&OidcSettings>) -> Option<Config
             .auto_create
             .or(row.map(|r| r.auto_create))
             .unwrap_or(false),
+        scopes: scopes(env),
     })
 }
 
@@ -327,8 +346,7 @@ impl Oidc {
         if self.password_login() {
             Ok(())
         } else {
-            Err(crate::error::ApiError::new(
-                axum::http::StatusCode::FORBIDDEN,
+            Err(crate::error::ApiError::forbidden(
                 "Password sign-in is turned off; use single sign-on",
             ))
         }
@@ -607,7 +625,8 @@ mod tests {
         assert_eq!(config.client_id, "env-client");
         assert_eq!(config.client_secret.as_deref(), Some("stored-secret"));
         assert!(!config.auto_create);
-        // Off unless enabled; the environment's issuer alone turns it on.
+        // On once there is an issuer and a client id; the admin page's switch can turn it off, except
+        // with OIDC_ONLY.
         assert_eq!(effective(&EnvSettings::default(), None), None);
         let env = EnvSettings {
             issuer: Some("https://env".into()),
@@ -615,11 +634,26 @@ mod tests {
             ..Default::default()
         };
         assert!(effective(&env, None).is_some());
-        let off = EnvSettings {
-            enabled: Some(false),
+        let switched_off = OidcSettings {
+            enabled: false,
+            ..row
+        };
+        assert_eq!(effective(&env, Some(&switched_off)), None);
+        let only = EnvSettings {
+            only: Some(true),
             ..env
         };
-        assert_eq!(effective(&off, Some(&row)), None);
+        assert!(effective(&only, Some(&switched_off)).is_some());
+    }
+
+    #[test]
+    fn scopes_default_and_always_ask_for_openid() {
+        assert_eq!(scopes(&EnvSettings::default()), ["openid", "email"]);
+        let env = EnvSettings {
+            scopes: Some(vec!["email".into(), "profile".into(), "openid".into()]),
+            ..Default::default()
+        };
+        assert_eq!(scopes(&env), ["openid", "email", "profile"]);
     }
 
     #[test]

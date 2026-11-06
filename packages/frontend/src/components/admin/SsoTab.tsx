@@ -38,7 +38,7 @@ export function SsoTab() {
           </p>
         )}
         <p className="text-sm text-muted-foreground">
-          Over https, <code>WOODMOUSE_SECURE_COOKIES</code> must be on; over plain http, off.
+          The callback must use the scheme of <code>PUBLIC_URL</code> (https or http).
         </p>
       </div>
       <SsoForm
@@ -119,7 +119,7 @@ function SsoForm({
         />
         Offer single sign-on
       </label>
-      {locked.enabled ? fromEnv("OIDC_ENABLED") : null}
+      {locked.enabled ? fromEnv("OIDC_ONLY") : null}
       <Field label="Issuer URL" htmlFor="oidc-issuer">
         <Input
           id="oidc-issuer"
@@ -177,7 +177,7 @@ function SsoForm({
           defaultValue={data.display_name ?? ""}
           placeholder="single sign-on"
         />
-        {locked.display_name ? fromEnv("OIDC_DISPLAY_NAME") : null}
+        {locked.display_name ? fromEnv("OIDC_LABEL") : null}
       </Field>
       <Field label="Redirect URL (optional)" htmlFor="oidc-redirect-url">
         <Input

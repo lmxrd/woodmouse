@@ -95,7 +95,6 @@ jobs:
           if [ "${{ matrix.arch }}" = amd64 ]; then
             cp packages/backend/target/specs/openapi.json packages/backend/target/specs/openapi.yaml release/
           fi
-          (cd release && sha256sum -- * > "SHA256SUMS-${{ matrix.arch }}")
           gh release upload "$TAG" release/* --clobber
       - run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v4
@@ -121,6 +120,25 @@ jobs:
           name: digests-${{ matrix.arch }}
           path: digests/*
           if-no-files-found: error
+
+  # One SHA256SUMS for everything attached (both binaries and the spec),
+  # once both runners have uploaded: `sha256sum -c SHA256SUMS
+  # --ignore-missing` checks a download.
+  checksums:
+    needs: [release-please, binaries-and-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Write and attach SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir release \
+            --pattern 'woodmouse-linux-*' --pattern 'openapi.*'
+          (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          gh release upload "$TAG" release/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
 
   # The tags 1.2.3, 1.2 and latest (prereleases get only the exact
   # version), pointing at both images.

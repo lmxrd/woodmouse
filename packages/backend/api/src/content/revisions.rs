@@ -47,7 +47,7 @@ pub struct CommentContent {
 }
 
 fn encode<T: Serialize>(content: &T) -> Result<String, ApiError> {
-    serde_json::to_string(content).map_err(|_| ApiError::internal("encoding failed"))
+    serde_json::to_string(content).map_err(|_| ApiError::internal("Encoding failed"))
 }
 
 /// Read a revision's content; `None` once redacted.

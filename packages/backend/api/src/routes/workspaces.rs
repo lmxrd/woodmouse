@@ -13,7 +13,8 @@ use crate::access;
 use crate::api::{description, required};
 use crate::audit::{self, Entry};
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::extract::ApiJson;
 use crate::state::AppState;
 use crate::{time, trash};
 use entity::{Role, Workspace};
@@ -41,7 +42,8 @@ pub struct CreateWorkspace {
     security(("session_cookie" = [])),
     responses(
         (status = 200, description = "Visible workspaces", body = [Workspace]),
-        (status = 401, description = "Not logged in")
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody)
     )
 )]
 pub async fn list_workspaces(
@@ -81,14 +83,16 @@ pub async fn list_workspaces(
     request_body = CreateWorkspace,
     responses(
         (status = 201, description = "Workspace created", body = Workspace),
-        (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not logged in")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn create_workspace(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
-    Json(input): Json<CreateWorkspace>,
+    ApiJson(input): ApiJson<CreateWorkspace>,
 ) -> Result<(StatusCode, Json<Workspace>), ApiError> {
     let name = required(&input.name, "name")?;
     let description = description(&input.description)?;
@@ -132,8 +136,10 @@ pub async fn create_workspace(
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 200, description = "The workspace", body = Workspace),
-        (status = 401, description = "Not logged in"),
-        (status = 404, description = "No workspace with that id, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No workspace with that id, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_workspace(
@@ -166,15 +172,18 @@ pub struct UpdateWorkspace {
     request_body = UpdateWorkspace,
     responses(
         (status = 200, description = "The workspace", body = Workspace),
-        (status = 400, description = "Invalid input"),
-        (status = 404, description = "No such workspace, or not an admin")
+        (status = 400, description = "Invalid input", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not an admin", body = ErrorBody),
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
     )
 )]
 pub async fn update_workspace(
     State(state): State<AppState>,
     CurrentUser { user, .. }: CurrentUser,
     Path(id): Path<uuid::Uuid>,
-    Json(input): Json<UpdateWorkspace>,
+    ApiJson(input): ApiJson<UpdateWorkspace>,
 ) -> Result<Json<Workspace>, ApiError> {
     let name = input
         .name
@@ -207,7 +216,10 @@ pub async fn update_workspace(
     params(("id" = uuid::Uuid, Path, description = "Workspace id")),
     responses(
         (status = 204, description = "Deleted"),
-        (status = 404, description = "No such workspace, or not an admin")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such workspace, or not an admin", body = ErrorBody)
     )
 )]
 pub async fn delete_workspace(

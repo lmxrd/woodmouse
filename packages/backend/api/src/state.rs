@@ -5,6 +5,8 @@ use std::time::Instant;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
+use anyhow::Context;
+
 use crate::error::ApiError;
 use crate::storage::FileStores;
 
@@ -20,16 +22,20 @@ pub struct AppState {
     /// Held by anything that writes, so writes take turns in the app instead of meeting SQLite's
     /// "database is locked". Reads never take it.
     writes: Arc<Mutex<()>>,
-    /// Set the `Secure` flag on session cookies (for HTTPS deployments).
+    /// The site is served over https (`PUBLIC_URL` starts with `https://`): every cookie gets `Secure` and
+    /// the `__Host-` prefix. Plain cookies otherwise (local development).
     pub secure_cookies: bool,
+    /// `TRUST_PROXY`: a reverse proxy sets `X-Forwarded-For`, so the client's address is read from it (for
+    /// the login limits). Off, the connection's address is used and the header is ignored.
+    pub trust_proxy: bool,
     /// Where uploaded files live.
     pub files: Arc<FileStores>,
     /// The live editing rooms (see `live`).
     pub rooms: Arc<crate::live::Rooms>,
     /// Who has which page open for editing. Lives in memory only.
     pub presence: Arc<std::sync::Mutex<PresenceMap>>,
-    /// Recent failed logins, for slowing down guessing (see `auth::limits`). In memory only.
-    pub login_limits: Arc<crate::auth::LoginLimits>,
+    /// Limits on sign-in and code attempts (`crate::limits`). In memory only.
+    pub limits: Arc<crate::limits::Limits>,
     /// How email goes out (SMTP; tests record instead).
     pub mailer: Arc<dyn crate::mail::Mailer>,
     /// Single sign-on: the settings in force, the provider's metadata, the login cookie's key.
@@ -72,11 +78,12 @@ impl AppState {
             mailer: crate::mail::SmtpMailer::shared(db.clone()),
             db,
             writes: Arc::default(),
-            secure_cookies: std::env::var("WOODMOUSE_SECURE_COOKIES").is_ok_and(|v| v != "0"),
+            secure_cookies: crate::config::public_url().is_some_and(|u| u.starts_with("https://")),
+            trust_proxy: false,
             files: Arc::new(files),
             presence: Arc::default(),
             rooms: Arc::default(),
-            login_limits: Arc::default(),
+            limits: Arc::default(),
             oidc: Arc::new(crate::oidc::Oidc::new(Default::default())),
             challenge_key: axum_extra::extract::cookie::Key::generate(),
             totp_required: false,
@@ -86,21 +93,27 @@ impl AppState {
     /// Open the database at `url` (`sqlite:<path>`, created when missing): apply the migrations, restore
     /// the search triggers, and set up the file storage from the environment. What the server and the
     /// development tools (`seed`) start from.
-    pub async fn open(url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let db = crate::db::orm(crate::db::connect(url).await?);
-        // The schema: the migrations in the `migration` crate, each applied once.
-        <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None).await?;
+    pub async fn open(url: &str) -> anyhow::Result<Self> {
+        // The schema: the migrations in the `migration` crate, each applied once, before the app's
+        // connections are opened (see `db::migrated`).
+        let db = crate::db::migrated(url)
+            .await
+            .with_context(|| format!("could not open and migrate the database {url}"))?;
         crate::search::ensure_triggers(&db)
             .await
-            .map_err(|_| "could not create the search triggers")?;
+            .map_err(|_| anyhow::anyhow!("could not create the search triggers"))?;
         tracing::info!(url, "database ready");
-        let files = FileStores::from_env()?;
+        let files = FileStores::from_env().map_err(anyhow::Error::msg)?;
         tracing::info!(
             max_upload_bytes = files.max_upload_bytes,
             "file storage ready"
         );
-        let oidc = crate::oidc::Oidc::new(crate::oidc::EnvSettings::from_env()?);
-        let totp_required = crate::config::flag("TOTP_REQUIRED")?.unwrap_or(false);
+        let oidc = crate::oidc::Oidc::new(
+            crate::oidc::EnvSettings::from_env().map_err(anyhow::Error::msg)?,
+        );
+        let totp_required = crate::config::flag("TOTP_REQUIRED")
+            .map_err(anyhow::Error::msg)?
+            .unwrap_or(false);
         crate::auth::warm_up();
         oidc.apply(
             entity::oidc_settings::Entity::find_by_id(1)
@@ -110,12 +123,21 @@ impl AppState {
         );
         let mut state = Self::with_files(db, files).with_oidc(oidc);
         state.totp_required = totp_required;
+        state.trust_proxy = crate::config::flag("TRUST_PROXY")
+            .map_err(anyhow::Error::msg)?
+            .unwrap_or(false);
         Ok(state)
     }
 
     /// The same state with other single sign-on settings (the server's from the environment; tests).
     pub fn with_oidc(mut self, oidc: crate::oidc::Oidc) -> Self {
         self.oidc = Arc::new(oidc);
+        self
+    }
+
+    /// The same state with other limits (tests).
+    pub fn with_limits(mut self, limits: crate::limits::Limits) -> Self {
+        self.limits = Arc::new(limits);
         self
     }
 

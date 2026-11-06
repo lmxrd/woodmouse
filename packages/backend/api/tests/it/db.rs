@@ -9,6 +9,8 @@ use entity::{labels, workspace_members};
 use entity::{users, workspaces};
 use sea_orm::DatabaseConnection;
 
+use crate::common::*;
+
 /// A workspace row, so labels can point at something (the relations are foreign keys).
 async fn workspace(db: &DatabaseConnection) -> uuid::Uuid {
     workspaces::ActiveModel {
@@ -390,4 +392,63 @@ async fn entities_match_the_tables() {
         workspace_members,
         workspaces
     );
+}
+
+/// Every id is a 16-byte BLOB, not text: sqlx writes a `Uuid` as its bytes, and SQLite keeps a blob a blob
+/// whatever a column's declared type (`uuid_text` is only what makes the entity generator write `Uuid`).
+/// Checked over every id column after the API has made rows in the main tables.
+#[tokio::test]
+async fn every_id_is_stored_as_sixteen_bytes() {
+    let (app, db) = app_with_db().await;
+    let admin = bootstrap_admin(&app).await;
+    let ws = create_workspace(&app, &admin, "Home").await;
+    let project: serde_json::Value = serde_json::from_str(
+        &app.post(&format!("/api/workspaces/{ws}/projects"))
+            .json_text(r#"{"name":"House"}"#)
+            .session(Some(&admin))
+            .await
+            .text(),
+    )
+    .unwrap();
+    let project_id = project["id"].as_str().unwrap();
+    let res = app
+        .post(&format!("/api/projects/{project_id}/tasks"))
+        .json_text(r#"{"title":"Paint"}"#)
+        .session(Some(&admin))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.status_code());
+
+    let columns = api::db::query::<(String, String)>(
+        &db,
+        "SELECT m.name, p.name FROM sqlite_master m, pragma_table_info(m.name) p \
+         WHERE m.type = 'table' AND p.type = 'uuid_text'",
+        [],
+    )
+    .await
+    .unwrap();
+    assert!(columns.len() > 50, "{} id columns", columns.len());
+    let mut rows = 0;
+    for (table, column) in columns {
+        let bad = api::db::query::<(i64,)>(
+            &db,
+            format!(
+                "SELECT count(*) FROM \"{table}\" WHERE \"{column}\" IS NOT NULL \
+                 AND (typeof(\"{column}\") <> 'blob' OR length(\"{column}\") <> 16)"
+            ),
+            [],
+        )
+        .await
+        .unwrap()[0]
+            .0;
+        assert_eq!(bad, 0, "{table}.{column} holds an id that is not 16 bytes");
+        rows += api::db::query::<(i64,)>(
+            &db,
+            format!("SELECT count(*) FROM \"{table}\" WHERE \"{column}\" IS NOT NULL"),
+            [],
+        )
+        .await
+        .unwrap()[0]
+            .0;
+    }
+    assert!(rows > 5, "{rows} ids checked");
 }

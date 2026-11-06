@@ -2,66 +2,51 @@
 
 use api::db::prelude::*;
 use axum::http::StatusCode;
-use entity::{sessions, users, workspace_members};
+use entity::{users, workspace_members};
 use serde_json::Value;
 
 use crate::common::*;
 
-async fn json(res: axum::http::Response<axum::body::Body>) -> Value {
-    serde_json::from_str(&body_string(res.into_body()).await).expect("valid json")
+async fn json(res: TestResponse) -> Value {
+    serde_json::from_str(&res.text()).expect("valid json")
 }
 
 struct Fx {
-    app: axum::Router,
+    app: App,
     db: sea_orm::DatabaseConnection,
     admin: String,
     ws: uuid::Uuid,
     task: String,
 }
 
-async fn fixture_with(app: axum::Router, db: sea_orm::DatabaseConnection) -> Fx {
+async fn fixture_with(app: App, db: sea_orm::DatabaseConnection) -> Fx {
     let admin = bootstrap_admin(&app).await;
     let ws = create_workspace(&app, &admin, "Home").await;
     let project = json(
-        request(
-            &app,
-            post_json(
-                &format!("/api/workspaces/{ws}/projects"),
-                r#"{"name":"P"}"#,
-                Some(&admin),
-            ),
-        )
-        .await,
+        app.post(&format!("/api/workspaces/{ws}/projects"))
+            .json_text(r#"{"name":"P"}"#)
+            .session(Some(&admin))
+            .await,
     )
     .await["id"]
         .as_str()
         .unwrap()
         .to_string();
     let list = json(
-        request(
-            &app,
-            post_json(
-                &format!("/api/projects/{project}/lists"),
-                r#"{"name":"L"}"#,
-                Some(&admin),
-            ),
-        )
-        .await,
+        app.post(&format!("/api/projects/{project}/lists"))
+            .json_text(r#"{"name":"L"}"#)
+            .session(Some(&admin))
+            .await,
     )
     .await["id"]
         .as_str()
         .unwrap()
         .to_string();
     let task = json(
-        request(
-            &app,
-            post_json(
-                &format!("/api/lists/{list}/tasks"),
-                r#"{"title":"T"}"#,
-                Some(&admin),
-            ),
-        )
-        .await,
+        app.post(&format!("/api/lists/{list}/tasks"))
+            .json_text(r#"{"title":"T"}"#)
+            .session(Some(&admin))
+            .await,
     )
     .await["id"]
         .as_str()
@@ -89,31 +74,26 @@ impl Fx {
         bytes: &[u8],
         task: Option<&str>,
     ) -> (StatusCode, Value) {
-        let res = request(
+        let res = upload(
             &self.app,
-            upload(
-                &format!("/api/workspaces/{}/files", self.ws),
-                name,
-                mime,
-                bytes,
-                task,
-                Some(&self.admin),
-            ),
+            &format!("/api/workspaces/{}/files", self.ws),
+            name,
+            mime,
+            bytes,
+            task,
+            Some(&self.admin),
         )
         .await;
-        let status = res.status();
+        let status = res.status_code();
         (status, json(res).await)
     }
     async fn files(&self, query: &str) -> Vec<Value> {
-        let res = request(
-            &self.app,
-            get(
-                &format!("/api/workspaces/{}/files{query}", self.ws),
-                Some(&self.admin),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::OK);
+        let res = self
+            .app
+            .get(&format!("/api/workspaces/{}/files{query}", self.ws))
+            .session(Some(&self.admin))
+            .await;
+        assert_eq!(res.status_code(), StatusCode::OK);
         json(res).await.as_array().unwrap().clone()
     }
 }
@@ -133,12 +113,12 @@ async fn upload_download_and_safe_headers() {
     let id = file["id"].as_str().unwrap();
 
     // Images display inline; the bytes round-trip.
-    let res = request(
-        &fx.app,
-        get(&format!("/api/files/{id}/content"), Some(&fx.admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .get(&format!("/api/files/{id}/content"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
     assert_eq!(res.headers()["content-type"], "image/png");
     assert!(
         res.headers()["content-disposition"]
@@ -147,7 +127,7 @@ async fn upload_download_and_safe_headers() {
             .starts_with("inline")
     );
     assert_eq!(res.headers()["x-content-type-options"], "nosniff");
-    assert_eq!(res.into_body().collect_bytes().await, png.to_vec());
+    assert_eq!(res.as_bytes().to_vec(), png.to_vec());
 
     // SVG and HTML are never inline and never served with their own type.
     for (name, mime) in [("x.svg", "image/svg+xml"), ("x.html", "text/html")] {
@@ -159,14 +139,11 @@ async fn upload_download_and_safe_headers() {
                 None,
             )
             .await;
-        let res = request(
-            &fx.app,
-            get(
-                &format!("/api/files/{}/content", f["id"].as_str().unwrap()),
-                Some(&fx.admin),
-            ),
-        )
-        .await;
+        let res = fx
+            .app
+            .get(&format!("/api/files/{}/content", f["id"].as_str().unwrap()))
+            .session(Some(&fx.admin))
+            .await;
         assert_eq!(f["previewable"], false);
         assert_eq!(res.headers()["content-type"], "application/octet-stream");
         assert!(
@@ -187,14 +164,11 @@ async fn upload_download_and_safe_headers() {
             None,
         )
         .await;
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/files/{}/content", f["id"].as_str().unwrap()),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .get(&format!("/api/files/{}/content", f["id"].as_str().unwrap()))
+        .session(Some(&fx.admin))
+        .await;
     let disposition = res.headers()["content-disposition"]
         .to_str()
         .unwrap()
@@ -205,22 +179,12 @@ async fn upload_download_and_safe_headers() {
     );
 
     // Anonymous access is refused.
-    let res = request(&fx.app, get(&format!("/api/files/{id}/content"), None)).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res = fx.app.get(&format!("/api/files/{id}/content")).await;
+    assert_eq!(res.status_code(), StatusCode::UNAUTHORIZED);
 
     // Search narrows the list.
     assert_eq!(fx.files("?q=CELLAR").await.len(), 1);
     assert_eq!(fx.files("").await.len(), 4);
-}
-
-trait CollectBytes {
-    async fn collect_bytes(self) -> Vec<u8>;
-}
-impl CollectBytes for axum::body::Body {
-    async fn collect_bytes(self) -> Vec<u8> {
-        use http_body_util::BodyExt;
-        self.collect().await.unwrap().to_bytes().to_vec()
-    }
 }
 
 #[tokio::test]
@@ -258,19 +222,17 @@ async fn duplicates_are_detected_by_content() {
 
     // The same content in another workspace is not a duplicate.
     let other_ws = create_workspace(&fx.app, &fx.admin, "Work").await;
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &format!("/api/workspaces/{other_ws}/files"),
-            "quote.pdf",
-            "application/pdf",
-            b"same bytes",
-            None,
-            Some(&fx.admin),
-        ),
+        &format!("/api/workspaces/{other_ws}/files"),
+        "quote.pdf",
+        "application/pdf",
+        b"same bytes",
+        None,
+        Some(&fx.admin),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
 }
 
 #[tokio::test]
@@ -282,33 +244,27 @@ async fn attachments_and_library_survive_task_deletion() {
     let id = file["id"].as_str().unwrap().to_string();
     assert_eq!(file["used_in"], 1);
     let t = json(
-        request(
-            &fx.app,
-            get(&format!("/api/tasks/{}", fx.task), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/tasks/{}", fx.task))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(t["attachment_count"], 1);
 
     let attachments = json(
-        request(
-            &fx.app,
-            get(
-                &format!("/api/tasks/{}/attachments", fx.task),
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/tasks/{}/attachments", fx.task))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(attachments[0]["id"], id);
     let usage = json(
-        request(
-            &fx.app,
-            get(&format!("/api/files/{id}/usage"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/files/{id}/usage"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(usage[0]["kind"], "task");
@@ -316,75 +272,60 @@ async fn attachments_and_library_survive_task_deletion() {
     assert_eq!(usage[0]["in_trash"], false);
 
     // Deleting the task keeps the file in the library, still counted as used (it can come back).
-    request(
-        &fx.app,
-        delete(&format!("/api/tasks/{}", fx.task), Some(&fx.admin)),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/tasks/{}", fx.task))
+        .session(Some(&fx.admin))
+        .await;
     let files = fx.files("").await;
     assert_eq!(files.len(), 1);
     assert_eq!(files[0]["used_in"], 1);
     let usage = json(
-        request(
-            &fx.app,
-            get(&format!("/api/files/{id}/usage"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/files/{id}/usage"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(usage[0]["in_trash"], true);
-    request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/trash/task/{}/restore", fx.ws, fx.task),
-            "{}",
-            Some(&fx.admin),
-        ),
-    )
-    .await;
+    fx.app
+        .post(&format!(
+            "/api/workspaces/{}/trash/task/{}/restore",
+            fx.ws, fx.task
+        ))
+        .json_text("{}")
+        .session(Some(&fx.admin))
+        .await;
 
     // Detach, re-attach (idempotent), detach again.
-    let res = request(
-        &fx.app,
-        delete(
-            &format!("/api/tasks/{}/attachments/{id}", fx.task),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{}/attachments/{id}", fx.task))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     assert_eq!(fx.files("?unused=true").await.len(), 1);
     for _ in 0..2 {
-        let res = request(
-            &fx.app,
-            post_json(
-                &format!("/api/tasks/{}/attachments", fx.task),
-                &format!(r#"{{"file_id":"{id}"}}"#),
-                Some(&fx.admin),
-            ),
-        )
-        .await;
-        assert_eq!(res.status(), StatusCode::OK);
+        let res = fx
+            .app
+            .post(&format!("/api/tasks/{}/attachments", fx.task))
+            .json_text(&format!(r#"{{"file_id":"{id}"}}"#))
+            .session(Some(&fx.admin))
+            .await;
+        assert_eq!(res.status_code(), StatusCode::OK);
     }
     assert_eq!(fx.files("").await[0]["used_in"], 1);
-    let res = request(
-        &fx.app,
-        delete(
-            &format!("/api/tasks/{}/attachments/{id}", fx.task),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let res = request(
-        &fx.app,
-        delete(
-            &format!("/api/tasks/{}/attachments/{id}", fx.task),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{}/attachments/{id}", fx.task))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/tasks/{}/attachments/{id}", fx.task))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -399,14 +340,10 @@ async fn admin_cleanup_removes_only_unreferenced_files() {
     let lonely_id = lonely["id"].as_str().unwrap();
 
     let preview = json(
-        request(
-            &fx.app,
-            get(
-                &format!("/api/workspaces/{}/files/unused", fx.ws),
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/workspaces/{}/files/unused", fx.ws))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(preview["count"], 1);
@@ -435,78 +372,60 @@ async fn admin_cleanup_removes_only_unreferenced_files() {
         .insert(&fx.db)
         .await
         .unwrap();
-        let token = uuid::Uuid::new_v4().to_string();
-        sessions::ActiveModel {
-            id: Set(uuid::Uuid::now_v7()),
-            token: Set(token.clone()),
-            user_id: Set(user.id),
-            expires_at: Set(crate::common::far_future()),
-        }
-        .insert(&fx.db)
-        .await
-        .unwrap();
+        let token = api::sessions::start_session(&fx.db, user.id).await.unwrap();
         format!("woodmouse_session={token}")
     };
-    let res = request(
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/files/cleanup", fx.ws))
+        .json_text("{}")
+        .session(Some(&writer))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
+    let res = upload(
         &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/files/cleanup", fx.ws),
-            "{}",
-            Some(&writer),
-        ),
+        &format!("/api/workspaces/{}/files", fx.ws),
+        "w.txt",
+        "text/plain",
+        b"writer upload",
+        None,
+        Some(&writer),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-    let res = request(
-        &fx.app,
-        upload(
-            &format!("/api/workspaces/{}/files", fx.ws),
-            "w.txt",
-            "text/plain",
-            b"writer upload",
-            None,
-            Some(&writer),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::CREATED, "writers can upload");
+    assert_eq!(res.status_code(), StatusCode::CREATED, "writers can upload");
 
     // A file attached to a trashed task still counts as used.
-    request(
-        &fx.app,
-        delete(&format!("/api/tasks/{}", fx.task), Some(&fx.admin)),
-    )
-    .await;
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/files/cleanup", fx.ws),
-            "{}",
-            Some(&fx.admin),
-        ),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/tasks/{}", fx.task))
+        .session(Some(&fx.admin))
+        .await;
+    let res = fx
+        .app
+        .post(&format!("/api/workspaces/{}/files/cleanup", fx.ws))
+        .json_text("{}")
+        .session(Some(&fx.admin))
+        .await;
     let result = json(res).await;
     assert_eq!(result["deleted"], 2, "lonely.pdf and the writer's file");
     assert_eq!(result["freed_bytes"], 7 + 13);
 
     assert_eq!(fx.files("").await.len(), 1);
-    let res = request(
-        &fx.app,
-        get(&format!("/api/files/{lonely_id}/content"), Some(&fx.admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/files/{}/content", used["id"].as_str().unwrap()),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
+    let res = fx
+        .app
+        .get(&format!("/api/files/{lonely_id}/content"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .get(&format!(
+            "/api/files/{}/content",
+            used["id"].as_str().unwrap()
+        ))
+        .session(Some(&fx.admin))
+        .await;
     assert_eq!(
-        res.status(),
+        res.status_code(),
         StatusCode::OK,
         "the referenced file is untouched"
     );
@@ -516,7 +435,7 @@ async fn admin_cleanup_removes_only_unreferenced_files() {
 async fn upload_limit_and_validation() {
     let (app, db) = app_with_upload_limit(1024).await;
     let fx = fixture_with(app, db).await;
-    let config = json(request(&fx.app, get("/api/config", Some(&fx.admin))).await).await;
+    let config = json(fx.app.get("/api/config").session(Some(&fx.admin)).await).await;
     assert_eq!(config["max_upload_bytes"], 1024);
 
     let (status, _) = fx
@@ -548,30 +467,24 @@ async fn upload_limit_and_validation() {
 async fn files_attach_to_wiki_pages_too() {
     let fx = fixture().await;
     let uri = format!("/api/workspaces/{}/files", fx.ws);
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &uri,
-            "plan.pdf",
-            "application/pdf",
-            b"%PDF plan",
-            None,
-            Some(&fx.admin),
-        ),
+        &uri,
+        "plan.pdf",
+        "application/pdf",
+        b"%PDF plan",
+        None,
+        Some(&fx.admin),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let file = json(res).await["id"].as_str().unwrap().to_string();
     let page = json(
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/workspaces/{}/pages", fx.ws),
-                r#"{"title":"Plans"}"#,
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .post(&format!("/api/workspaces/{}/pages", fx.ws))
+            .json_text(r#"{"title":"Plans"}"#)
+            .session(Some(&fx.admin))
+            .await,
     )
     .await["id"]
         .as_str()
@@ -579,54 +492,48 @@ async fn files_attach_to_wiki_pages_too() {
         .to_string();
 
     let attach = || {
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/pages/{page}/attachments"),
-                &format!(r#"{{"file_id":"{file}"}}"#),
-                Some(&fx.admin),
-            ),
-        )
+        fx.app
+            .post(&format!("/api/pages/{page}/attachments"))
+            .json_text(&format!(r#"{{"file_id":"{file}"}}"#))
+            .session(Some(&fx.admin))
     };
-    assert_eq!(attach().await.status(), StatusCode::OK);
-    assert_eq!(attach().await.status(), StatusCode::OK, "twice is harmless");
+    assert_eq!(attach().await.status_code(), StatusCode::OK);
+    assert_eq!(
+        attach().await.status_code(),
+        StatusCode::OK,
+        "twice is harmless"
+    );
     let list = json(
-        request(
-            &fx.app,
-            get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/pages/{page}/attachments"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["used_in"], 1);
 
     let usage = json(
-        request(
-            &fx.app,
-            get(&format!("/api/files/{file}/usage"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/files/{file}/usage"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(usage[0]["kind"], "page");
     assert_eq!(usage[0]["title"], "Plans");
 
-    let res = request(
-        &fx.app,
-        delete(
-            &format!("/api/pages/{page}/attachments/{file}"),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = fx
+        .app
+        .delete(&format!("/api/pages/{page}/attachments/{file}"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
     let list = json(
-        request(
-            &fx.app,
-            get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/pages/{page}/attachments"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert!(list.as_array().unwrap().is_empty());
@@ -635,56 +542,50 @@ async fn files_attach_to_wiki_pages_too() {
 #[tokio::test]
 async fn inline_files_attach_to_the_page_and_are_audited() {
     let fx = fixture().await;
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &format!("/api/workspaces/{}/files", fx.ws),
-            "oak.png",
-            "image/png",
-            b"\x89PNG oak",
-            None,
-            Some(&fx.admin),
-        ),
+        &format!("/api/workspaces/{}/files", fx.ws),
+        "oak.png",
+        "image/png",
+        b"\x89PNG oak",
+        None,
+        Some(&fx.admin),
     )
     .await;
     let file = json(res).await["id"].as_str().unwrap().to_string();
     let page = json(
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/workspaces/{}/pages", fx.ws),
-                r#"{"title":"Kitchen"}"#,
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .post(&format!("/api/workspaces/{}/pages", fx.ws))
+            .json_text(r#"{"title":"Kitchen"}"#)
+            .session(Some(&fx.admin))
+            .await,
     )
     .await["id"]
         .as_str()
         .unwrap()
         .to_string();
     let save = |body: String| {
-        request(
-            &fx.app,
-            put_json(&format!("/api/pages/{page}/blocks"), &body, Some(&fx.admin)),
-        )
+        fx.app
+            .put(&format!("/api/pages/{page}/blocks"))
+            .json_text(&body)
+            .session(Some(&fx.admin))
     };
 
     // A file block without a file is refused.
     let res = save(r#"{"blocks":[{"type":"file"}]}"#.to_string()).await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
     // Only file blocks take a file.
     let res = save(format!(
         r#"{{"blocks":[{{"type":"paragraph","attrs":{{"file_id":"{file}"}}}}]}}"#
     ))
     .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(res.status_code(), StatusCode::BAD_REQUEST);
 
     let res = save(format!(
         r#"{{"blocks":[{{"type":"file","attrs":{{"file_id":"{file}","label":"oak.png"}}}}]}}"#
     ))
     .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.status_code(), StatusCode::OK);
     save(format!(
         r#"{{"blocks":[{{"type":"file","attrs":{{"file_id":"{file}","label":"oak.png"}}}},{{"type":"paragraph"}}]}}"#
     ))
@@ -692,34 +593,25 @@ async fn inline_files_attach_to_the_page_and_are_audited() {
 
     // Showing it in the page attached it (once), so it counts as used.
     let list = json(
-        request(
-            &fx.app,
-            get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/pages/{page}/attachments"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["name"], "oak.png");
 
     // The feed recorded it once, and detaching is recorded too.
-    request(
-        &fx.app,
-        delete(
-            &format!("/api/pages/{page}/attachments/{file}"),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
+    fx.app
+        .delete(&format!("/api/pages/{page}/attachments/{file}"))
+        .session(Some(&fx.admin))
+        .await;
     let feed = json(
-        request(
-            &fx.app,
-            get(
-                &format!("/api/workspaces/{}/activity", fx.ws),
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/workspaces/{}/activity", fx.ws))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     let kinds: Vec<&str> = feed
@@ -750,44 +642,36 @@ async fn inline_files_attach_to_the_page_and_are_audited() {
 async fn removing_a_file_block_detaches_it_but_hand_attachments_stay() {
     let fx = fixture().await;
     let uri = format!("/api/workspaces/{}/files", fx.ws);
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &uri,
-            "oak.png",
-            "image/png",
-            b"\x89PNG oak",
-            None,
-            Some(&fx.admin),
-        ),
+        &uri,
+        "oak.png",
+        "image/png",
+        b"\x89PNG oak",
+        None,
+        Some(&fx.admin),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let inline = json(res).await["id"].as_str().unwrap().to_string();
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &uri,
-            "map.svg",
-            "image/svg+xml",
-            b"<svg>map</svg>",
-            None,
-            Some(&fx.admin),
-        ),
+        &uri,
+        "map.svg",
+        "image/svg+xml",
+        b"<svg>map</svg>",
+        None,
+        Some(&fx.admin),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let manual = json(res).await["id"].as_str().unwrap().to_string();
     let page = json(
-        request(
-            &fx.app,
-            post_json(
-                &format!("/api/workspaces/{}/pages", fx.ws),
-                r#"{"title":"Trails"}"#,
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .post(&format!("/api/workspaces/{}/pages", fx.ws))
+            .json_text(r#"{"title":"Trails"}"#)
+            .session(Some(&fx.admin))
+            .await,
     )
     .await["id"]
         .as_str()
@@ -795,30 +679,26 @@ async fn removing_a_file_block_detaches_it_but_hand_attachments_stay() {
         .to_string();
 
     // Attached by hand: it stays until it is detached.
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/pages/{page}/attachments"),
-            &format!(r#"{{"file_id":"{manual}"}}"#),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::OK);
+    let res = fx
+        .app
+        .post(&format!("/api/pages/{page}/attachments"))
+        .json_text(&format!(r#"{{"file_id":"{manual}"}}"#))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::OK);
 
     let save = |body: String| {
-        request(
-            &fx.app,
-            put_json(&format!("/api/pages/{page}/blocks"), &body, Some(&fx.admin)),
-        )
+        fx.app
+            .put(&format!("/api/pages/{page}/blocks"))
+            .json_text(&body)
+            .session(Some(&fx.admin))
     };
     let attachments = || async {
         json(
-            request(
-                &fx.app,
-                get(&format!("/api/pages/{page}/attachments"), Some(&fx.admin)),
-            )
-            .await,
+            fx.app
+                .get(&format!("/api/pages/{page}/attachments"))
+                .session(Some(&fx.admin))
+                .await,
         )
         .await
     };
@@ -838,14 +718,10 @@ async fn removing_a_file_block_detaches_it_but_hand_attachments_stay() {
     assert_eq!(list[0]["name"], "map.svg");
 
     let feed = json(
-        request(
-            &fx.app,
-            get(
-                &format!("/api/workspaces/{}/activity", fx.ws),
-                Some(&fx.admin),
-            ),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/workspaces/{}/activity", fx.ws))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     let entries = feed.as_array().unwrap();
@@ -868,16 +744,14 @@ async fn removing_a_file_block_detaches_it_but_hand_attachments_stay() {
 async fn files_have_versions_and_are_deleted_softly() {
     let fx = fixture().await;
     let uri = format!("/api/workspaces/{}/files", fx.ws);
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &uri,
-            "plan.txt",
-            "text/plain",
-            b"first draft",
-            Some(&fx.task),
-            Some(&fx.admin),
-        ),
+        &uri,
+        "plan.txt",
+        "text/plain",
+        b"first draft",
+        Some(&fx.task),
+        Some(&fx.admin),
     )
     .await;
     let file = json(res).await;
@@ -885,19 +759,17 @@ async fn files_have_versions_and_are_deleted_softly() {
     assert_eq!(file["versions"], 1);
 
     // A new version keeps the id and the name; the old content stays downloadable.
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &format!("/api/files/{id}/versions"),
-            "ignored-name.txt",
-            "text/plain",
-            b"second draft, longer",
-            None,
-            Some(&fx.admin),
-        ),
+        &format!("/api/files/{id}/versions"),
+        "ignored-name.txt",
+        "text/plain",
+        b"second draft, longer",
+        None,
+        Some(&fx.admin),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.status_code(), StatusCode::CREATED);
     let updated = json(res).await;
     assert_eq!(updated["id"], id);
     assert_eq!(updated["name"], "plan.txt");
@@ -905,69 +777,62 @@ async fn files_have_versions_and_are_deleted_softly() {
     assert_eq!(updated["size"], 20);
 
     // The same content again is refused.
-    let res = request(
+    let res = upload(
         &fx.app,
-        upload(
-            &format!("/api/files/{id}/versions"),
-            "x.txt",
-            "text/plain",
-            b"second draft, longer",
-            None,
-            Some(&fx.admin),
-        ),
+        &format!("/api/files/{id}/versions"),
+        "x.txt",
+        "text/plain",
+        b"second draft, longer",
+        None,
+        Some(&fx.admin),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert_eq!(res.status_code(), StatusCode::CONFLICT);
 
     let versions = json(
-        request(
-            &fx.app,
-            get(&format!("/api/files/{id}/versions"), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/files/{id}/versions"))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert_eq!(versions.as_array().unwrap().len(), 2);
     assert_eq!(versions[0]["number"], 2);
     assert_eq!(versions[0]["current"], true);
     let first = versions[1]["id"].as_str().unwrap().to_string();
-    let res = request(
-        &fx.app,
-        get(
-            &format!("/api/files/{id}/versions/{first}/content"),
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(body_string(res.into_body()).await, "first draft");
-    let res = request(
-        &fx.app,
-        get(&format!("/api/files/{id}/content"), Some(&fx.admin)),
-    )
-    .await;
-    assert_eq!(body_string(res.into_body()).await, "second draft, longer");
+    let res = fx
+        .app
+        .get(&format!("/api/files/{id}/versions/{first}/content"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.text(), "first draft");
+    let res = fx
+        .app
+        .get(&format!("/api/files/{id}/content"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.text(), "second draft, longer");
 
     // Deleting is soft: it leaves the library and the task, and the Trash can bring it back.
-    let res = request(
-        &fx.app,
-        delete(&format!("/api/files/{id}"), Some(&fx.admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let library = json(request(&fx.app, get(&uri, Some(&fx.admin))).await).await;
+    let res = fx
+        .app
+        .delete(&format!("/api/files/{id}"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let library = json(fx.app.get(&uri).session(Some(&fx.admin)).await).await;
     assert!(library.as_array().unwrap().is_empty());
-    let res = request(
-        &fx.app,
-        get(&format!("/api/files/{id}/content"), Some(&fx.admin)),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = fx
+        .app
+        .get(&format!("/api/files/{id}/content"))
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NOT_FOUND);
     let trash = json(
-        request(
-            &fx.app,
-            get(&format!("/api/workspaces/{}/trash", fx.ws), Some(&fx.admin)),
-        )
-        .await,
+        fx.app
+            .get(&format!("/api/workspaces/{}/trash", fx.ws))
+            .session(Some(&fx.admin))
+            .await,
     )
     .await;
     assert!(
@@ -977,16 +842,16 @@ async fn files_have_versions_and_are_deleted_softly() {
             .iter()
             .any(|i| i["kind"] == "file")
     );
-    let res = request(
-        &fx.app,
-        post_json(
-            &format!("/api/workspaces/{}/trash/file/{id}/restore", fx.ws),
-            "{}",
-            Some(&fx.admin),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    let library = json(request(&fx.app, get(&uri, Some(&fx.admin))).await).await;
+    let res = fx
+        .app
+        .post(&format!(
+            "/api/workspaces/{}/trash/file/{id}/restore",
+            fx.ws
+        ))
+        .json_text("{}")
+        .session(Some(&fx.admin))
+        .await;
+    assert_eq!(res.status_code(), StatusCode::NO_CONTENT);
+    let library = json(fx.app.get(&uri).session(Some(&fx.admin)).await).await;
     assert_eq!(library.as_array().unwrap().len(), 1);
 }

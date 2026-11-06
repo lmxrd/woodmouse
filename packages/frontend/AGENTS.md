@@ -10,20 +10,14 @@
 - `pnpm fix` — auto-fix lint issues and reformat (oxlint --fix + oxfmt)
 - `pnpm preview` — serve the production build
 
-- Dependencies: before adding an npm package, check whether the functionality
-  is covered by the Deno Standard Library (`@std/*`,
-  https://github.com/denoland/std) or its extension stdx (`@stdx/*`,
-  https://github.com/lmxrd/std-js). If it is, prefer the JSR package:
-  `pnpm dlx jsr add @std/<pkg>` — this writes an alias to `package.json` and
-  a registry entry to `.npmrc`; commit both.
-
 ## Dependencies
 
-- Before adding an npm package, check whether the functionality is covered
-  by the Deno Standard Library (`@std/*`, https://github.com/denoland/std) or
-  its extension stdx (`@stdx/*`, https://github.com/lmxrd/std-js). If it is,
-  prefer the JSR package: `pnpm add jsr:@std/<pkg>` (pnpm >= 12 supports the
-  `jsr:` specifier natively; imports stay `@std/<pkg>`).
+- Prefer a well-known, maintained package over writing the same thing ourselves. Propose it first (name, exact
+  version, why) and get approval before adding it, then add it at that exact version. Write it ourselves only when
+  no maintained one fits, and say why in a comment where it lives.
+- For general utilities, the Deno Standard Library (`@std/*`, https://github.com/denoland/std) and its extension
+  stdx (`@stdx/*`, https://github.com/lmxrd/std-js) count as well-known: `pnpm add jsr:@std/<pkg>` (pnpm >= 12
+  supports the `jsr:` specifier natively; imports stay `@std/<pkg>`).
 
 ## Conventions
 
@@ -35,6 +29,8 @@
   app shell (`RootLayout`, `Sidebar`), `common/` the small pieces used everywhere (dialogs, fields, avatars) and `ui/`
   the shadcn primitives. Shared helpers and
   clients go in `src/lib/` (e.g. `queryClient`).
+- The SDK validates requests and responses against the spec (`validator: true`, zod): a backend answer
+  that does not fit its OpenAPI document throws, so fix the backend's schema, not the frontend.
 - Data fetching: TanStack Query (`useQuery`/`useMutation`). Tune defaults in
   `src/lib/queryClient.ts`; wire real endpoints by replacing `queryFn`s in
   route components.

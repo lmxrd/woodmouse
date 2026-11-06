@@ -15,7 +15,7 @@ use crate::access;
 use crate::audit;
 use crate::auth::CurrentUser;
 use crate::blocks::BlockData;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
 use crate::revisions::{self, CommentContent, PageContent, TaskContent};
 use crate::routes::auth::PublicUser;
 use crate::routes::pages::{PageDetail, detail};
@@ -115,7 +115,10 @@ async fn load_revision(db: &impl Db, id: uuid::Uuid, kind: &str) -> Result<Revis
     params(("id" = uuid::Uuid, Path, description = "Page id")),
     responses(
         (status = 200, description = "Earlier versions, newest first", body = Vec<RevisionSummary>),
-        (status = 404, description = "No such page, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such page, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_page_revisions(
@@ -152,7 +155,10 @@ async fn load_page_revision(
     params(("id" = uuid::Uuid, Path, description = "Revision id")),
     responses(
         (status = 200, description = "The version", body = PageRevisionDetail),
-        (status = 404, description = "No such version, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such version, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_page_revision(
@@ -179,7 +185,10 @@ pub async fn get_page_revision(
     params(("id" = uuid::Uuid, Path, description = "Revision id")),
     responses(
         (status = 200, description = "The page with the restored content", body = PageDetail),
-        (status = 404, description = "No such version, or not enough access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such version, or not enough access", body = ErrorBody)
     )
 )]
 pub async fn restore_page_revision(
@@ -191,7 +200,7 @@ pub async fn restore_page_revision(
         let db = state.writer().await?;
         let (revision, mut page) = load_page_revision(&*db, &user, id, Role::Write).await?;
         let content = revisions::content::<PageContent>(&revision)
-            .ok_or_else(|| ApiError::conflict("this version was removed by an admin"))?;
+            .ok_or_else(|| ApiError::conflict("This version was removed by an admin"))?;
         let tx = db.begin().await?;
         pages::save_content(&tx, &mut page, user.id, &content.blocks, true).await?;
         tx.commit().await?;
@@ -212,7 +221,10 @@ pub async fn restore_page_revision(
     params(("id" = uuid::Uuid, Path, description = "Task id")),
     responses(
         (status = 200, description = "Earlier versions, newest first", body = Vec<RevisionSummary>),
-        (status = 404, description = "No such task, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such task, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_task_revisions(
@@ -249,7 +261,10 @@ async fn load_task_revision(
     params(("id" = uuid::Uuid, Path, description = "Revision id")),
     responses(
         (status = 200, description = "The version", body = TaskRevisionDetail),
-        (status = 404, description = "No such version, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such version, or no access", body = ErrorBody)
     )
 )]
 pub async fn get_task_revision(
@@ -276,7 +291,10 @@ pub async fn get_task_revision(
     params(("id" = uuid::Uuid, Path, description = "Revision id")),
     responses(
         (status = 200, description = "The task with the restored text", body = TaskResponse),
-        (status = 404, description = "No such version, or not enough access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such version, or not enough access", body = ErrorBody)
     )
 )]
 pub async fn restore_task_revision(
@@ -287,7 +305,7 @@ pub async fn restore_task_revision(
     let db = state.writer().await?;
     let (revision, workspace_id) = load_task_revision(&*db, &user, id, Role::Write).await?;
     let content = revisions::content::<TaskContent>(&revision)
-        .ok_or_else(|| ApiError::conflict("this version was removed by an admin"))?;
+        .ok_or_else(|| ApiError::conflict("This version was removed by an admin"))?;
     let task = tasks::Entity::find_by_id(revision.target_id)
         .one_or_not_found(&*db)
         .await?;
@@ -337,7 +355,10 @@ pub struct CommentRevision {
     params(("id" = uuid::Uuid, Path, description = "Comment id")),
     responses(
         (status = 200, description = "Versions, newest first", body = Vec<CommentRevision>),
-        (status = 404, description = "No such comment, or no access")
+        (status = 400, description = "The request is invalid", body = ErrorBody),
+        (status = 401, description = "Not signed in", body = ErrorBody),
+        (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
+        (status = 404, description = "No such comment, or no access", body = ErrorBody)
     )
 )]
 pub async fn list_comment_revisions(

@@ -6,9 +6,9 @@
     ".": "./src/index.ts",
     "./client": "./src/client.gen.ts",
     "./react-query": "./src/@tanstack/react-query.gen.ts",
-    "./sdk": "./src/@tanstack/sdk.gen.ts",
-    "./types": "./src/@tanstack/types.gen.ts",
-    "./zod": "./src/@tanstack/zod.gen.ts",
+    "./sdk": "./src/sdk.gen.ts",
+    "./types": "./src/types.gen.ts",
+    "./zod": "./src/zod.gen.ts",
     "./spec": "./src/source.json"
   },
   "scripts": {

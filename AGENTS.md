@@ -3,6 +3,7 @@
 ## Commands
 
 - `mise install` — install the pinned toolchain
+- `mise run dev` — both dev servers (`dev:backend` and `dev:frontend`)
 - `mise run dev:backend` — API server (http://localhost:8000); hot reload
   via watchexec (restarts when `backend/src` or Cargo files change)
 - `mise run dev:frontend` — frontend dev server
@@ -11,7 +12,14 @@
   sign in as `admin@woodmouse.test`, `sara@woodmouse.test` or `ola@woodmouse.test` (the `seed` binary, `backend/src/bin/seed.rs`; it is not part of the release build)
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
-- `mise run test` — each stack's tests (cargo test, vitest)
+- `mise run test` — each stack's tests: the backend's unit and integration tests (cargo test; integration
+  through axum-test) and the frontend's unit tests (vitest)
+- `mise run test:e2e` — the Playwright smoke tests (`packages/e2e`) against the image: builds it, starts it with
+  a fresh database file in a volume (`scripts/e2e.sh`; `ENGINE`, `IMAGE`, `E2E_PORT`), installs Chromium only;
+  CI runs it after the image build
+- `mise run gen:spec` / `gen:sdk` — the OpenAPI spec, then the frontend's SDK generated from it
+- `mise run build` — the release binary for this machine (its OS and CPU), frontend embedded, in
+  `dist/woodmouse`
 - `mise run build:linux` — the static (musl) release binary for this machine's
   CPU architecture, frontend embedded, written to `dist/woodmouse-linux-<arch>`
   (`scripts/build-linux.sh`, `ARCH`/`PROFILE`/`FEATURES` to vary it; cargo
@@ -29,6 +37,14 @@
 - After changing the schema: add the next migration to `packages/backend/migration/src/` (an entity in
   `packages/backend/entity/src/` is a row of its table: run `mise run gen:models` and review the diff), and never edit one that has shipped
 
+## Dependencies
+
+- **Dependencies.** Prefer a well-known, maintained crate or package over writing the same thing ourselves.
+  Propose it first (name, exact version, why) and get approval before adding it. Write it ourselves only when no
+  maintained one fits, and say why in a comment where it lives (for example the session store: the community
+  SQL store needs sqlx 0.8, and two bundled SQLites do not link).
+  Shared crate versions live in `packages/backend/Cargo.toml`'s `[workspace.dependencies]`.
+
 ## Structure
 
 - CI and releases: `.github/workflows/` (`ci.yml` runs `mise run check`/`test`, builds the image and scans it; pull
@@ -44,6 +60,8 @@
   release (`alpine:3.x.y`, with `apk upgrade`).
 - One git repository at this root; `backend/` and `frontend/` are scaffolded
   stacks with their own AGENTS.md (follow those inside each directory).
-- Tool versions are pinned in `mise.toml`; keep the file pruned to the tools
-  actually used by the scaffolded stacks. The toolchains live only there: the
-  image builds nothing, so the Dockerfile pins no Node or Rust.
+- Tool versions, each in one place, all exact: Node in the root `package.json` (`devEngines.runtime`), pnpm in
+  its `packageManager`, Rust (channel, components, musl targets) in `rust-toolchain.toml`, every other tool in
+  `mise.toml` `[tools]`. mise reads all of them (`idiomatic_version_file_enable_tools`), so `mise install` (and
+  CI's mise-action) installs everything. Crates are exact versions too (`axum = "0.8.9"`), the ones in
+  `Cargo.lock`. The image builds nothing, so the Dockerfile pins no Node or Rust.
