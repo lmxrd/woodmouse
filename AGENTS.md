@@ -29,6 +29,14 @@
 - After changing the schema: add the next migration to `packages/backend/migration/src/` (an entity in
   `packages/backend/entity/src/` is a row of its table: run `mise run gen:models` and review the diff), and never edit one that has shipped
 
+## Dependencies
+
+- **Dependencies.** Prefer a well-known, maintained crate or package over writing the same thing ourselves.
+  Propose it first (name, exact version, why) and get approval before adding it. Write it ourselves only when no
+  maintained one fits, and say why in a comment where it lives (for example the session store: the community
+  SQL store needs sqlx 0.8, and two bundled SQLites do not link).
+  Shared crate versions live in `packages/backend/Cargo.toml`'s `[workspace.dependencies]`.
+
 ## Structure
 
 - CI and releases: `.github/workflows/` (`ci.yml` runs `mise run check`/`test`, builds the image and scans it; pull

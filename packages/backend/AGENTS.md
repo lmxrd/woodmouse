@@ -23,6 +23,10 @@
 
 ## Conventions
 
+- **Dependencies.** Prefer a well-known, maintained crate over writing the same thing ourselves.
+  Propose it first (name, exact version, why) and get approval before adding it. Write it ourselves only when no
+  maintained one fits, and say why in a comment where it lives (for example the session store: the community
+  SQL store needs sqlx 0.8, and two bundled SQLites do not link).
 - Rust edition 2024. The database is SQLite through SeaORM (`src/db.rs`) on top of an sqlx pool; sqlx runs the
   migrations and sets the pragmas (WAL, `foreign_keys`).
 - Models: one SeaORM entity per table in `entity/src/` (`tasks.rs`, ...: `tasks::Entity`, `tasks::Column`,

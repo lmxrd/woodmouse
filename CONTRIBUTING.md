@@ -107,9 +107,12 @@ create their search triggers again, because SQLite drops a table's triggers with
 - **Soft deletes only.** Projects, lists, tasks, comments, wiki pages and the
   like are moved to the trash, never destroyed, and every read must hide the
   deleted ones.
-- **Keep it simple.** One binary, one SQLite file. If a change needs a new
-  dependency or a new moving part, first check whether the plain version is
-  enough.
+- **Keep it simple.** One binary, one SQLite file.
+- **Use what the community maintains.** Prefer a well-known, maintained crate
+  or package over writing the same thing ourselves. Propose it in the issue or
+  pull request (name, exact version, why) and get a maintainer's approval
+  before adding it. Write it ourselves only when no maintained one fits, and
+  say why in a comment where it lives.
 - **The URL holds the view.** In the frontend, anything that changes what a
   list, board, calendar, timeline or page shows is a search parameter, so a
   copied link reproduces the view.
