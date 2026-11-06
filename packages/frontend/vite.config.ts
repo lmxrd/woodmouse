@@ -8,7 +8,9 @@ import { config } from "../sdk/openapi-ts.config.ts";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    heyApiPlugin({ config: config }),
+    // Regenerates the SDK on dev and build. Not under Vitest: `mise run test` runs it next to the
+    // backend tests, whose frontend build reads the SDK this would clean and rewrite.
+    ...(process.env.VITEST ? [] : [heyApiPlugin({ config: config })]),
     // File-based routing: generates src/routeTree.gen.ts from src/routes/.
     // Must run before the react plugin.
     tanstackRouter({
