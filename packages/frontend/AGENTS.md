@@ -29,6 +29,8 @@
   app shell (`RootLayout`, `Sidebar`), `common/` the small pieces used everywhere (dialogs, fields, avatars) and `ui/`
   the shadcn primitives. Shared helpers and
   clients go in `src/lib/` (e.g. `queryClient`).
+- The SDK validates requests and responses against the spec (`validator: true`, zod): a backend answer
+  that does not fit its OpenAPI document throws, so fix the backend's schema, not the frontend.
 - Data fetching: TanStack Query (`useQuery`/`useMutation`). Tune defaults in
   `src/lib/queryClient.ts`; wire real endpoints by replacing `queryFn`s in
   route components.

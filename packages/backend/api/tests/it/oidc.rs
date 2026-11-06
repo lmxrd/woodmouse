@@ -252,7 +252,9 @@ fn env_for(provider: &Provider) -> EnvSettings {
 }
 
 async fn setup_with(oidc: Oidc, secure_cookies: bool) -> (axum::Router, AppState) {
-    let mut state = AppState::new(api::db::temporary().await).with_oidc(oidc);
+    let mut state = AppState::new(api::db::temporary().await)
+        .with_limits(api::limits::Limits::generous())
+        .with_oidc(oidc);
     state.secure_cookies = secure_cookies;
     (router(state.clone()), state)
 }
@@ -501,8 +503,9 @@ async fn single_sign_on_asks_for_the_two_factor_code_too() {
 #[tokio::test]
 async fn single_sign_on_sets_up_two_factor_where_it_is_required() {
     let provider = Provider::start().await;
-    let mut state =
-        AppState::new(api::db::temporary().await).with_oidc(Oidc::new(env_for(&provider)));
+    let mut state = AppState::new(api::db::temporary().await)
+        .with_limits(api::limits::Limits::generous())
+        .with_oidc(Oidc::new(env_for(&provider)));
     state.totp_required = true;
     let app = router(state.clone());
     bootstrap_admin(&app).await;

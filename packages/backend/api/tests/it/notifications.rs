@@ -29,7 +29,9 @@ async fn json_of(res: axum::http::Response<axum::body::Body>) -> Value {
 async fn fixture() -> Fx {
     let db = api::db::temporary().await;
     let outbox = Arc::new(Outbox::default());
-    let state = AppState::new(db.clone()).with_mailer(outbox.clone());
+    let state = AppState::new(db.clone())
+        .with_limits(api::limits::Limits::generous())
+        .with_mailer(outbox.clone());
     let app = api::routes::api(state.clone())
         .with_state(state.clone())
         .split_for_parts()

@@ -4,8 +4,8 @@
 //!
 //! A request that changes something (any method but GET, HEAD and OPTIONS) is refused with 403 when:
 //! - its `Sec-Fetch-Site` is there and is neither `same-origin` nor `none` (typed into the address bar), or
-//! - it has no `Sec-Fetch-Site` (an older browser) but an `Origin` whose host is not the request's `Host`
-//!   (nor `PUBLIC_URL`'s). Forwarded hosts are not trusted, as nowhere else in the app.
+//! - it has no `Sec-Fetch-Site` (an older browser) but an `Origin` that is not the allowed one:
+//!   `PUBLIC_URL` when it is set, else the request's own `Host` (forwarded hosts are not trusted).
 //!
 //! A request with neither header is not from a browser and passes, as does one with an API key
 //! (`Authorization: Bearer`): a page on another site cannot send that header without a preflight we never
@@ -39,12 +39,14 @@ pub fn allowed(method: &Method, headers: &HeaderMap, public_url: Option<&str>) -
     let Ok(origin) = origin.to_str() else {
         return false;
     };
-    let origin_host = origin.split_once("://").map(|(_, rest)| rest);
-    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok());
-    if origin_host.is_some() && origin_host == host {
-        return true;
+    match public_url {
+        Some(url) => url.trim_end_matches('/') == origin,
+        None => {
+            let origin_host = origin.split_once("://").map(|(_, rest)| rest);
+            let host = headers.get(header::HOST).and_then(|h| h.to_str().ok());
+            origin_host.is_some() && origin_host == host
+        }
     }
-    public_url.is_some_and(|url| url.trim_end_matches('/') == origin)
 }
 
 /// The middleware on every API route.
@@ -115,6 +117,15 @@ mod tests {
             &headers(&[
                 ("host", "127.0.0.1:8000"),
                 ("origin", "https://tasks.example.com")
+            ]),
+            Some("https://tasks.example.com/")
+        ));
+        // With PUBLIC_URL, only it decides: the Host (a proxy may rewrite it) no longer does.
+        assert!(!allowed(
+            &post,
+            &headers(&[
+                ("host", "127.0.0.1:8000"),
+                ("origin", "http://127.0.0.1:8000")
             ]),
             Some("https://tasks.example.com/")
         ));

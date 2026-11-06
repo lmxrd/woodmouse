@@ -56,14 +56,18 @@ pub fn cookie_name(secure: bool) -> &'static str {
 pub type AuthSession = axum_login::AuthSession<Backend>;
 
 /// The layer that gives every request its session and, through it, its user. Its cookie: the name above,
-/// `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` over https; its lifetime is set at sign-in.
+/// `HttpOnly`, `SameSite=Strict`, `Path=/`, `Secure` over https; its lifetime is set at sign-in.
+///
+/// Strict breaks nothing: what reaches the app from elsewhere (links in emails and calendar events,
+/// invites, the single sign-on callback's redirect) lands on a page of the app, which needs no cookie; the
+/// page's own requests are same-site and carry it. Calendar feeds use their own secret.
 pub fn layer(state: &AppState) -> axum_login::AuthManagerLayer<Backend, Store> {
     let sessions = SessionManagerLayer::new(Store {
         state: state.clone(),
     })
     .with_name(cookie_name(state.secure_cookies))
     .with_http_only(true)
-    .with_same_site(SameSite::Lax)
+    .with_same_site(SameSite::Strict)
     .with_secure(state.secure_cookies)
     .with_path("/");
     axum_login::AuthManagerLayerBuilder::new(
@@ -93,7 +97,7 @@ pub async fn secure_removals(
         .map(|value| match value.to_str() {
             Ok(text) if text.starts_with(&prefix) && !text.contains("; Secure") => {
                 axum::http::HeaderValue::from_str(&format!(
-                    "{text}; Secure; HttpOnly; SameSite=Lax"
+                    "{text}; Secure; HttpOnly; SameSite=Strict"
                 ))
                 .unwrap_or_else(|_| value.clone())
             }

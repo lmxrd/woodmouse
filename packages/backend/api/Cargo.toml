@@ -12,6 +12,7 @@ migration.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum-login.workspace = true
+governor.workspace = true
 tower-sessions.workspace = true
 axum = { workspace = true, features = ["multipart", "ws"] }
 axum-extra = { version = "0.12.6", features = ["cookie", "cookie-signed"] }

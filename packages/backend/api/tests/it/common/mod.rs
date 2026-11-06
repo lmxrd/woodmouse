@@ -40,18 +40,26 @@ pub async fn app_with_upload_limit(max_bytes: u64) -> (axum::Router, sea_orm::Da
         std::sync::Arc::new(api::storage::LocalDisk::new(root)),
         max_bytes,
     );
-    (router(AppState::with_files(db.clone(), files)), db)
+    (
+        router(
+            AppState::with_files(db.clone(), files).with_limits(api::limits::Limits::generous()),
+        ),
+        db,
+    )
 }
 
 /// The router and a handle on its database (the clone shares the pool), to seed users and sessions directly.
 pub async fn app_with_db() -> (axum::Router, sea_orm::DatabaseConnection) {
     let db = database().await;
-    (router(AppState::new(db.clone())), db)
+    (
+        router(AppState::new(db.clone()).with_limits(api::limits::Limits::generous())),
+        db,
+    )
 }
 
 /// The router and its state, to hold the write turn (`state.writer()`) and so line up concurrent requests.
 pub async fn app_with_state() -> (axum::Router, AppState) {
-    let state = AppState::new(database().await);
+    let state = AppState::new(database().await).with_limits(api::limits::Limits::generous());
     (router(state.clone()), state)
 }
 

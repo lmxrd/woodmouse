@@ -12,7 +12,9 @@ export const config: UserConfig = {
     { name: "zod", metadata: true, types: { infer: true } },
     {
       name: "@hey-api/sdk",
-      // validator: true,
+      // Requests and responses are checked against the spec with the generated zod schemas, so a
+      // mismatch between the backend and its OpenAPI document fails loudly.
+      validator: true,
     },
   ],
 };

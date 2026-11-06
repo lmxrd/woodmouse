@@ -38,8 +38,8 @@ pub async fn run_daily(state: &AppState) {
     }
 }
 
-/// Start the jobs: the first round runs a minute after startup, then every 24 hours; email goes out every
-/// minute and deadlines and digests are checked every ten.
+/// Start the jobs: the first round runs a minute after startup, then every 24 hours; email goes out (and
+/// the sign-in limits forget refilled keys) every minute, and deadlines and digests are checked every ten.
 pub fn spawn(state: AppState) {
     let daily = state.clone();
     tokio::spawn(async move {
@@ -61,6 +61,8 @@ pub fn spawn(state: AppState) {
                 send_digests(&state, now).await;
             }
             send_pending_emails(&state, now).await;
+            // Forget sign-in limit keys that have refilled, so their memory stays bounded.
+            state.limits.retain_recent();
             count += 1;
         }
     });

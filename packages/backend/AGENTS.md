@@ -133,7 +133,7 @@
   (the community SQL store needs sqlx 0.8): rows keyed by the SHA-256 of the session id, every write through the
   writer turn, so call `sessions::sign_in`, `refresh` and `sign_out` with no writer held (commit and `drop(db)`
   first, or they wait on themselves). The cookie is `woodmouse_session` (`__Host-` over https, `HttpOnly`,
-  `SameSite=Lax`), its expiry set once at sign-in (30 days), so a request writes the session only when it changes.
+  `SameSite=Strict`), its expiry set once at sign-in (30 days), so a request writes the session only when it changes.
   `sessions::Backend::get_user` returns `None` for a disabled account; the session hash is `session_generation`
   (raised in the same write that disables someone), the password hash and
   the two-factor secret, so changing the password or two-factor ends the other sessions, and the handler that changed it calls
@@ -142,7 +142,7 @@
   expired sessions through the store.
 - **CSRF** (`src/csrf.rs`, outermost layer in `routes::api`): Fetch Metadata, as Go's `CrossOriginProtection`.
   A non-GET/HEAD/OPTIONS request is refused (403) when `Sec-Fetch-Site` is present and not `same-origin`/`none`, or,
-  without it, when `Origin` is present and is neither the `Host` nor `PUBLIC_URL`; requests with neither, and
+  without it, when `Origin` is present and is not the allowed origin (`PUBLIC_URL` if set, else the `Host`); requests with neither, and
   `Authorization: Bearer` (API keys), pass. A route meant to be posted to from another site would need an
   exception there (there is none: the SSO callback and calendar feeds are GETs).
 - **Single sign-on** (OpenID Connect; `src/oidc.rs` for the settings in force, the provider client and its
@@ -166,8 +166,7 @@
   being set up), `last_step` refusing a code's step a second time (totp-rs leaves replay to its caller), and ten
   single-use recovery codes stored as SHA-256 (`UserRecoveryCode`). A password login of someone with it on answers
   202 `{totp_required}` and a signed 5-minute challenge cookie (`AppState::challenge_key`, made at start), not a
-  session; the second step goes through `LoginLimits`, and a right password alone does not clear the email's
-  failures. Single sign-on asks for it too: the callback sets the same challenge and redirects to
+  session; the second step counts against the per-user code limit (`crate::limits`). Single sign-on asks for it too: the callback sets the same challenge and redirects to
   `/login?step=totp` (`totp::second_step` decides for both). `TOTP_REQUIRED` (`AppState::totp_required`): someone
   without it gets an `Enroll` challenge (15 minutes; `/login?step=totp-setup`, `POST /auth/login/totp/setup` and
   `/enable`, which turns it on and gives the session) and cannot turn it off; existing sessions are untouched
@@ -182,8 +181,17 @@
   runs the handler under `auth::role_cap`, which `access::role_in` applies, so a key's workspace role is the lower
   of its scope and the person's. Code that checks roles without `role_in`, or that spawns a task, does not see the
   cap. `last_used_at` is written at most once a minute. Admin keys only for the super admin or a global admin.
-- **Login slow-down** (`auth::LoginLimits`): in memory, per email and per address, 1 s doubling up to a cap,
-  no lockout; addresses are never stored.
+- **Cookies**: `PUBLIC_URL` starting with `https://` (`AppState::secure_cookies`) makes every cookie `Secure` and
+  `__Host-` prefixed (session, 2FA challenge, SSO login); plain otherwise. Session and challenge are
+  `SameSite=Strict` (only the app's own requests need them: links from emails, invites and calendar events land
+  on pages, the SSO callback only sets cookies and redirects, calendar feeds use their own secret); the SSO
+  login cookie stays `Lax`, since the callback is a cross-site navigation. All are `HttpOnly`.
+- **Sign-in limits** (`src/limits.rs`, governor keyed limiters, potoo's quotas): per email 5 then 1/min, per
+  client address 30 then 1 per 6 s (`ClientAddr`: `X-Forwarded-For` only with `TRUST_PROXY`), per user 5 then
+  1/min for two-factor codes and separately for password changes. Every attempt counts; over a limit,
+  `ApiError::TooManyRequests` answers 429 with `Retry-After`. Password sign-in counts email and address, the code
+  step and enrolment at sign-in count user and address, the settings' code checks count the user. Tests use
+  `Limits::generous()` except `tests/it/limits.rs`; `jobs` calls `retain_recent()` every minute.
 - **Jobs and operations**: `jobs.rs` runs daily (expired sessions) and sends notification email; there is no
   built-in backup, operators copy the database and the files directory themselves. `woodmouse check` runs the
   integrity check. On SIGTERM/Ctrl+C the server saves the open live-editing rooms before exiting, and a clean

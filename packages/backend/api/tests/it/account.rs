@@ -304,7 +304,8 @@ async fn only_one_of_two_first_passwords_at_once_is_set() {
 
 /// The app as served over https (`PUBLIC_URL` with `https://`), or not.
 async fn app_served(secure: bool) -> axum::Router {
-    let mut state = api::state::AppState::new(api::db::temporary().await);
+    let mut state = api::state::AppState::new(api::db::temporary().await)
+        .with_limits(api::limits::Limits::generous());
     state.secure_cookies = secure;
     router(state)
 }
@@ -343,7 +344,10 @@ async fn over_https_the_session_cookie_is_host_prefixed() {
         .iter()
         .find(|c| c.starts_with("__Host-woodmouse_session="))
         .expect("the prefixed session cookie");
-    has_parts(session, &["Secure", "HttpOnly", "SameSite=Lax", "Path=/;"]);
+    has_parts(
+        session,
+        &["Secure", "HttpOnly", "SameSite=Strict", "Path=/;"],
+    );
     assert!(!session.contains("Domain"), "{session}");
     // A plain one from before the prefix is let go.
     let old = cookies
@@ -385,7 +389,13 @@ async fn over_https_the_session_cookie_is_host_prefixed() {
         .expect("the session cookie is cleared");
     has_parts(
         &removal,
-        &["Secure", "HttpOnly", "SameSite=Lax", "Path=/;", "Max-Age=0"],
+        &[
+            "Secure",
+            "HttpOnly",
+            "SameSite=Strict",
+            "Path=/;",
+            "Max-Age=0",
+        ],
     );
 }
 

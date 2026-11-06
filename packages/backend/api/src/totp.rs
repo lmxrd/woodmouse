@@ -321,13 +321,14 @@ pub fn challenge_cookie_name(secure: bool) -> &'static str {
     }
 }
 
-/// The challenge cookie (its value is signed by the caller's jar). `SameSite=Lax`, not Strict: after
-/// single sign-on it is set on the way back from the provider, a cross-site navigation.
+/// The challenge cookie (its value is signed by the caller's jar). `SameSite=Strict`: only the login
+/// page's own requests read it. After single sign-on it is set on the way back from the provider (a
+/// browser stores a Strict cookie from a cross-site answer; it only does not send it cross-site).
 pub fn challenge_cookie(value: String, secure: bool) -> Cookie<'static> {
     let mut cookie = Cookie::new(challenge_cookie_name(secure), value);
     cookie.set_path("/");
     cookie.set_http_only(true);
-    cookie.set_same_site(SameSite::Lax);
+    cookie.set_same_site(SameSite::Strict);
     cookie.set_max_age(::time::Duration::seconds(ENROLL_TTL_SECS));
     if secure {
         cookie.set_secure(true);
@@ -463,5 +464,19 @@ mod tests {
         );
         assert!(uri.contains(&format!("secret={secret}")), "{uri}");
         assert!(uri.contains("issuer=Woodmouse"), "{uri}");
+    }
+
+    #[test]
+    fn the_challenge_cookie_is_strict_and_prefixed_over_https() {
+        let cookie = challenge_cookie("x".into(), true).to_string();
+        assert!(cookie.starts_with("__Host-woodmouse_2fa=x"), "{cookie}");
+        for part in ["Secure", "HttpOnly", "SameSite=Strict", "Path=/"] {
+            assert!(cookie.contains(part), "{cookie} lacks {part}");
+        }
+        let plain = challenge_cookie("x".into(), false).to_string();
+        assert!(
+            plain.starts_with("woodmouse_2fa=x") && !plain.contains("Secure"),
+            "{plain}"
+        );
     }
 }

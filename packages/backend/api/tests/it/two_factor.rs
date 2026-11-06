@@ -428,7 +428,8 @@ async fn a_disabled_account_cannot_finish_signing_in() {
 
 /// A site with `TOTP_REQUIRED`.
 async fn required_app() -> (axum::Router, AppState) {
-    let mut state = AppState::new(api::db::temporary().await);
+    let mut state =
+        AppState::new(api::db::temporary().await).with_limits(api::limits::Limits::generous());
     state.totp_required = true;
     (router(state.clone()), state)
 }

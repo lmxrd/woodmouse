@@ -133,9 +133,16 @@ To copy the database while the server runs, use SQLite rather than `cp`:
   release with this session store signs everyone out once.
 - **Cross-site requests are refused.** A request that changes something and
   that the browser marks as coming from another site (`Sec-Fetch-Site`, or an
-  `Origin` that is not this host or `PUBLIC_URL`) gets 403. Keep the original
-  `Host` header when proxying (nginx: `proxy_set_header Host $host;`), or set
-  `PUBLIC_URL`. API keys and other non-browser clients are not affected.
+  `Origin` that is not `PUBLIC_URL`, or this host when `PUBLIC_URL` is unset)
+  gets 403. API keys and other non-browser clients are not affected.
+- **Sign-in attempts are limited**, every attempt counted, right or wrong: 5
+  per email address (then one a minute), 30 per client address (then one every
+  6 seconds; behind a proxy, set `TRUST_PROXY=true` so the real address is
+  used), and 5 two-factor codes or password changes per person (then one a
+  minute). Over a limit the answer is 429 with `Retry-After`.
+- **Cookies** are `HttpOnly`; the session and the two-factor step's are
+  `SameSite=Strict`, and with an `https://` `PUBLIC_URL` all are `Secure` and
+  `__Host-` prefixed.
 
 ### Email
 
@@ -270,6 +277,11 @@ is listed here (and in its release notes), newest last.
 - **Single sign-on asks for `openid email`** unless `OIDC_SCOPES` says
   otherwise (it used to add `profile`); add `profile` to get people's names.
 - **`X-Forwarded-For` is read only with `TRUST_PROXY=true`.**
+- **Sign-in limits count every attempt** (they used to slow down only after
+  failures), and answer 429 instead of waiting.
+- **The session cookie is `SameSite=Strict`** (was `Lax`).
+- **With `PUBLIC_URL` set, it is the only allowed origin** for browsers without
+  `Sec-Fetch-Site`; the `Host` no longer counts then.
 - **API error messages** are sentence case ("Not found"), every 500 says
   "Internal server error", and a JSON body that does not fit its endpoint is a
   400 (was 422), one without `Content-Type: application/json` a 415. Scripts

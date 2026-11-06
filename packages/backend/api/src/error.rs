@@ -33,6 +33,9 @@ pub enum ApiError {
     /// The request body (an upload) exceeds the configured limit.
     #[error("{0}")]
     PayloadTooLarge(String),
+    /// Too many attempts (`crate::limits`): answered with `Retry-After`.
+    #[error("Too many attempts, try again later")]
+    TooManyRequests { retry_after: u64 },
     /// Something on our side failed: the message is for the log, the client gets "Internal server error".
     #[error("{0}")]
     Internal(String),
@@ -108,6 +111,7 @@ impl ApiError {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Status { status, .. } => *status,
             Self::Internal(_) | Self::Sqlx(_) | Self::Db(_) | Self::Other(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -164,7 +168,15 @@ impl IntoResponse for ApiError {
             }
             other => other.to_string(),
         };
-        (status, Json(ErrorBody { error })).into_response()
+        match self {
+            Self::TooManyRequests { retry_after } => (
+                status,
+                [(axum::http::header::RETRY_AFTER, retry_after.to_string())],
+                Json(ErrorBody { error }),
+            )
+                .into_response(),
+            _ => (status, Json(ErrorBody { error })).into_response(),
+        }
     }
 }
 

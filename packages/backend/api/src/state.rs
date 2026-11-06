@@ -34,8 +34,8 @@ pub struct AppState {
     pub rooms: Arc<crate::live::Rooms>,
     /// Who has which page open for editing. Lives in memory only.
     pub presence: Arc<std::sync::Mutex<PresenceMap>>,
-    /// Recent failed logins, for slowing down guessing (see `auth::limits`). In memory only.
-    pub login_limits: Arc<crate::auth::LoginLimits>,
+    /// Limits on sign-in and code attempts (`crate::limits`). In memory only.
+    pub limits: Arc<crate::limits::Limits>,
     /// How email goes out (SMTP; tests record instead).
     pub mailer: Arc<dyn crate::mail::Mailer>,
     /// Single sign-on: the settings in force, the provider's metadata, the login cookie's key.
@@ -83,7 +83,7 @@ impl AppState {
             files: Arc::new(files),
             presence: Arc::default(),
             rooms: Arc::default(),
-            login_limits: Arc::default(),
+            limits: Arc::default(),
             oidc: Arc::new(crate::oidc::Oidc::new(Default::default())),
             challenge_key: axum_extra::extract::cookie::Key::generate(),
             totp_required: false,
@@ -132,6 +132,12 @@ impl AppState {
     /// The same state with other single sign-on settings (the server's from the environment; tests).
     pub fn with_oidc(mut self, oidc: crate::oidc::Oidc) -> Self {
         self.oidc = Arc::new(oidc);
+        self
+    }
+
+    /// The same state with other limits (tests).
+    pub fn with_limits(mut self, limits: crate::limits::Limits) -> Self {
+        self.limits = Arc::new(limits);
         self
     }
 

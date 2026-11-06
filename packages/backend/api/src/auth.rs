@@ -1,5 +1,5 @@
-//! Who is asking: Argon2id password hashing, the [`CurrentUser`] extractor, API keys, and slowing down
-//! repeated failed logins.
+//! Who is asking: Argon2id password hashing, the [`CurrentUser`] extractor and API keys. The limits on
+//! sign-in attempts are in `crate::limits`.
 //!
 //! Sessions are axum-login on tower-sessions (`crate::sessions`): the [`CurrentUser`] extractor takes the
 //! signed-in user from the request's `AuthSession`, or else an API key (`Authorization: Bearer wm_...`, see
@@ -8,9 +8,6 @@
 use crate::db::Db;
 use crate::db::prelude::*;
 use entity::{api_keys, users};
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
@@ -239,91 +236,5 @@ impl FromRequestParts<AppState> for CurrentUser {
             Some(token) => from_api_key(parts, state, token).await,
             None => Err(ApiError::unauthorized()),
         }
-    }
-}
-
-/// Failed logins that count towards slowing down.
-const WINDOW: Duration = Duration::from_secs(15 * 60);
-/// Failures allowed in the window before attempts are delayed.
-const FREE_FAILURES: usize = 5;
-/// The longest a login attempt is made to wait.
-const MAX_DELAY: Duration = Duration::from_secs(30);
-
-/// Recent failed logins per email and per network address, kept in memory only (the address is never
-/// stored). After [`FREE_FAILURES`] failures within [`WINDOW`], each further attempt for that email or
-/// from that address waits longer (1s, 2s, 4s, ... up to [`MAX_DELAY`]). There is no lockout, so nobody
-/// can lock someone else out.
-#[derive(Default)]
-pub struct LoginLimits {
-    failures: Mutex<HashMap<String, Vec<Instant>>>,
-}
-
-impl LoginLimits {
-    fn keys(email: &str, address: Option<&str>) -> Vec<String> {
-        let mut keys = vec![format!("email:{}", email.trim().to_lowercase())];
-        if let Some(address) = address {
-            keys.push(format!("addr:{address}"));
-        }
-        keys
-    }
-
-    /// How long this attempt has to wait before it is checked.
-    pub fn delay(&self, email: &str, address: Option<&str>) -> Duration {
-        let now = Instant::now();
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        let worst = Self::keys(email, address)
-            .iter()
-            .map(|key| {
-                let list = failures.entry(key.clone()).or_default();
-                list.retain(|t| now.duration_since(*t) < WINDOW);
-                list.len()
-            })
-            .max()
-            .unwrap_or(0);
-        if worst < FREE_FAILURES {
-            return Duration::ZERO;
-        }
-        let steps = (worst - FREE_FAILURES).min(10) as u32;
-        Duration::from_secs(1u64 << steps).min(MAX_DELAY)
-    }
-
-    pub fn failed(&self, email: &str, address: Option<&str>) {
-        let now = Instant::now();
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        for key in Self::keys(email, address) {
-            failures.entry(key).or_default().push(now);
-        }
-        // Forget keys with nothing recent, so the map stays small.
-        failures.retain(|_, list| list.iter().any(|t| now.duration_since(*t) < WINDOW));
-    }
-
-    pub fn succeeded(&self, email: &str) {
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        failures.remove(&format!("email:{}", email.trim().to_lowercase()));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn failures_slow_down_after_five() {
-        let limits = LoginLimits::default();
-        for _ in 0..5 {
-            assert_eq!(limits.delay("a@b.c", Some("1.2.3.4")), Duration::ZERO);
-            limits.failed("a@b.c", Some("1.2.3.4"));
-        }
-        assert_eq!(limits.delay("a@b.c", None), Duration::from_secs(1));
-        limits.failed("a@b.c", None);
-        assert_eq!(limits.delay("A@B.C", None), Duration::from_secs(2));
-        // The address alone also counts.
-        assert_eq!(
-            limits.delay("other@b.c", Some("1.2.3.4")),
-            Duration::from_secs(1)
-        );
-        // Success clears the email's count.
-        limits.succeeded("a@b.c");
-        assert_eq!(limits.delay("a@b.c", None), Duration::ZERO);
     }
 }

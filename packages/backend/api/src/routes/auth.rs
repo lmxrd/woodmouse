@@ -14,6 +14,7 @@ use crate::audit::{self, Entry};
 use crate::auth::{self, CurrentUser};
 use crate::error::{ApiError, ErrorBody};
 use crate::extract::ApiJson;
+use crate::limits::UserAction;
 use crate::sessions::{self, AuthSession};
 use crate::state::AppState;
 use crate::totp;
@@ -280,7 +281,8 @@ impl TotpChallenge {
         (status = 400, description = "The request is invalid", body = ErrorBody),
         (status = 401, description = "Invalid credentials", body = ErrorBody),
         (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn login(
@@ -291,11 +293,9 @@ pub async fn login(
 ) -> Result<Response, ApiError> {
     state.oidc.require_password_login()?;
     let email = input.email.trim().to_lowercase();
-    // Repeated failures wait longer (never a lockout).
-    let delay = state.login_limits.delay(&email, address.as_deref());
-    if !delay.is_zero() {
-        tokio::time::sleep(delay).await;
-    }
+    // Every attempt counts, right or wrong (429 over the limit; `crate::limits`).
+    state.limits.address(address.as_deref())?;
+    state.limits.email(&email)?;
     let db = state.writer().await?;
     let user = users::Entity::find()
         .filter(users::Column::Email.eq(&email))
@@ -310,18 +310,14 @@ pub async fn login(
     );
     let ok = matches && user.as_ref().is_some_and(|u| u.active);
     let Some(user) = user.filter(|_| ok) else {
-        state.login_limits.failed(&email, address.as_deref());
         let _ = audit::record(&*db, Entry::admin(None, "login_failed")).await;
         return Err(ApiError::unauthorized());
     };
 
     if let Some(mode) = totp::second_step(&*db, state.totp_required, user.id).await? {
-        // Not `succeeded` yet: the failures for this email keep counting until the code is right too, or
-        // the password alone would buy fresh guesses at the code.
         let jar = totp::challenge_jar(&state.challenge_key, state.secure_cookies, user.id, mode)?;
         return Ok((StatusCode::ACCEPTED, jar, Json(TotpChallenge::new(mode))).into_response());
     }
-    state.login_limits.succeeded(&email);
 
     let tx = db.begin().await?;
     audit::record(
@@ -353,7 +349,8 @@ pub struct TotpCode {
         (status = 400, description = "The request is invalid", body = ErrorBody),
         (status = 401, description = "Wrong code, or no current challenge (start again from the password)", body = ErrorBody),
         (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn login_totp(
@@ -375,10 +372,8 @@ pub async fn login_totp(
         .one_or_not_found(state.db())
         .await
         .map_err(|_| ApiError::unauthorized())?;
-    let delay = state.login_limits.delay(&user.email, address.as_deref());
-    if !delay.is_zero() {
-        tokio::time::sleep(delay).await;
-    }
+    state.limits.address(address.as_deref())?;
+    state.limits.user(UserAction::Code, user.id)?;
 
     let db = state.writer().await?;
     let tx = db.begin().await?;
@@ -389,7 +384,6 @@ pub async fn login_totp(
     };
     let Some(proof) = proof else {
         drop(tx);
-        state.login_limits.failed(&user.email, address.as_deref());
         let _ = audit::record(
             &*db,
             Entry::admin(None, "login_failed")
@@ -399,7 +393,6 @@ pub async fn login_totp(
         .await;
         return Err(ApiError::unauthorized());
     };
-    state.login_limits.succeeded(&user.email);
     if proof == totp::Proof::RecoveryCode {
         audit::record(
             &tx,
@@ -612,7 +605,8 @@ pub struct ChangePassword {
         (status = 401, description = "Not logged in, or the current password is wrong", body = ErrorBody),
         (status = 403, description = "Password sign-in is turned off (`OIDC_ONLY`)", body = ErrorBody),
         (status = 409, description = "The password changed meanwhile; try again", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn change_password(
@@ -622,6 +616,7 @@ pub async fn change_password(
     ApiJson(input): ApiJson<ChangePassword>,
 ) -> Result<StatusCode, ApiError> {
     state.oidc.require_password_login()?;
+    state.limits.user(UserAction::Password, user.id)?;
     if let Some(current) = &user.password_hash
         && !auth::verify_password(input.current_password.as_deref().unwrap_or(""), current)
     {
@@ -758,12 +753,11 @@ async fn start_setup(state: &AppState, user: &User) -> Result<TotpSetup, ApiErro
     })
 }
 
-/// Wait out the slow-down for repeated wrong codes, as at sign-in.
-async fn slow_down(state: &AppState, user: &User, address: Option<&str>) {
-    let delay = state.login_limits.delay(&user.email, address);
-    if !delay.is_zero() {
-        tokio::time::sleep(delay).await;
-    }
+/// Count an attempt at a two-factor code by `user` (429 over the limit; `crate::limits`), and from
+/// `address` when there is one (sign-in; the settings pass `None`).
+fn code_attempt(state: &AppState, user: &User, address: Option<&str>) -> Result<(), ApiError> {
+    state.limits.address(address)?;
+    state.limits.user(UserAction::Code, user.id)
 }
 
 /// Turn two-factor on with the first code from the app. Answers the recovery codes, which are not shown
@@ -780,20 +774,20 @@ async fn slow_down(state: &AppState, user: &User, address: Option<&str>) {
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
         (status = 409, description = "Two-factor is already on", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn totp_enable(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
-    ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
-    slow_down(&state, &user, address.as_deref()).await;
+    code_attempt(&state, &user, None)?;
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    let codes = finish_setup(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    let codes = finish_setup(&tx, &user, &input.code).await?;
     tx.commit().await?;
     drop(db);
     // The two-factor secret is part of the session hash: the other sessions end, this one stays.
@@ -803,10 +797,8 @@ pub async fn totp_enable(
 
 /// Turn two-factor on with the first code for the secret from [`start_setup`]: the recovery codes.
 async fn finish_setup(
-    state: &AppState,
     tx: &sea_orm::DatabaseTransaction,
     user: &User,
-    address: Option<&str>,
     code: &str,
 ) -> Result<Vec<String>, ApiError> {
     let row = entity::user_totp::Entity::find_by_id(user.id)
@@ -817,7 +809,6 @@ async fn finish_setup(
         return Err(ApiError::conflict("Two-factor sign-in is already on"));
     }
     if !totp::accept_app_code(tx, &row, code.trim()).await? {
-        state.login_limits.failed(&user.email, address);
         return Err(ApiError::bad_request("That code is not right"));
     }
     entity::user_totp::ActiveModel {
@@ -838,10 +829,8 @@ async fn finish_setup(
 
 /// Check a code of someone with two-factor on, for turning it off or making new recovery codes.
 async fn require_code(
-    state: &AppState,
     tx: &sea_orm::DatabaseTransaction,
     user: &User,
-    address: Option<&str>,
     code: &str,
 ) -> Result<totp::Proof, ApiError> {
     let row = totp::enabled(tx, user.id)
@@ -849,10 +838,7 @@ async fn require_code(
         .ok_or_else(|| ApiError::bad_request("Two-factor sign-in is off"))?;
     match totp::verify(tx, &row, code).await? {
         Some(proof) => Ok(proof),
-        None => {
-            state.login_limits.failed(&user.email, address);
-            Err(ApiError::bad_request("That code is not right"))
-        }
+        None => Err(ApiError::bad_request("That code is not right")),
     }
 }
 
@@ -868,13 +854,13 @@ async fn require_code(
         (status = 400, description = "Wrong code, or two-factor is off already", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 403, description = "The site requires two-factor (`TOTP_REQUIRED`)", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn totp_disable(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
-    ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<StatusCode, ApiError> {
@@ -883,10 +869,10 @@ pub async fn totp_disable(
             "Two-factor sign-in is required on this site",
         ));
     }
-    slow_down(&state, &user, address.as_deref()).await;
+    code_attempt(&state, &user, None)?;
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    require_code(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    require_code(&tx, &user, &input.code).await?;
     totp::remove(&tx, user.id).await?;
     audit::record(
         &tx,
@@ -913,19 +899,19 @@ pub async fn totp_disable(
         (status = 400, description = "Wrong code, or two-factor is off", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn totp_recovery_codes(
     State(state): State<AppState>,
-    ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<Json<RecoveryCodes>, ApiError> {
-    slow_down(&state, &user, address.as_deref()).await;
+    code_attempt(&state, &user, None)?;
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    require_code(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    require_code(&tx, &user, &input.code).await?;
     let codes = totp::new_recovery_codes(&tx, user.id).await?;
     audit::record(
         &tx,
@@ -965,14 +951,17 @@ async fn enroll_challenge(
         (status = 200, description = "The new secret", body = TotpSetup),
         (status = 401, description = "No current setup challenge (start again from the sign-in)", body = ErrorBody),
         (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
-        (status = 409, description = "Two-factor is already on", body = ErrorBody)
+        (status = 409, description = "Two-factor is already on", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn login_totp_setup(
     State(state): State<AppState>,
+    ClientAddr(address): ClientAddr,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<TotpSetup>, ApiError> {
     let user = enroll_challenge(&state, &headers).await?;
+    code_attempt(&state, &user, address.as_deref())?;
     Ok(Json(start_setup(&state, &user).await?))
 }
 
@@ -996,7 +985,8 @@ pub struct EnrolledLogin {
         (status = 401, description = "No current setup challenge (start again from the sign-in)", body = ErrorBody),
         (status = 403, description = "Not allowed: an API key's scope, or a cross-site request", body = ErrorBody),
         (status = 409, description = "Two-factor is already on", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn login_totp_enable(
@@ -1007,11 +997,10 @@ pub async fn login_totp_enable(
     ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<(StatusCode, CookieJar, Json<EnrolledLogin>), ApiError> {
     let user = enroll_challenge(&state, &headers).await?;
-    slow_down(&state, &user, address.as_deref()).await;
+    code_attempt(&state, &user, address.as_deref())?;
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    let codes = finish_setup(&state, &tx, &user, address.as_deref(), &input.code).await?;
-    state.login_limits.succeeded(&user.email);
+    let codes = finish_setup(&tx, &user, &input.code).await?;
     audit::record(
         &tx,
         Entry::admin(Some(user.id), "login")
@@ -1047,21 +1036,21 @@ pub async fn login_totp_enable(
         (status = 400, description = "Wrong code, or two-factor is off", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 403, description = "Made with an API key", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn totp_replace(
     State(state): State<AppState>,
-    ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<Json<TotpSetup>, ApiError> {
-    slow_down(&state, &user, address.as_deref()).await;
+    code_attempt(&state, &user, None)?;
     let secret = totp::new_secret();
     let otpauth_uri = totp::otpauth_uri(&secret, &user.email)?;
     let db = state.writer().await?;
     let tx = db.begin().await?;
-    require_code(&state, &tx, &user, address.as_deref(), &input.code).await?;
+    require_code(&tx, &user, &input.code).await?;
     entity::user_totp::ActiveModel {
         user_id: Unchanged(user.id),
         pending_secret: Set(Some(secret.clone())),
@@ -1090,17 +1079,17 @@ pub async fn totp_replace(
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 403, description = "Made with an API key", body = ErrorBody),
         (status = 409, description = "Another replacement started meanwhile", body = ErrorBody),
-        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody)
+        (status = 415, description = "The body must be JSON (Content-Type: application/json)", body = ErrorBody),
+        (status = 429, description = "Too many attempts: see `Retry-After`", body = ErrorBody)
     )
 )]
 pub async fn totp_replace_confirm(
     State(state): State<AppState>,
     mut auth_session: AuthSession,
-    ClientAddr(address): ClientAddr,
     CurrentUser { user, .. }: CurrentUser,
     ApiJson(input): ApiJson<TotpCode>,
 ) -> Result<StatusCode, ApiError> {
-    slow_down(&state, &user, address.as_deref()).await;
+    code_attempt(&state, &user, None)?;
     let db = state.writer().await?;
     let tx = db.begin().await?;
     let (row, pending) = totp::enabled(&tx, user.id)
@@ -1111,7 +1100,6 @@ pub async fn totp_replace_confirm(
     let Some(step) = totp::matching_step(&pending, input.code.trim(), totp::now_unix(), None)
     else {
         drop(tx);
-        state.login_limits.failed(&user.email, address.as_deref());
         return Err(ApiError::bad_request("That code is not right"));
     };
     // Only if it is still the secret just checked (another replacement may have started meanwhile).
