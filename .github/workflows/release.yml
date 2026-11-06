@@ -15,6 +15,11 @@ name: Release
 on:
   push:
     branches: [main]
+  # Daily too: Dependabot's updates are merged by a workflow's token, and a
+  # push made with that token starts no workflow, so this picks them up
+  # (it only updates the release PR; a release still needs it merged).
+  schedule:
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:

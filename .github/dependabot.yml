@@ -1,11 +1,22 @@
-# Dependency updates, weekly. Every title below is a Conventional Commit
-# (`chore(deps): bump ...`), because pull requests are squash merged with
-# their title and release-please reads it (see the `PR title` workflow);
-# `chore` releases nothing by itself, a release happens when a feature or a
-# fix does. CI (`mise run check` and `mise run test`) runs on each pull
-# request, which is what makes the grouped minor and patch updates safe to
-# merge. Majors are grouped too, but in a pull request of their own, so that
-# the safe updates never wait for a breaking one.
+# Dependency updates, weekly, plus security updates as soon as an advisory
+# is out (those are switched on in the repository's settings and use the
+# entries below). Every title is a Conventional Commit, because pull
+# requests are squash merged with their title and release-please reads it:
+#
+# - What ships in the binary or the image (the backend's crates, the
+#   frontend's and SDK's dependencies, the base image) is `fix(deps)`:
+#   merging it makes release-please open a patch release, so a security fix
+#   reaches users. devDependencies (Vite, oxlint, Vitest, ...) only build
+#   it: `chore(deps-dev)`, no release. Cargo has no such prefix, so a
+#   crate's dev-dependency counts as shipped.
+# - Minor and patch updates (and security ones) merge on their own once CI
+#   passes (dependabot-auto-merge.yml); majors wait for a person, in a pull
+#   request of their own so that the safe updates never wait for them.
+# - A routine update waits 5 days after its release (cooldown): most
+#   hijacked releases are found and pulled within that time. Security
+#   updates do not wait. pnpm's own minimum release age (1 day, in
+#   pnpm-workspace.yaml) is shorter, so it never blocks an update Dependabot
+#   proposes; it holds an npm security fix back by a day at most.
 version: 2
 
 updates:
@@ -15,8 +26,10 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 5
     commit-message:
-      prefix: chore
+      prefix: fix
       include: scope
     groups:
       cargo-minor-and-patch:
@@ -30,8 +43,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 5
     commit-message:
-      prefix: chore
+      prefix: fix
+      prefix-development: chore
       include: scope
     groups:
       npm-minor-and-patch:
@@ -45,20 +61,25 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 5
     commit-message:
       prefix: ci
     groups:
       actions:
         patterns: ["*"]
 
-  # The image of the Dockerfile (alpine:3 follows its own tag). The image
-  # builds nothing, so the toolchains live only in mise.toml, which
-  # Dependabot does not read: a person bumps them (Node's must be an LTS).
+  # The base image of the Dockerfile, pinned to an exact Alpine release
+  # (alpine:3.x.y). The image builds nothing, so the toolchains live only
+  # in mise.toml, which Dependabot does not read: a person bumps them
+  # (Node's must be an LTS).
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 5
     commit-message:
-      prefix: chore
+      prefix: fix
       include: scope

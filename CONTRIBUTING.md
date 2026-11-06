@@ -32,6 +32,8 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 | `mise run clean`        | Deletes the local dev database and uploaded files; the schema is recreated on the next start      |
 | `mise run check`        | Formatting, lint and type checks for both stacks (rustfmt, clippy, tsc, oxlint, oxfmt)            |
 | `mise run fix`          | Applies the format and lint fixes                                                                 |
+| `mise run audit`        | Known vulnerabilities in `Cargo.lock` and `pnpm-lock.yaml` (osv-scanner; also daily in CI)        |
+| `mise run audit:image`  | Known vulnerabilities in the image's Alpine packages (Trivy); `IMAGE=` picks it, default the published one |
 | `mise run test`         | The backend tests (integration tests over the API, and unit tests) and the frontend tests (vitest)  |
 | `mise run gen:spec`     | Writes the OpenAPI spec to `packages/backend/target/specs/`                                       |
 | `mise run gen:sdk`      | Generates the frontend's SDK in `packages/sdk` from the spec (not committed)                      |
@@ -142,7 +144,15 @@ release, and the release workflow:
 
 CI builds the same binary on every pull request and starts the image to check
 that it is healthy, so a packaging mistake fails the pull request, not the
-release.
+release; it also scans the image for known vulnerabilities.
+
+Dependencies update themselves: Dependabot opens weekly pull requests (and one
+at once for a security advisory), and the minor, patch and security ones merge
+on their own when CI passes; majors wait for review. Those that ship are titled
+`fix(deps)`, so the release PR picks them up as a patch release. Bot merges start
+no workflow, so the release workflow also runs once a day to update the release
+PR. Merging the release PR is still up to a person. A `Security` workflow checks
+the lockfiles and the published image every day.
 
 ### Building a release binary yourself
 

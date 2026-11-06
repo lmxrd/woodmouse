@@ -5,3 +5,10 @@
 packages:
   - packages/frontend
   - packages/sdk
+
+# A version published less than a day ago is not installed (pnpm picks an
+# older one that fits, or fails): most hijacked releases are found and pulled
+# within hours. Dependabot waits longer for routine updates (5 days, see
+# .github/dependabot.yml), so this never blocks one; it only holds an npm
+# security fix back by a day at most.
+minimumReleaseAge: 1440
