@@ -1,5 +1,10 @@
 # AGENTS.md
 
+The Rust backend (`packages/backend`): axum, SeaORM on SQLite, the OpenAPI
+spec (utoipa), and the frontend embedded. Read the root `AGENTS.md` first
+(commands, dependencies, releases); this file is what the backend's code must
+keep.
+
 ## Commands
 
 - `cargo check` — fast compile check

@@ -231,6 +231,18 @@ Sessions that already exist are left alone until the person sets it up
 (turning two-factor on signs out their other sessions). After the super admin resets
 someone's two-factor, they set it up again at their next sign-in.
 
+### API keys
+
+Scripts and integrations use an **API key** from **Settings → Account**, sent
+as `Authorization: Bearer wm_...`. It acts as you, capped at its permission:
+**Read** only reads, **Read & write** also changes things but never
+administers (site or workspace), and **Admin** (for site and global admins
+only) does what you may. A key can never manage API keys, two-factor sign-in,
+your password, email or sessions. A key may expire (30 days, 90 days, a year,
+or never), and shows when it was last used. It stops working when it is
+revoked, when it expires, or when your account is disabled. The key is shown
+once, when made.
+
 ### Docker notes
 
 The image runs as a non-root user (uid 100) and asks its own `/api/health`
@@ -251,14 +263,7 @@ release.
 
 Every route lives under `/api`. Run with `SWAGGER_UI=true` to browse the
 API, or load the `openapi.json` attached to each release into any OpenAPI tool.
-
-Scripts and integrations use an **API key** from **Settings → Account**, sent
-as `Authorization: Bearer wm_...`. It acts as you, capped at its permission:
-**Read** only reads, **Read & write** also changes things but never
-administers (site or workspace), and **Admin** (for site and global admins
-only) does what you may. A key can never manage API keys, two-factor sign-in,
-your password, email or sessions. It stops working when it is revoked, when it
-expires, or when your account is disabled. The key is shown once, when made.
+Scripts sign in with an [API key](#api-keys).
 
 ## Breaking changes
 

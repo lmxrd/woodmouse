@@ -132,6 +132,11 @@ create their search triggers again, because SQLite drops a table's triggers with
 
 ## Pull requests, commits and releases
 
+Small commits, one logical change each, with a conventional message. The
+backend and the frontend are separately checkable (`mise run check:backend`,
+`mise run check:frontend`) — a change that only touches one should not
+leave the other dirty.
+
 Releases are automated with [release-please](https://github.com/googleapis/release-please),
 driven by the commit messages on `main`. Write them as
 [Conventional Commits](https://www.conventionalcommits.org): `feat:` bumps the
