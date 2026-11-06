@@ -3,6 +3,7 @@
 ## Commands
 
 - `mise install` — install the pinned toolchain
+- `mise run dev` — both dev servers (`dev:backend` and `dev:frontend`)
 - `mise run dev:backend` — API server (http://localhost:8000); hot reload
   via watchexec (restarts when `backend/src` or Cargo files change)
 - `mise run dev:frontend` — frontend dev server
@@ -12,6 +13,9 @@
 - `mise run check` — each stack's checks (clippy/rustfmt in `backend/`,
   typecheck/lint/format in `frontend/`)
 - `mise run test` — each stack's tests (cargo test, vitest)
+- `mise run gen:spec` / `gen:sdk` — the OpenAPI spec, then the frontend's SDK generated from it
+- `mise run build` — the release binary for this machine (its OS and CPU), frontend embedded, in
+  `dist/woodmouse`
 - `mise run build:linux` — the static (musl) release binary for this machine's
   CPU architecture, frontend embedded, written to `dist/woodmouse-linux-<arch>`
   (`scripts/build-linux.sh`, `ARCH`/`PROFILE`/`FEATURES` to vary it; cargo

@@ -31,9 +31,19 @@ DATABASE_PATH = "woodmouse.db"
 # Build
 # ---------------------------------------------------------------------------
 
+# The release binary for this machine (macOS or Linux, its own CPU), frontend embedded: dist/woodmouse.
+# The static Linux binaries of the image and the releases are build:linux.
 [tasks.build]
-description = "Build frontend (generates the SDK first), then the static Linux binary with the bundle embedded"
-depends = ["build:linux"]
+description = "Build the release binary for this machine, with the frontend embedded, into dist/woodmouse"
+depends = ["build:frontend"]
+dir = "packages/backend"
+run = '''
+cargo build --release --bin woodmouse
+target_dir="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)"
+mkdir -p ../../dist
+cp "$target_dir/release/woodmouse" ../../dist/woodmouse
+echo "dist/woodmouse"
+'''
 
 [tasks."build:frontend"]
 description = "Build the frontend bundle into frontend/dist"

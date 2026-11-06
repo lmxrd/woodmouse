@@ -38,6 +38,7 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 | `mise run test`         | The backend tests (integration tests over the API, and unit tests) and the frontend tests (vitest)  |
 | `mise run gen:spec`     | Writes the OpenAPI spec to `packages/backend/target/specs/`                                       |
 | `mise run gen:sdk`      | Generates the frontend's SDK in `packages/sdk` from the spec (not committed)                      |
+| `mise run build`        | Builds the frontend and the release binary for this machine (its OS and CPU), into `dist/woodmouse` |
 | `mise run build:linux`  | Builds the frontend and the static Linux binary for your machine's CPU architecture, into `dist/` |
 | `mise run build:docker` | Builds the container image from that binary (podman), for your machine's architecture             |
 
