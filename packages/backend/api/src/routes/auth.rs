@@ -643,7 +643,8 @@ pub async fn change_password(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The client's network address, if known: the connection's, else the first `X-Forwarded-For` entry.
+/// The client's network address, if known: the first `X-Forwarded-For` entry with `TRUST_PROXY`, else the
+/// connection's.
 /// Used only to slow down repeated failed logins; it is never stored.
 pub struct ClientAddr(pub Option<String>);
 
@@ -652,18 +653,22 @@ impl axum::extract::FromRequestParts<AppState> for ClientAddr {
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
-        _state: &AppState,
+        state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let from_connection = parts
             .extensions
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
             .map(|c| c.0.ip().to_string());
-        let forwarded = parts
-            .headers
-            .get("x-forwarded-for")
+        // Only behind a proxy we were told about (`TRUST_PROXY`): otherwise anyone could pick their own
+        // address, and dodge the limits by changing it.
+        let forwarded = state
+            .trust_proxy
+            .then(|| parts.headers.get("x-forwarded-for"))
+            .flatten()
             .and_then(|h| h.to_str().ok())
             .and_then(|v| v.split(',').next())
-            .map(|v| v.trim().to_string());
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
         Ok(ClientAddr(forwarded.or(from_connection)))
     }
 }

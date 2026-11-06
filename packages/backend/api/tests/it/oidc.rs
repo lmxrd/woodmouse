@@ -1679,16 +1679,19 @@ async fn sso_only_needs_the_provider_from_the_environment_and_keeps_it_on() {
         client_id: Some(CLIENT_ID.into()),
         ..Default::default()
     };
-    assert!(
-        only(EnvSettings {
-            enabled: Some(false),
-            ..complete.clone()
-        })
-        .checked()
-        .is_err()
-    );
-    // On, and locked on: the admin page cannot turn it off.
-    assert_eq!(only(complete).checked().unwrap().enabled, Some(true));
+    // On, and locked on: the admin page's switch cannot turn it off.
+    let env = only(complete).checked().unwrap();
+    let switched_off = entity::OidcSettings {
+        id: 1,
+        enabled: false,
+        issuer: None,
+        client_id: None,
+        client_secret: None,
+        display_name: None,
+        redirect_url: None,
+        auto_create: false,
+    };
+    assert!(api::oidc::effective(&env, Some(&switched_off)).is_some());
     assert_eq!(
         api::config::parse_flag("OIDC_ONLY", "maybe").map_err(|_| ()),
         Err(())

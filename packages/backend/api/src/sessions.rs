@@ -43,7 +43,7 @@ pub const SESSION_COOKIE: &str = "woodmouse_session";
 /// so a sibling subdomain cannot plant a session of its own (login CSRF, cookie tossing).
 pub const SECURE_SESSION_COOKIE: &str = "__Host-woodmouse_session";
 
-/// The session cookie's name: prefixed when the site is https (`WOODMOUSE_SECURE_COOKIES`).
+/// The session cookie's name: prefixed when the site is https (`PUBLIC_URL` starting with `https://`).
 pub fn cookie_name(secure: bool) -> &'static str {
     if secure {
         SECURE_SESSION_COOKIE

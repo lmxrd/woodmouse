@@ -7,11 +7,7 @@ use sea_orm_migration::MigratorTrait;
 const SSO_MIGRATION: &str = "m20261103_000001_single_sign_on";
 
 async fn open(path: &std::path::Path) -> DatabaseConnection {
-    api::db::orm(
-        api::db::connect(&format!("sqlite:{}", path.display()))
-            .await
-            .unwrap(),
-    )
+    api::db::orm(api::db::connect(path).await.unwrap())
 }
 
 async fn count(db: &DatabaseConnection, sql: &str) -> i64 {

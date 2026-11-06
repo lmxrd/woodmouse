@@ -4,7 +4,7 @@
 //!   GET  /api/health     - liveness probe
 //!   GET  /api/auth/*     - bootstrap (first user), login/logout, me
 //!   /                    - embedded CSR frontend (SPA fallback)
-//!   /swagger-ui         - Swagger UI (only with WOODMOUSE_SWAGGER_UI set)
+//!   /swagger-ui         - Swagger UI (only with SWAGGER_UI set)
 //!
 //! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse check` reports orphaned rows.
 
@@ -32,11 +32,10 @@ async fn main() -> anyhow::Result<()> {
         return run_healthcheck().await;
     }
 
-    // `sqlite:<path>` opens a file-backed database (created when missing).
-    let db_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:woodmouse.db".to_string());
+    // The database file (`DATABASE_PATH`), created when missing.
+    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "woodmouse.db".to_string());
 
-    let state = AppState::open(&db_url).await.context("could not start")?;
+    let state = AppState::open(&db_path).await.context("could not start")?;
 
     match std::env::args().nth(1).as_deref() {
         None | Some("serve") => {}
@@ -51,9 +50,10 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone())
         .split_for_parts();
 
-    // The API's description (swagger-ui) is served only when asked for:
-    // WOODMOUSE_SWAGGER_UI set and not "0", like WOODMOUSE_SECURE_COOKIES.
-    let swagger_ui = std::env::var("WOODMOUSE_SWAGGER_UI").is_ok_and(|v| v != "0");
+    // The API's description (swagger-ui) is served only when asked for (`SWAGGER_UI`).
+    let swagger_ui = api::config::flag("SWAGGER_UI")
+        .map_err(anyhow::Error::msg)?
+        .unwrap_or(false);
     let app = if swagger_ui {
         router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
     } else {

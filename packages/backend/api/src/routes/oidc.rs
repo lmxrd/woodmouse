@@ -153,10 +153,14 @@ async fn start_login(state: &AppState, headers: &HeaderMap) -> Result<Response, 
         tracing::warn!(
             callback,
             secure_cookies = state.secure_cookies,
-            "single sign-on is refused: the callback URL is {} but WOODMOUSE_SECURE_COOKIES is {}; \
-             check PUBLIC_URL, the redirect URL setting and WOODMOUSE_SECURE_COOKIES",
+            "single sign-on is refused: the callback URL is {} but PUBLIC_URL makes cookies {}; \
+             check PUBLIC_URL and the redirect URL setting",
             if https { "https" } else { "http" },
-            if state.secure_cookies { "on" } else { "off" },
+            if state.secure_cookies {
+                "secure"
+            } else {
+                "plain"
+            },
         );
         return Err(SsoError::Misconfigured);
     }
@@ -173,8 +177,14 @@ async fn start_login(state: &AppState, headers: &HeaderMap) -> Result<Response, 
             CsrfToken::new_random,
             Nonce::new_random,
         )
-        .add_scope(Scope::new("email".to_string()))
-        .add_scope(Scope::new("profile".to_string()))
+        // `openid` is added by the client itself.
+        .add_scopes(
+            config
+                .scopes
+                .iter()
+                .filter(|s| *s != "openid")
+                .map(|s| Scope::new(s.clone())),
+        )
         .set_pkce_challenge(challenge)
         .url();
     let pending = Pending {
@@ -613,10 +623,7 @@ async fn oidc_view(state: &AppState, headers: &HeaderMap) -> Result<OidcSettings
         |f: fn(&entity::OidcSettings) -> &Option<String>| row.as_ref().and_then(|r| f(r).clone());
     let config = state.oidc.config();
     Ok(OidcSettingsView {
-        enabled: env
-            .enabled
-            .or(row.as_ref().map(|r| r.enabled))
-            .unwrap_or(env.issuer.is_some()),
+        enabled: oidc::switched_on(env, row.as_ref()),
         issuer: env.issuer.clone().or(stored(|r| &r.issuer)),
         client_id: env.client_id.clone().or(stored(|r| &r.client_id)),
         has_secret: env.client_secret.is_some() || stored(|r| &r.client_secret).is_some(),
@@ -627,7 +634,8 @@ async fn oidc_view(state: &AppState, headers: &HeaderMap) -> Result<OidcSettings
             .or(row.as_ref().map(|r| r.auto_create))
             .unwrap_or(false),
         locked: OidcLocked {
-            enabled: env.enabled.is_some(),
+            // With OIDC_ONLY, single sign-on cannot be switched off.
+            enabled: env.only == Some(true),
             issuer: env.issuer.is_some(),
             client_id: env.client_id.is_some(),
             client_secret: env.client_secret.is_some(),
@@ -719,11 +727,7 @@ async fn save(
     let env = state.oidc.env();
     let clean = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     for (locked, given, variable) in [
-        (
-            env.enabled.is_some(),
-            input.enabled.is_some(),
-            "OIDC_ENABLED",
-        ),
+        (env.only == Some(true), input.enabled.is_some(), "OIDC_ONLY"),
         (env.issuer.is_some(), input.issuer.is_some(), "OIDC_ISSUER"),
         (
             env.client_id.is_some(),
@@ -738,7 +742,7 @@ async fn save(
         (
             env.display_name.is_some(),
             input.display_name.is_some(),
-            "OIDC_DISPLAY_NAME",
+            "OIDC_LABEL",
         ),
         (
             env.redirect_url.is_some(),
@@ -819,7 +823,7 @@ async fn save(
         enabled: input
             .enabled
             .or(stored.as_ref().map(|r| r.enabled))
-            .unwrap_or(env.issuer.is_some()),
+            .unwrap_or(true),
         issuer,
         client_id: keep(env.client_id.is_some(), clean(input.client_id), |r| {
             &r.client_id

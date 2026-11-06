@@ -6,7 +6,6 @@
 //! [`Writer`](crate::state::Writer) and a transaction all are, so a helper works inside or outside a
 //! transaction.
 
-use std::str::FromStr;
 use std::time::Duration;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, SqlxSqliteConnector, TransactionTrait};
@@ -18,10 +17,10 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 pub trait Db: ConnectionTrait + TransactionTrait {}
 impl<T: ConnectionTrait + TransactionTrait> Db for T {}
 
-/// Open the database at `url` (`sqlite:path`), creating the file when missing. WAL, so reads run beside
-/// the one writer.
-pub async fn connect(url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let options = SqliteConnectOptions::from_str(url)?
+/// Open the database file at `path`, creating it when missing. WAL, so reads run beside the one writer.
+pub async fn connect(path: impl AsRef<std::path::Path>) -> Result<SqlitePool, sqlx::Error> {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
@@ -41,9 +40,7 @@ pub fn orm(pool: SqlitePool) -> DatabaseConnection {
 /// A fresh database in a temporary file, migrated (tests, and anything that needs a throwaway database).
 pub async fn temporary() -> DatabaseConnection {
     let path = std::env::temp_dir().join(format!("woodmouse-test-{}.db", uuid::Uuid::new_v4()));
-    let db = orm(connect(&format!("sqlite:{}", path.display()))
-        .await
-        .expect("open a temporary database"));
+    let db = orm(connect(&path).await.expect("open a temporary database"));
     migration::Migrator::up(&db, None)
         .await
         .expect("migrate a temporary database");

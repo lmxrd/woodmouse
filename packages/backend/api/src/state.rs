@@ -22,8 +22,12 @@ pub struct AppState {
     /// Held by anything that writes, so writes take turns in the app instead of meeting SQLite's
     /// "database is locked". Reads never take it.
     writes: Arc<Mutex<()>>,
-    /// Set the `Secure` flag on session cookies (for HTTPS deployments).
+    /// The site is served over https (`PUBLIC_URL` starts with `https://`): every cookie gets `Secure` and
+    /// the `__Host-` prefix. Plain cookies otherwise (local development).
     pub secure_cookies: bool,
+    /// `TRUST_PROXY`: a reverse proxy sets `X-Forwarded-For`, so the client's address is read from it (for
+    /// the login limits). Off, the connection's address is used and the header is ignored.
+    pub trust_proxy: bool,
     /// Where uploaded files live.
     pub files: Arc<FileStores>,
     /// The live editing rooms (see `live`).
@@ -74,7 +78,8 @@ impl AppState {
             mailer: crate::mail::SmtpMailer::shared(db.clone()),
             db,
             writes: Arc::default(),
-            secure_cookies: std::env::var("WOODMOUSE_SECURE_COOKIES").is_ok_and(|v| v != "0"),
+            secure_cookies: crate::config::public_url().is_some_and(|u| u.starts_with("https://")),
+            trust_proxy: false,
             files: Arc::new(files),
             presence: Arc::default(),
             rooms: Arc::default(),
@@ -85,14 +90,14 @@ impl AppState {
         }
     }
 
-    /// Open the database at `url` (`sqlite:<path>`, created when missing): apply the migrations, restore
+    /// Open the database file at `path` (created when missing): apply the migrations, restore
     /// the search triggers, and set up the file storage from the environment. What the server and the
     /// development tools (`seed`) start from.
-    pub async fn open(url: &str) -> anyhow::Result<Self> {
+    pub async fn open(path: &str) -> anyhow::Result<Self> {
         let db = crate::db::orm(
-            crate::db::connect(url)
+            crate::db::connect(path)
                 .await
-                .with_context(|| format!("could not open the database {url}"))?,
+                .with_context(|| format!("could not open the database {path}"))?,
         );
         // The schema: the migrations in the `migration` crate, each applied once.
         <migration::Migrator as sea_orm_migration::MigratorTrait>::up(&db, None)
@@ -101,7 +106,7 @@ impl AppState {
         crate::search::ensure_triggers(&db)
             .await
             .map_err(|_| anyhow::anyhow!("could not create the search triggers"))?;
-        tracing::info!(url, "database ready");
+        tracing::info!(path, "database ready");
         let files = FileStores::from_env().map_err(anyhow::Error::msg)?;
         tracing::info!(
             max_upload_bytes = files.max_upload_bytes,
@@ -122,6 +127,9 @@ impl AppState {
         );
         let mut state = Self::with_files(db, files).with_oidc(oidc);
         state.totp_required = totp_required;
+        state.trust_proxy = crate::config::flag("TRUST_PROXY")
+            .map_err(anyhow::Error::msg)?
+            .unwrap_or(false);
         Ok(state)
     }
 

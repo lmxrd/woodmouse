@@ -302,7 +302,7 @@ async fn only_one_of_two_first_passwords_at_once_is_set() {
     assert_eq!(statuses, [StatusCode::NO_CONTENT, StatusCode::CONFLICT]);
 }
 
-/// The app as served over https (`WOODMOUSE_SECURE_COOKIES`), or not.
+/// The app as served over https (`PUBLIC_URL` with `https://`), or not.
 async fn app_served(secure: bool) -> axum::Router {
     let mut state = api::state::AppState::new(api::db::temporary().await);
     state.secure_cookies = secure;
