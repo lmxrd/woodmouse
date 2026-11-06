@@ -143,8 +143,9 @@ and `packages/sdk/package.json`, plus the changelog. Merging it tags the
 release, and the release workflow:
 
 - builds the static Linux binaries for `amd64` and `arm64` natively, on a
-  runner of each architecture, and attaches them to the release with their
-  checksums and the OpenAPI spec;
+  runner of each architecture, and attaches them to the release with the
+  OpenAPI spec;
+- writes one `SHA256SUMS` for everything attached (both binaries and the spec);
 - packages those same binaries into the Docker image and pushes it to
   `ghcr.io/lmxrd/woodmouse` as one multi-arch image, tagged `1.2.3`, `1.2` and
   `latest`.

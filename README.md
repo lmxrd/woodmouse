@@ -59,10 +59,11 @@ volumes:
 
 Each release has a single Linux program for `amd64` and `arm64`, which runs on
 any Ubuntu or Debian. Download the one for your machine from the
-[releases](https://github.com/lmxrd/woodmouse/releases) (a checksum file sits
-next to it), make it executable and run it:
+[releases](https://github.com/lmxrd/woodmouse/releases), check it against the
+release's `SHA256SUMS`, make it executable and run it:
 
 ```bash
+sha256sum -c SHA256SUMS --ignore-missing
 chmod +x woodmouse-linux-amd64
 ./woodmouse-linux-amd64
 ```
