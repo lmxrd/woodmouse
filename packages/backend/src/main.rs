@@ -9,7 +9,7 @@
 //! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse check` reports orphaned rows.
 
 // The embedded frontend bundle — a module of this binary, not the library,
-// so spec generation (cargo specs) never requires a built frontend.
+// so spec generation (`mise run gen:spec`) never requires a built frontend.
 mod frontend;
 
 use std::future::IntoFuture;
