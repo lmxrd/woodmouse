@@ -1,6 +1,5 @@
-# Tool versions for the whole monorepo, managed by mise (mise.jdx.dev).
-# Convenience tasks: `mise run <task>` (`mise r <task>`).
-# Prune any tool or task whose stack was not scaffolded.
+# Tools and tasks for the whole monorepo, managed by mise (mise.jdx.dev): the
+# tool versions first, then the tasks (`mise run <task>`, or `mise r <task>`).
 
 # ---------------------------------------------------------------------------
 # Tools
@@ -11,6 +10,7 @@
 #   node  -> package.json `devEngines.runtime` (mise reads only that, not `engines`)
 #   pnpm  -> package.json `packageManager`
 #   rust  -> rust-toolchain.toml (channel, components, the musl targets)
+# The Docker image builds nothing (see the Dockerfile).
 [settings]
 idiomatic_version_file_enable_tools = ["node", "pnpm", "rust"]
 
@@ -18,7 +18,7 @@ idiomatic_version_file_enable_tools = ["node", "pnpm", "rust"]
 watchexec = "2.8.0" # backend hot reload (dev:backend)
 zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and static linking
 "github:rust-cross/cargo-zigbuild" = "0.24.0" # builds the static release binaries via zig cc (scripts/build-linux.sh)
-"cargo:sea-orm-cli" = "2.0.4" 
+"cargo:sea-orm-cli" = "2.0.4" # SeaORM's CLI: regenerates the entities (mise run gen:models)
 "aqua:google/osv-scanner" = "2.7.0" # known vulnerabilities in the lockfiles (mise run audit)
 "aqua:aquasecurity/trivy" = "0.76.1" # known vulnerabilities in the image (mise run audit:image)
 
@@ -207,7 +207,7 @@ description = "Known vulnerabilities in an image's Alpine packages (Trivy): fixa
 run = 'trivy image --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "${IMAGE:-ghcr.io/lmxrd/woodmouse:latest}"'
 
 # ---------------------------------------------------------------------------
-# Data and manual tooling
+# Data and manual tasks
 # ---------------------------------------------------------------------------
 
 # SeaORM's tools (the migration crate's CLI, sea-orm-cli) read the dev database from DATABASE_URL.
