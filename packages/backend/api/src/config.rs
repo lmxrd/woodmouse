@@ -17,11 +17,30 @@ pub fn public_url() -> Option<String> {
     var("PUBLIC_URL").map(|u| u.trim_end_matches('/').to_string())
 }
 
-/// The database, from `DATABASE_URL` (default `sqlite:woodmouse.db`). A URL rather than a path, so
-/// another database could take its place later; for now it must be SQLite (`sqlite:path`,
+/// The database, from `DATABASE_URL` (default `sqlite:data/woodmouse.db`). A URL rather than a path,
+/// so another database could take its place later; for now it must be SQLite (`sqlite:path`,
 /// `sqlite://path`, with sqlx's options such as `?mode=rwc` allowed).
 pub fn database_url() -> Result<String, String> {
-    let url = var("DATABASE_URL").unwrap_or_else(|| "sqlite:woodmouse.db".into());
+    let url = match var("DATABASE_URL") {
+        Some(url) => url,
+        None => {
+            // The default used to be `woodmouse.db` beside `data/`: starting on an empty database
+            // next to it would look like everything was lost, so say what to do instead.
+            let (old, new) = (
+                std::path::Path::new("woodmouse.db"),
+                std::path::Path::new("data/woodmouse.db"),
+            );
+            if old.exists() && !new.exists() {
+                return Err(
+                    "the database moved to data/woodmouse.db: stop here, move woodmouse.db \
+                     (and any woodmouse.db-wal and woodmouse.db-shm) into data/, and start again \
+                     (or set DATABASE_URL=sqlite:woodmouse.db to keep it where it is)"
+                        .into(),
+                );
+            }
+            "sqlite:data/woodmouse.db".into()
+        }
+    };
     parse_database_url(&url)?;
     Ok(url)
 }

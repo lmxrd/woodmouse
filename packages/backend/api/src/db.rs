@@ -21,7 +21,16 @@ impl<T: ConnectionTrait + TransactionTrait> Db for T {}
 /// Open the database at `url` (`sqlite:path`, `DATABASE_URL`), creating the file when missing. WAL, so
 /// reads run beside the one writer.
 pub async fn connect(url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let options = SqliteConnectOptions::from_str(url)?
+    let options = SqliteConnectOptions::from_str(url)?;
+    // The database's directory may not exist yet (a fresh clone, a new volume): create it.
+    if let Some(parent) = options
+        .get_filename()
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let options = options
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)

@@ -20,10 +20,9 @@ backend, so cookies stay on one origin. Sign in as `admin@woodmouse.test`,
 `sara@woodmouse.test` or `ola@woodmouse.test`, all with the password
 `password`. To start over, run `mise run clean` and seed again.
 
-The dev database is `packages/backend/woodmouse.db` (`DATABASE_URL` in
-`mise.toml`'s `[env]`). Inside the repository mise sets it for every tool it
-runs, `cargo` included, so it wins over one set in your shell; to use another
-file, run the built binary directly or change `mise.toml` locally.
+The dev database is `packages/backend/data/woodmouse.db` (the default
+`DATABASE_URL`, with the uploaded files beside it in `data/files/`); set
+`DATABASE_URL` in your shell to use another file.
 
 ## Tasks
 
