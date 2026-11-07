@@ -31,6 +31,7 @@ uuid.workspace = true
 
 utoipa-axum = "0.3.0"
 argon2 = "0.6.0"
+rand = "0.10.3"
 sha2 = "0.11.1"
 totp-rs.workspace = true
 time = "0.3.55"
