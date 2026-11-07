@@ -104,7 +104,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1392,7 +1392,7 @@ dependencies = [
 
 [[package]]
 name = "entity"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "jiff",
  "sea-orm",
@@ -2509,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "migration"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "sea-orm-migration",
@@ -5356,7 +5356,7 @@ dependencies = [
 
 [[package]]
 name = "woodmouse"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "api",
