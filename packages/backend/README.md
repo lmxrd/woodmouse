@@ -1,30 +1,18 @@
-# woodmouse
+# woodmouse (backend)
 
-API service built with axum, utoipa (OpenAPI), and SeaORM on SQLite.
+The server: axum, SeaORM on SQLite, the OpenAPI spec (utoipa), and the
+frontend embedded in the one binary. The user documentation is the
+[root README](../../README.md); the rules for changing this code are in
+[AGENTS.md](AGENTS.md).
 
-## Commands
+| Command (from the repository root) | What it does |
+| --- | --- |
+| `mise run dev:backend` | Serve on http://localhost:8000, restarted on changes |
+| `mise run test:backend` | Unit tests and the API's integration tests (axum-test) |
+| `mise run check:backend` | rustfmt and clippy (`-D warnings`) |
+| `mise run gen:spec` | Write the OpenAPI spec to `target/specs/` (JSON and YAML) |
+| `mise run seed` | Mock data in an empty dev database |
 
-| Command                | What it does                                        |
-| ---------------------- | --------------------------------------------------- |
-| `cargo run`           | Serve on http://localhost:8000 (Swagger at `/swagger-ui`) |
-| `cargo test`          | Run tests (smoke test in `tests/api.rs`)           |
-| `mise run check`      | rustfmt --check + clippy                            |
-| `mise run fix`        | rustfmt + clippy --fix                              |
-| `cargo run --bin specs` | Write `target/specs/openapi.{json,yaml}`          |
-
-## Configuration
-
-Environment variables (see `src/main.rs`):
-
-- `BIND_ADDR` — listen address (default `0.0.0.0:8000`)
-- `DATABASE_URL` — SQLite URL (default `sqlite:woodmouse.db`)
-
-## Docker
-
-The image only copies the Linux binary built outside it (see the root
-`Dockerfile`), so build that first:
-
-```sh
-mise run build:docker   # or: mise run build:linux && docker build -t woodmouse .
-docker run -p 8000:8000 -v woodmouse-data:/data woodmouse
-```
+A Cargo workspace: `src/` is the server binary (with the embedded frontend), and `api/` the library with
+everything else. In `api/`, `src/` holds the API (`routes/`) and `tests/it/` the integration tests (one file
+per area); `entity/` holds the database models and `migration/` the schema (a new migration per change).

@@ -1,5 +1,10 @@
 # AGENTS.md
 
+The Rust backend (`packages/backend`): axum, SeaORM on SQLite, the OpenAPI
+spec (utoipa), and the frontend embedded. Read the root `AGENTS.md` first
+(commands, dependencies, releases); this file is what the backend's code must
+keep.
+
 ## Commands
 
 - `cargo check` — fast compile check
@@ -67,7 +72,9 @@
   table lists them), every yes/no one goes through `config::flag` (a bad value stops the start), and logging
   follows `RUST_LOG` (`info` by default).
 - Handlers live in `src/routes/`; every handler carries a `#[utoipa::path]`
-  annotation. The annotation is the single source of truth — register new
+  annotation and a doc comment: its first line is the operation's summary, the rest its description. The
+  operation id is the handler's name (`admin_list_users`), so handler names are unique across the API and
+  the SDK calls them in camelCase (`adminListUsersOptions`). The annotation is the single source of truth — register new
   handlers in `src/routes/mod.rs` via `utoipa_axum::routes!` (group handlers
   that share a path in one `routes!` call) and they appear in both the axum
   router and the OpenAPI docs. Then run `mise run gen:spec` to regenerate
@@ -234,9 +241,9 @@
   (an `XmlFragment` named `default`, laid out as the editor's collaboration extension writes it). Connections
   speak the y-websocket protocol; the hub follows `yrs-warp` (MIT), ported to axum and the current `yrs`.
   `convert.rs` turns the document into blocks (and back, to seed a room); the frontend test
-  `yjsFixtures.test.ts` writes `tests/it/fixtures/editor_docs.json` from the real editor schema and
+  `yjs-fixtures.test.ts` writes `tests/it/fixtures/editor_docs.json` from the real editor schema and
   `tests/it/live_convert.rs` reads it, so the two cannot drift (regenerate with `pnpm vitest run -u
-  src/lib/yjsFixtures.test.ts` after changing node types or attributes). ~2s after the last edit the room
+  src/lib/yjs-fixtures.test.ts` after changing node types or attributes). ~2s after the last edit the room
   saves through `pages::save_content` (attributed to the last editor); the Yjs state is kept in `PageDoc` with
   an `epoch` that changes whenever the document is rebuilt from blocks (REST save, restore): sockets then close
   with 4001 and clients reload.

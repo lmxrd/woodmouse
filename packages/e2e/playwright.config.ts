@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 // The smoke tests run against a server that is already up: `mise run test:e2e` builds the image, starts it
 // with a fresh database file in a volume and sets E2E_BASE_URL. The flows build on each other (the first
-// sets up the site), so they run in order, in one worker.
+// creates the admin), so they run in order, in one worker.
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: false,

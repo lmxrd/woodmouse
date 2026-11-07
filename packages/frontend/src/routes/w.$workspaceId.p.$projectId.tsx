@@ -8,20 +8,20 @@ import {
   updateProjectMutation,
 } from "woodmouse-sdk/react-query";
 
-import { ActionMenu } from "../components/common/ActionMenu";
-import { CalendarLinks } from "../components/calendarlinks/CalendarLinks";
-import { ResponsiveDialog } from "../components/common/ResponsiveDialog";
-import { Board } from "../components/board/Board";
-import { CalendarView } from "../components/calendar/CalendarView";
-import { ConfirmDialog } from "../components/common/ConfirmDialog";
-import { TimelineView } from "../components/timeline/TimelineView";
-import { ProjectViewMenu } from "../components/views/ProjectViewMenu";
-import { RenameInput } from "../components/common/RenameInput";
-import { TaskListView } from "../components/task/TaskListView";
+import { ActionMenu } from "../components/common/action-menu";
+import { CalendarLinks } from "../components/calendarlinks/calendar-links";
+import { ResponsiveDialog } from "../components/common/responsive-dialog";
+import { Board } from "../components/board/board";
+import { CalendarView } from "../components/calendar/calendar-view";
+import { useConfirm } from "../components/common/confirm-dialog";
+import { TimelineView } from "../components/timeline/timeline-view";
+import { ProjectViewMenu } from "../components/views/project-view-menu";
+import { RenameInput } from "../components/common/rename-input";
+import { TaskListView } from "../components/task/task-list-view";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
-import { useWorkspaceRole } from "../lib/useWorkspaceRole";
-import { validateProjectSearch } from "../lib/projectSearch";
+import { useWorkspaceRole } from "../lib/use-workspace-role";
+import { validateProjectSearch } from "../lib/project-search";
 
 export const Route = createFileRoute("/w/$workspaceId/p/$projectId")({
   validateSearch: validateProjectSearch,
@@ -56,7 +56,7 @@ function ProjectPage() {
     },
   });
   const [renaming, setRenaming] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirm = useConfirm();
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
 
@@ -129,7 +129,18 @@ function ProjectPage() {
                     {
                       label: "Delete project…",
                       destructive: true,
-                      onSelect: () => setConfirmDelete(true),
+                      onSelect: async () => {
+                        if (
+                          await confirm({
+                            title: `Delete "${project?.name ?? ""}"?`,
+                            description:
+                              "This also deletes all of its lists and tasks. You can restore it from the trash.",
+                            action: "Delete project",
+                            destructive: true,
+                          })
+                        )
+                          remove.mutate({ path: { id: projectId } });
+                      },
                     },
                   ]
                 : []),
@@ -179,14 +190,6 @@ function ProjectPage() {
           </div>
         </form>
       </ResponsiveDialog>
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title={`Delete "${project?.name ?? ""}"?`}
-        description="This also deletes all of its lists and tasks. You can restore it from the trash."
-        confirmLabel="Delete project"
-        onConfirm={() => remove.mutate({ path: { id: projectId } })}
-      />
     </>
   );
 }

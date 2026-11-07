@@ -17,6 +17,11 @@
           "jsonpath": "$.version"
         },
         {
+          "type": "json",
+          "path": "packages/e2e/package.json",
+          "jsonpath": "$.version"
+        },
+        {
           "type": "toml",
           "path": "packages/backend/Cargo.toml",
           "jsonpath": "$.workspace.package.version"

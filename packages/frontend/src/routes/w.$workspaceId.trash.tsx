@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { TrashPage } from "../components/trash/TrashPage";
+import { TrashPage } from "../components/trash/trash-page";
 
 export const Route = createFileRoute("/w/$workspaceId/trash")({
   component: TrashRoute,

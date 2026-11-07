@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { AuditTab } from "../components/admin/AuditTab";
+import { AuditTab } from "../components/admin/audit-tab";
 
 interface Search {
   action?: string;

@@ -68,8 +68,8 @@ chmod +x woodmouse-linux-amd64
 ./woodmouse-linux-amd64
 ```
 
-It listens on port 8000 and keeps its database (`woodmouse.db`) and uploaded
-files (`data/`) in the folder you start it from.
+It listens on port 8000 and keeps its database (`data/woodmouse.db`) and
+uploaded files (`data/files/`) in a `data` folder under the folder you start it from.
 
 ## Self-hosting
 
@@ -82,7 +82,7 @@ optional:
 | --- | --- | --- |
 | `PORT` | `8000` | The port to listen on |
 | `PUBLIC_URL` | from the request | Your address, like `https://tasks.example.com`, for links in emails and calendar events. Starting with `https://`, every cookie gets `Secure` and the `__Host-` prefix |
-| `DATABASE_URL` | `sqlite:woodmouse.db` | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`) |
+| `DATABASE_URL` | `sqlite:data/woodmouse.db` | The database, as a URL. SQLite only for now: `sqlite:` and the file's path (the Docker image uses `sqlite:/data/woodmouse.db`) |
 | `DATA_DIR` | `data` | Where uploaded files live (the Docker image uses `/data`) |
 | `MAX_UPLOAD_MB` | `25` | The largest accepted upload |
 | `TRUST_PROXY` | unset | `true` behind a reverse proxy that sets `X-Forwarded-For`: the sign-in limits then count by the client's address from it |
@@ -101,7 +101,7 @@ The yes/no variables (`TRUST_PROXY`, `SWAGGER_UI`, `TOTP_REQUIRED`, and
 
 The whole state is two things: the database and the uploaded files. Back up both
 together. The simplest way is to stop Woodmouse (it finishes writing the database
-on a clean stop) and copy `woodmouse.db` and the `data` folder. In Docker, stop the
+on a clean stop) and copy the `data` folder. In Docker, stop the
 container and archive the volume:
 
 ```bash
@@ -111,7 +111,7 @@ docker start woodmouse
 ```
 
 To copy the database while the server runs, use SQLite rather than `cp`:
-`sqlite3 woodmouse.db "VACUUM INTO 'backup.db'"`.
+`sqlite3 data/woodmouse.db "VACUUM INTO 'backup.db'"`.
 
 `woodmouse check` reports rows that point at something that no longer exists.
 
@@ -231,6 +231,18 @@ Sessions that already exist are left alone until the person sets it up
 (turning two-factor on signs out their other sessions). After the super admin resets
 someone's two-factor, they set it up again at their next sign-in.
 
+### API keys
+
+Scripts and integrations use an **API key** from **Settings → Account**, sent
+as `Authorization: Bearer wm_...`. It acts as you, capped at its permission:
+**Read** only reads, **Read & write** also changes things but never
+administers (site or workspace), and **Admin** (for site and global admins
+only) does what you may. A key can never manage API keys, two-factor sign-in,
+your password, email or sessions. A key may expire (30 days, 90 days, a year,
+or never), and shows when it was last used. It stops working when it is
+revoked, when it expires, or when your account is disabled. The key is shown
+once, when made.
+
 ### Docker notes
 
 The image runs as a non-root user (uid 100) and asks its own `/api/health`
@@ -251,14 +263,7 @@ release.
 
 Every route lives under `/api`. Run with `SWAGGER_UI=true` to browse the
 API, or load the `openapi.json` attached to each release into any OpenAPI tool.
-
-Scripts and integrations use an **API key** from **Settings → Account**, sent
-as `Authorization: Bearer wm_...`. It acts as you, capped at its permission:
-**Read** only reads, **Read & write** also changes things but never
-administers (site or workspace), and **Admin** (for site and global admins
-only) does what you may. A key can never manage API keys, two-factor sign-in,
-your password, email or sessions. It stops working when it is revoked, when it
-expires, or when your account is disabled. The key is shown once, when made.
+Scripts sign in with an [API key](#api-keys).
 
 ## Breaking changes
 
@@ -267,6 +272,12 @@ is listed here (and in its release notes), newest last.
 
 ### Unreleased
 
+- **The database moved to `data/woodmouse.db`** (was `woodmouse.db`, beside
+  `data/`), so the whole state is one folder. Without Docker, stop Woodmouse
+  and move `woodmouse.db` (with any `woodmouse.db-wal` and `woodmouse.db-shm`)
+  into `data/`, or set `DATABASE_URL=sqlite:woodmouse.db` to keep it where it
+  is. Woodmouse refuses to start while the old file is there and the new one
+  is not. The Docker image is not affected.
 - **Renamed and removed variables.** `WOODMOUSE_SWAGGER_UI` is `SWAGGER_UI`.
   `WOODMOUSE_SECURE_COOKIES` is gone: a `PUBLIC_URL` starting with
   `https://` makes cookies secure. `OIDC_DISPLAY_NAME` is `OIDC_LABEL`.

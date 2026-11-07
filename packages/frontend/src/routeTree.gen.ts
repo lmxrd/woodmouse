@@ -8,656 +8,656 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AccountRouteImport } from './routes/account'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as InviteTokenRouteImport } from './routes/invite.$token'
-import { Route as SettingsIndexRouteImport } from './routes/settings.index'
-import { Route as SettingsAccountRouteImport } from './routes/settings.account'
-import { Route as SettingsAdminRouteImport } from './routes/settings.admin'
-import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
-import { Route as SettingsCalendarRouteImport } from './routes/settings.calendar'
-import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
-import { Route as SettingsPasswordRouteImport } from './routes/settings.password'
-import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
-import { Route as SettingsAdminAuditRouteImport } from './routes/settings.admin.audit'
-import { Route as SettingsAdminEmailRouteImport } from './routes/settings.admin.email'
-import { Route as SettingsAdminMaintenanceRouteImport } from './routes/settings.admin.maintenance'
-import { Route as SettingsAdminSsoRouteImport } from './routes/settings.admin.sso'
-import { Route as SettingsAdminUsersRouteImport } from './routes/settings.admin.users'
-import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
-import { Route as WWorkspaceIdActivityRouteImport } from './routes/w.$workspaceId.activity'
-import { Route as WWorkspaceIdFilesRouteImport } from './routes/w.$workspaceId.files'
-import { Route as WWorkspaceIdMyTasksRouteImport } from './routes/w.$workspaceId.my-tasks'
-import { Route as WWorkspaceIdSettingsRouteImport } from './routes/w.$workspaceId.settings'
-import { Route as WWorkspaceIdTrashRouteImport } from './routes/w.$workspaceId.trash'
-import { Route as SettingsAdminWorkspacesIndexRouteImport } from './routes/settings.admin.workspaces.index'
-import { Route as SettingsAdminWorkspacesWorkspaceIdRouteImport } from './routes/settings.admin.workspaces.$workspaceId'
-import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
-import { Route as WWorkspaceIdTTaskIdRouteImport } from './routes/w.$workspaceId.t.$taskId'
-import { Route as WWorkspaceIdWikiIndexRouteImport } from './routes/w.$workspaceId.wiki.index'
-import { Route as WWorkspaceIdWikiPageIdRouteImport } from './routes/w.$workspaceId.wiki.$pageId'
-import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from './routes/w.$workspaceId.p.$projectId.t.$taskId'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as AccountRouteImport } from "./routes/account";
+import { Route as AdminRouteImport } from "./routes/admin";
+import { Route as LoginRouteImport } from "./routes/login";
+import { Route as SettingsRouteImport } from "./routes/settings";
+import { Route as InviteTokenRouteImport } from "./routes/invite.$token";
+import { Route as SettingsIndexRouteImport } from "./routes/settings.index";
+import { Route as SettingsAccountRouteImport } from "./routes/settings.account";
+import { Route as SettingsAdminRouteImport } from "./routes/settings.admin";
+import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance";
+import { Route as SettingsCalendarRouteImport } from "./routes/settings.calendar";
+import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications";
+import { Route as SettingsPasswordRouteImport } from "./routes/settings.password";
+import { Route as WWorkspaceIdRouteImport } from "./routes/w.$workspaceId";
+import { Route as SettingsAdminAuditRouteImport } from "./routes/settings.admin.audit";
+import { Route as SettingsAdminEmailRouteImport } from "./routes/settings.admin.email";
+import { Route as SettingsAdminMaintenanceRouteImport } from "./routes/settings.admin.maintenance";
+import { Route as SettingsAdminSsoRouteImport } from "./routes/settings.admin.sso";
+import { Route as SettingsAdminUsersRouteImport } from "./routes/settings.admin.users";
+import { Route as WWorkspaceIdIndexRouteImport } from "./routes/w.$workspaceId.index";
+import { Route as WWorkspaceIdActivityRouteImport } from "./routes/w.$workspaceId.activity";
+import { Route as WWorkspaceIdFilesRouteImport } from "./routes/w.$workspaceId.files";
+import { Route as WWorkspaceIdMyTasksRouteImport } from "./routes/w.$workspaceId.my-tasks";
+import { Route as WWorkspaceIdSettingsRouteImport } from "./routes/w.$workspaceId.settings";
+import { Route as WWorkspaceIdTrashRouteImport } from "./routes/w.$workspaceId.trash";
+import { Route as SettingsAdminWorkspacesIndexRouteImport } from "./routes/settings.admin.workspaces.index";
+import { Route as SettingsAdminWorkspacesWorkspaceIdRouteImport } from "./routes/settings.admin.workspaces.$workspaceId";
+import { Route as WWorkspaceIdPProjectIdRouteImport } from "./routes/w.$workspaceId.p.$projectId";
+import { Route as WWorkspaceIdTTaskIdRouteImport } from "./routes/w.$workspaceId.t.$taskId";
+import { Route as WWorkspaceIdWikiIndexRouteImport } from "./routes/w.$workspaceId.wiki.index";
+import { Route as WWorkspaceIdWikiPageIdRouteImport } from "./routes/w.$workspaceId.wiki.$pageId";
+import { Route as WWorkspaceIdPProjectIdTTaskIdRouteImport } from "./routes/w.$workspaceId.p.$projectId.t.$taskId";
 
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const AccountRoute = AccountRouteImport.update({
-  id: '/account',
-  path: '/account',
+  id: "/account",
+  path: "/account",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
+  id: "/admin",
+  path: "/admin",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+  id: "/login",
+  path: "/login",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+  id: "/settings",
+  path: "/settings",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const InviteTokenRoute = InviteTokenRouteImport.update({
-  id: '/invite/$token',
-  path: '/invite/$token',
+  id: "/invite/$token",
+  path: "/invite/$token",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const SettingsAccountRoute = SettingsAccountRouteImport.update({
-  id: '/account',
-  path: '/account',
+  id: "/account",
+  path: "/account",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const SettingsAdminRoute = SettingsAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
+  id: "/admin",
+  path: "/admin",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
-  id: '/appearance',
-  path: '/appearance',
+  id: "/appearance",
+  path: "/appearance",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const SettingsCalendarRoute = SettingsCalendarRouteImport.update({
-  id: '/calendar',
-  path: '/calendar',
+  id: "/calendar",
+  path: "/calendar",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
-  id: '/notifications',
-  path: '/notifications',
+  id: "/notifications",
+  path: "/notifications",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const SettingsPasswordRoute = SettingsPasswordRouteImport.update({
-  id: '/password',
-  path: '/password',
+  id: "/password",
+  path: "/password",
   getParentRoute: () => SettingsRoute,
-} as any)
+} as any);
 const WWorkspaceIdRoute = WWorkspaceIdRouteImport.update({
-  id: '/w/$workspaceId',
-  path: '/w/$workspaceId',
+  id: "/w/$workspaceId",
+  path: "/w/$workspaceId",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SettingsAdminAuditRoute = SettingsAdminAuditRouteImport.update({
-  id: '/audit',
-  path: '/audit',
+  id: "/audit",
+  path: "/audit",
   getParentRoute: () => SettingsAdminRoute,
-} as any)
+} as any);
 const SettingsAdminEmailRoute = SettingsAdminEmailRouteImport.update({
-  id: '/email',
-  path: '/email',
+  id: "/email",
+  path: "/email",
   getParentRoute: () => SettingsAdminRoute,
-} as any)
+} as any);
 const SettingsAdminMaintenanceRoute =
   SettingsAdminMaintenanceRouteImport.update({
-    id: '/maintenance',
-    path: '/maintenance',
+    id: "/maintenance",
+    path: "/maintenance",
     getParentRoute: () => SettingsAdminRoute,
-  } as any)
+  } as any);
 const SettingsAdminSsoRoute = SettingsAdminSsoRouteImport.update({
-  id: '/sso',
-  path: '/sso',
+  id: "/sso",
+  path: "/sso",
   getParentRoute: () => SettingsAdminRoute,
-} as any)
+} as any);
 const SettingsAdminUsersRoute = SettingsAdminUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
+  id: "/users",
+  path: "/users",
   getParentRoute: () => SettingsAdminRoute,
-} as any)
+} as any);
 const WWorkspaceIdIndexRoute = WWorkspaceIdIndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdActivityRoute = WWorkspaceIdActivityRouteImport.update({
-  id: '/activity',
-  path: '/activity',
+  id: "/activity",
+  path: "/activity",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdFilesRoute = WWorkspaceIdFilesRouteImport.update({
-  id: '/files',
-  path: '/files',
+  id: "/files",
+  path: "/files",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdMyTasksRoute = WWorkspaceIdMyTasksRouteImport.update({
-  id: '/my-tasks',
-  path: '/my-tasks',
+  id: "/my-tasks",
+  path: "/my-tasks",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdSettingsRoute = WWorkspaceIdSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+  id: "/settings",
+  path: "/settings",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdTrashRoute = WWorkspaceIdTrashRouteImport.update({
-  id: '/trash',
-  path: '/trash',
+  id: "/trash",
+  path: "/trash",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const SettingsAdminWorkspacesIndexRoute =
   SettingsAdminWorkspacesIndexRouteImport.update({
-    id: '/workspaces/',
-    path: '/workspaces/',
+    id: "/workspaces/",
+    path: "/workspaces/",
     getParentRoute: () => SettingsAdminRoute,
-  } as any)
+  } as any);
 const SettingsAdminWorkspacesWorkspaceIdRoute =
   SettingsAdminWorkspacesWorkspaceIdRouteImport.update({
-    id: '/workspaces/$workspaceId',
-    path: '/workspaces/$workspaceId',
+    id: "/workspaces/$workspaceId",
+    path: "/workspaces/$workspaceId",
     getParentRoute: () => SettingsAdminRoute,
-  } as any)
+  } as any);
 const WWorkspaceIdPProjectIdRoute = WWorkspaceIdPProjectIdRouteImport.update({
-  id: '/p/$projectId',
-  path: '/p/$projectId',
+  id: "/p/$projectId",
+  path: "/p/$projectId",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdTTaskIdRoute = WWorkspaceIdTTaskIdRouteImport.update({
-  id: '/t/$taskId',
-  path: '/t/$taskId',
+  id: "/t/$taskId",
+  path: "/t/$taskId",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdWikiIndexRoute = WWorkspaceIdWikiIndexRouteImport.update({
-  id: '/wiki/',
-  path: '/wiki/',
+  id: "/wiki/",
+  path: "/wiki/",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdWikiPageIdRoute = WWorkspaceIdWikiPageIdRouteImport.update({
-  id: '/wiki/$pageId',
-  path: '/wiki/$pageId',
+  id: "/wiki/$pageId",
+  path: "/wiki/$pageId",
   getParentRoute: () => WWorkspaceIdRoute,
-} as any)
+} as any);
 const WWorkspaceIdPProjectIdTTaskIdRoute =
   WWorkspaceIdPProjectIdTTaskIdRouteImport.update({
-    id: '/t/$taskId',
-    path: '/t/$taskId',
+    id: "/t/$taskId",
+    path: "/t/$taskId",
     getParentRoute: () => WWorkspaceIdPProjectIdRoute,
-  } as any)
+  } as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/account': typeof AccountRoute
-  '/admin': typeof AdminRoute
-  '/login': typeof LoginRoute
-  '/settings': typeof SettingsRouteWithChildren
-  '/invite/$token': typeof InviteTokenRoute
-  '/settings/account': typeof SettingsAccountRoute
-  '/settings/admin': typeof SettingsAdminRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
-  '/settings/calendar': typeof SettingsCalendarRoute
-  '/settings/notifications': typeof SettingsNotificationsRoute
-  '/settings/password': typeof SettingsPasswordRoute
-  '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
-  '/settings/': typeof SettingsIndexRoute
-  '/settings/admin/audit': typeof SettingsAdminAuditRoute
-  '/settings/admin/email': typeof SettingsAdminEmailRoute
-  '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
-  '/settings/admin/sso': typeof SettingsAdminSsoRoute
-  '/settings/admin/users': typeof SettingsAdminUsersRoute
-  '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
-  '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
-  '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
-  '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
-  '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
-  '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
-  '/settings/admin/workspaces/$workspaceId': typeof SettingsAdminWorkspacesWorkspaceIdRoute
-  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
-  '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
-  '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
-  '/settings/admin/workspaces/': typeof SettingsAdminWorkspacesIndexRoute
-  '/w/$workspaceId/wiki/': typeof WWorkspaceIdWikiIndexRoute
-  '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
+  "/": typeof IndexRoute;
+  "/account": typeof AccountRoute;
+  "/admin": typeof AdminRoute;
+  "/login": typeof LoginRoute;
+  "/settings": typeof SettingsRouteWithChildren;
+  "/invite/$token": typeof InviteTokenRoute;
+  "/settings/account": typeof SettingsAccountRoute;
+  "/settings/admin": typeof SettingsAdminRouteWithChildren;
+  "/settings/appearance": typeof SettingsAppearanceRoute;
+  "/settings/calendar": typeof SettingsCalendarRoute;
+  "/settings/notifications": typeof SettingsNotificationsRoute;
+  "/settings/password": typeof SettingsPasswordRoute;
+  "/w/$workspaceId": typeof WWorkspaceIdRouteWithChildren;
+  "/settings/": typeof SettingsIndexRoute;
+  "/settings/admin/audit": typeof SettingsAdminAuditRoute;
+  "/settings/admin/email": typeof SettingsAdminEmailRoute;
+  "/settings/admin/maintenance": typeof SettingsAdminMaintenanceRoute;
+  "/settings/admin/sso": typeof SettingsAdminSsoRoute;
+  "/settings/admin/users": typeof SettingsAdminUsersRoute;
+  "/w/$workspaceId/activity": typeof WWorkspaceIdActivityRoute;
+  "/w/$workspaceId/files": typeof WWorkspaceIdFilesRoute;
+  "/w/$workspaceId/my-tasks": typeof WWorkspaceIdMyTasksRoute;
+  "/w/$workspaceId/settings": typeof WWorkspaceIdSettingsRoute;
+  "/w/$workspaceId/trash": typeof WWorkspaceIdTrashRoute;
+  "/w/$workspaceId/": typeof WWorkspaceIdIndexRoute;
+  "/settings/admin/workspaces/$workspaceId": typeof SettingsAdminWorkspacesWorkspaceIdRoute;
+  "/w/$workspaceId/p/$projectId": typeof WWorkspaceIdPProjectIdRouteWithChildren;
+  "/w/$workspaceId/t/$taskId": typeof WWorkspaceIdTTaskIdRoute;
+  "/w/$workspaceId/wiki/$pageId": typeof WWorkspaceIdWikiPageIdRoute;
+  "/settings/admin/workspaces/": typeof SettingsAdminWorkspacesIndexRoute;
+  "/w/$workspaceId/wiki/": typeof WWorkspaceIdWikiIndexRoute;
+  "/w/$workspaceId/p/$projectId/t/$taskId": typeof WWorkspaceIdPProjectIdTTaskIdRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/account': typeof AccountRoute
-  '/admin': typeof AdminRoute
-  '/login': typeof LoginRoute
-  '/invite/$token': typeof InviteTokenRoute
-  '/settings/account': typeof SettingsAccountRoute
-  '/settings/admin': typeof SettingsAdminRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
-  '/settings/calendar': typeof SettingsCalendarRoute
-  '/settings/notifications': typeof SettingsNotificationsRoute
-  '/settings/password': typeof SettingsPasswordRoute
-  '/settings': typeof SettingsIndexRoute
-  '/settings/admin/audit': typeof SettingsAdminAuditRoute
-  '/settings/admin/email': typeof SettingsAdminEmailRoute
-  '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
-  '/settings/admin/sso': typeof SettingsAdminSsoRoute
-  '/settings/admin/users': typeof SettingsAdminUsersRoute
-  '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
-  '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
-  '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
-  '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
-  '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
-  '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
-  '/settings/admin/workspaces/$workspaceId': typeof SettingsAdminWorkspacesWorkspaceIdRoute
-  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
-  '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
-  '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
-  '/settings/admin/workspaces': typeof SettingsAdminWorkspacesIndexRoute
-  '/w/$workspaceId/wiki': typeof WWorkspaceIdWikiIndexRoute
-  '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
+  "/": typeof IndexRoute;
+  "/account": typeof AccountRoute;
+  "/admin": typeof AdminRoute;
+  "/login": typeof LoginRoute;
+  "/invite/$token": typeof InviteTokenRoute;
+  "/settings/account": typeof SettingsAccountRoute;
+  "/settings/admin": typeof SettingsAdminRouteWithChildren;
+  "/settings/appearance": typeof SettingsAppearanceRoute;
+  "/settings/calendar": typeof SettingsCalendarRoute;
+  "/settings/notifications": typeof SettingsNotificationsRoute;
+  "/settings/password": typeof SettingsPasswordRoute;
+  "/settings": typeof SettingsIndexRoute;
+  "/settings/admin/audit": typeof SettingsAdminAuditRoute;
+  "/settings/admin/email": typeof SettingsAdminEmailRoute;
+  "/settings/admin/maintenance": typeof SettingsAdminMaintenanceRoute;
+  "/settings/admin/sso": typeof SettingsAdminSsoRoute;
+  "/settings/admin/users": typeof SettingsAdminUsersRoute;
+  "/w/$workspaceId/activity": typeof WWorkspaceIdActivityRoute;
+  "/w/$workspaceId/files": typeof WWorkspaceIdFilesRoute;
+  "/w/$workspaceId/my-tasks": typeof WWorkspaceIdMyTasksRoute;
+  "/w/$workspaceId/settings": typeof WWorkspaceIdSettingsRoute;
+  "/w/$workspaceId/trash": typeof WWorkspaceIdTrashRoute;
+  "/w/$workspaceId": typeof WWorkspaceIdIndexRoute;
+  "/settings/admin/workspaces/$workspaceId": typeof SettingsAdminWorkspacesWorkspaceIdRoute;
+  "/w/$workspaceId/p/$projectId": typeof WWorkspaceIdPProjectIdRouteWithChildren;
+  "/w/$workspaceId/t/$taskId": typeof WWorkspaceIdTTaskIdRoute;
+  "/w/$workspaceId/wiki/$pageId": typeof WWorkspaceIdWikiPageIdRoute;
+  "/settings/admin/workspaces": typeof SettingsAdminWorkspacesIndexRoute;
+  "/w/$workspaceId/wiki": typeof WWorkspaceIdWikiIndexRoute;
+  "/w/$workspaceId/p/$projectId/t/$taskId": typeof WWorkspaceIdPProjectIdTTaskIdRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/account': typeof AccountRoute
-  '/admin': typeof AdminRoute
-  '/login': typeof LoginRoute
-  '/settings': typeof SettingsRouteWithChildren
-  '/invite/$token': typeof InviteTokenRoute
-  '/settings/account': typeof SettingsAccountRoute
-  '/settings/admin': typeof SettingsAdminRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
-  '/settings/calendar': typeof SettingsCalendarRoute
-  '/settings/notifications': typeof SettingsNotificationsRoute
-  '/settings/password': typeof SettingsPasswordRoute
-  '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
-  '/settings/': typeof SettingsIndexRoute
-  '/settings/admin/audit': typeof SettingsAdminAuditRoute
-  '/settings/admin/email': typeof SettingsAdminEmailRoute
-  '/settings/admin/maintenance': typeof SettingsAdminMaintenanceRoute
-  '/settings/admin/sso': typeof SettingsAdminSsoRoute
-  '/settings/admin/users': typeof SettingsAdminUsersRoute
-  '/w/$workspaceId/activity': typeof WWorkspaceIdActivityRoute
-  '/w/$workspaceId/files': typeof WWorkspaceIdFilesRoute
-  '/w/$workspaceId/my-tasks': typeof WWorkspaceIdMyTasksRoute
-  '/w/$workspaceId/settings': typeof WWorkspaceIdSettingsRoute
-  '/w/$workspaceId/trash': typeof WWorkspaceIdTrashRoute
-  '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
-  '/settings/admin/workspaces/$workspaceId': typeof SettingsAdminWorkspacesWorkspaceIdRoute
-  '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
-  '/w/$workspaceId/t/$taskId': typeof WWorkspaceIdTTaskIdRoute
-  '/w/$workspaceId/wiki/$pageId': typeof WWorkspaceIdWikiPageIdRoute
-  '/settings/admin/workspaces/': typeof SettingsAdminWorkspacesIndexRoute
-  '/w/$workspaceId/wiki/': typeof WWorkspaceIdWikiIndexRoute
-  '/w/$workspaceId/p/$projectId/t/$taskId': typeof WWorkspaceIdPProjectIdTTaskIdRoute
+  __root__: typeof rootRouteImport;
+  "/": typeof IndexRoute;
+  "/account": typeof AccountRoute;
+  "/admin": typeof AdminRoute;
+  "/login": typeof LoginRoute;
+  "/settings": typeof SettingsRouteWithChildren;
+  "/invite/$token": typeof InviteTokenRoute;
+  "/settings/account": typeof SettingsAccountRoute;
+  "/settings/admin": typeof SettingsAdminRouteWithChildren;
+  "/settings/appearance": typeof SettingsAppearanceRoute;
+  "/settings/calendar": typeof SettingsCalendarRoute;
+  "/settings/notifications": typeof SettingsNotificationsRoute;
+  "/settings/password": typeof SettingsPasswordRoute;
+  "/w/$workspaceId": typeof WWorkspaceIdRouteWithChildren;
+  "/settings/": typeof SettingsIndexRoute;
+  "/settings/admin/audit": typeof SettingsAdminAuditRoute;
+  "/settings/admin/email": typeof SettingsAdminEmailRoute;
+  "/settings/admin/maintenance": typeof SettingsAdminMaintenanceRoute;
+  "/settings/admin/sso": typeof SettingsAdminSsoRoute;
+  "/settings/admin/users": typeof SettingsAdminUsersRoute;
+  "/w/$workspaceId/activity": typeof WWorkspaceIdActivityRoute;
+  "/w/$workspaceId/files": typeof WWorkspaceIdFilesRoute;
+  "/w/$workspaceId/my-tasks": typeof WWorkspaceIdMyTasksRoute;
+  "/w/$workspaceId/settings": typeof WWorkspaceIdSettingsRoute;
+  "/w/$workspaceId/trash": typeof WWorkspaceIdTrashRoute;
+  "/w/$workspaceId/": typeof WWorkspaceIdIndexRoute;
+  "/settings/admin/workspaces/$workspaceId": typeof SettingsAdminWorkspacesWorkspaceIdRoute;
+  "/w/$workspaceId/p/$projectId": typeof WWorkspaceIdPProjectIdRouteWithChildren;
+  "/w/$workspaceId/t/$taskId": typeof WWorkspaceIdTTaskIdRoute;
+  "/w/$workspaceId/wiki/$pageId": typeof WWorkspaceIdWikiPageIdRoute;
+  "/settings/admin/workspaces/": typeof SettingsAdminWorkspacesIndexRoute;
+  "/w/$workspaceId/wiki/": typeof WWorkspaceIdWikiIndexRoute;
+  "/w/$workspaceId/p/$projectId/t/$taskId": typeof WWorkspaceIdPProjectIdTTaskIdRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
+  fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
-    | '/'
-    | '/account'
-    | '/admin'
-    | '/login'
-    | '/settings'
-    | '/invite/$token'
-    | '/settings/account'
-    | '/settings/admin'
-    | '/settings/appearance'
-    | '/settings/calendar'
-    | '/settings/notifications'
-    | '/settings/password'
-    | '/w/$workspaceId'
-    | '/settings/'
-    | '/settings/admin/audit'
-    | '/settings/admin/email'
-    | '/settings/admin/maintenance'
-    | '/settings/admin/sso'
-    | '/settings/admin/users'
-    | '/w/$workspaceId/activity'
-    | '/w/$workspaceId/files'
-    | '/w/$workspaceId/my-tasks'
-    | '/w/$workspaceId/settings'
-    | '/w/$workspaceId/trash'
-    | '/w/$workspaceId/'
-    | '/settings/admin/workspaces/$workspaceId'
-    | '/w/$workspaceId/p/$projectId'
-    | '/w/$workspaceId/t/$taskId'
-    | '/w/$workspaceId/wiki/$pageId'
-    | '/settings/admin/workspaces/'
-    | '/w/$workspaceId/wiki/'
-    | '/w/$workspaceId/p/$projectId/t/$taskId'
-  fileRoutesByTo: FileRoutesByTo
+    | "/"
+    | "/account"
+    | "/admin"
+    | "/login"
+    | "/settings"
+    | "/invite/$token"
+    | "/settings/account"
+    | "/settings/admin"
+    | "/settings/appearance"
+    | "/settings/calendar"
+    | "/settings/notifications"
+    | "/settings/password"
+    | "/w/$workspaceId"
+    | "/settings/"
+    | "/settings/admin/audit"
+    | "/settings/admin/email"
+    | "/settings/admin/maintenance"
+    | "/settings/admin/sso"
+    | "/settings/admin/users"
+    | "/w/$workspaceId/activity"
+    | "/w/$workspaceId/files"
+    | "/w/$workspaceId/my-tasks"
+    | "/w/$workspaceId/settings"
+    | "/w/$workspaceId/trash"
+    | "/w/$workspaceId/"
+    | "/settings/admin/workspaces/$workspaceId"
+    | "/w/$workspaceId/p/$projectId"
+    | "/w/$workspaceId/t/$taskId"
+    | "/w/$workspaceId/wiki/$pageId"
+    | "/settings/admin/workspaces/"
+    | "/w/$workspaceId/wiki/"
+    | "/w/$workspaceId/p/$projectId/t/$taskId";
+  fileRoutesByTo: FileRoutesByTo;
   to:
-    | '/'
-    | '/account'
-    | '/admin'
-    | '/login'
-    | '/invite/$token'
-    | '/settings/account'
-    | '/settings/admin'
-    | '/settings/appearance'
-    | '/settings/calendar'
-    | '/settings/notifications'
-    | '/settings/password'
-    | '/settings'
-    | '/settings/admin/audit'
-    | '/settings/admin/email'
-    | '/settings/admin/maintenance'
-    | '/settings/admin/sso'
-    | '/settings/admin/users'
-    | '/w/$workspaceId/activity'
-    | '/w/$workspaceId/files'
-    | '/w/$workspaceId/my-tasks'
-    | '/w/$workspaceId/settings'
-    | '/w/$workspaceId/trash'
-    | '/w/$workspaceId'
-    | '/settings/admin/workspaces/$workspaceId'
-    | '/w/$workspaceId/p/$projectId'
-    | '/w/$workspaceId/t/$taskId'
-    | '/w/$workspaceId/wiki/$pageId'
-    | '/settings/admin/workspaces'
-    | '/w/$workspaceId/wiki'
-    | '/w/$workspaceId/p/$projectId/t/$taskId'
+    | "/"
+    | "/account"
+    | "/admin"
+    | "/login"
+    | "/invite/$token"
+    | "/settings/account"
+    | "/settings/admin"
+    | "/settings/appearance"
+    | "/settings/calendar"
+    | "/settings/notifications"
+    | "/settings/password"
+    | "/settings"
+    | "/settings/admin/audit"
+    | "/settings/admin/email"
+    | "/settings/admin/maintenance"
+    | "/settings/admin/sso"
+    | "/settings/admin/users"
+    | "/w/$workspaceId/activity"
+    | "/w/$workspaceId/files"
+    | "/w/$workspaceId/my-tasks"
+    | "/w/$workspaceId/settings"
+    | "/w/$workspaceId/trash"
+    | "/w/$workspaceId"
+    | "/settings/admin/workspaces/$workspaceId"
+    | "/w/$workspaceId/p/$projectId"
+    | "/w/$workspaceId/t/$taskId"
+    | "/w/$workspaceId/wiki/$pageId"
+    | "/settings/admin/workspaces"
+    | "/w/$workspaceId/wiki"
+    | "/w/$workspaceId/p/$projectId/t/$taskId";
   id:
-    | '__root__'
-    | '/'
-    | '/account'
-    | '/admin'
-    | '/login'
-    | '/settings'
-    | '/invite/$token'
-    | '/settings/account'
-    | '/settings/admin'
-    | '/settings/appearance'
-    | '/settings/calendar'
-    | '/settings/notifications'
-    | '/settings/password'
-    | '/w/$workspaceId'
-    | '/settings/'
-    | '/settings/admin/audit'
-    | '/settings/admin/email'
-    | '/settings/admin/maintenance'
-    | '/settings/admin/sso'
-    | '/settings/admin/users'
-    | '/w/$workspaceId/activity'
-    | '/w/$workspaceId/files'
-    | '/w/$workspaceId/my-tasks'
-    | '/w/$workspaceId/settings'
-    | '/w/$workspaceId/trash'
-    | '/w/$workspaceId/'
-    | '/settings/admin/workspaces/$workspaceId'
-    | '/w/$workspaceId/p/$projectId'
-    | '/w/$workspaceId/t/$taskId'
-    | '/w/$workspaceId/wiki/$pageId'
-    | '/settings/admin/workspaces/'
-    | '/w/$workspaceId/wiki/'
-    | '/w/$workspaceId/p/$projectId/t/$taskId'
-  fileRoutesById: FileRoutesById
+    | "__root__"
+    | "/"
+    | "/account"
+    | "/admin"
+    | "/login"
+    | "/settings"
+    | "/invite/$token"
+    | "/settings/account"
+    | "/settings/admin"
+    | "/settings/appearance"
+    | "/settings/calendar"
+    | "/settings/notifications"
+    | "/settings/password"
+    | "/w/$workspaceId"
+    | "/settings/"
+    | "/settings/admin/audit"
+    | "/settings/admin/email"
+    | "/settings/admin/maintenance"
+    | "/settings/admin/sso"
+    | "/settings/admin/users"
+    | "/w/$workspaceId/activity"
+    | "/w/$workspaceId/files"
+    | "/w/$workspaceId/my-tasks"
+    | "/w/$workspaceId/settings"
+    | "/w/$workspaceId/trash"
+    | "/w/$workspaceId/"
+    | "/settings/admin/workspaces/$workspaceId"
+    | "/w/$workspaceId/p/$projectId"
+    | "/w/$workspaceId/t/$taskId"
+    | "/w/$workspaceId/wiki/$pageId"
+    | "/settings/admin/workspaces/"
+    | "/w/$workspaceId/wiki/"
+    | "/w/$workspaceId/p/$projectId/t/$taskId";
+  fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AccountRoute: typeof AccountRoute
-  AdminRoute: typeof AdminRoute
-  LoginRoute: typeof LoginRoute
-  SettingsRoute: typeof SettingsRouteWithChildren
-  InviteTokenRoute: typeof InviteTokenRoute
-  WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren
+  IndexRoute: typeof IndexRoute;
+  AccountRoute: typeof AccountRoute;
+  AdminRoute: typeof AdminRoute;
+  LoginRoute: typeof LoginRoute;
+  SettingsRoute: typeof SettingsRouteWithChildren;
+  InviteTokenRoute: typeof InviteTokenRoute;
+  WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren;
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/account': {
-      id: '/account'
-      path: '/account'
-      fullPath: '/account'
-      preLoaderRoute: typeof AccountRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/invite/$token': {
-      id: '/invite/$token'
-      path: '/invite/$token'
-      fullPath: '/invite/$token'
-      preLoaderRoute: typeof InviteTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/': {
-      id: '/settings/'
-      path: '/'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/account': {
-      id: '/settings/account'
-      path: '/account'
-      fullPath: '/settings/account'
-      preLoaderRoute: typeof SettingsAccountRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/admin': {
-      id: '/settings/admin'
-      path: '/admin'
-      fullPath: '/settings/admin'
-      preLoaderRoute: typeof SettingsAdminRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/appearance': {
-      id: '/settings/appearance'
-      path: '/appearance'
-      fullPath: '/settings/appearance'
-      preLoaderRoute: typeof SettingsAppearanceRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/calendar': {
-      id: '/settings/calendar'
-      path: '/calendar'
-      fullPath: '/settings/calendar'
-      preLoaderRoute: typeof SettingsCalendarRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/notifications': {
-      id: '/settings/notifications'
-      path: '/notifications'
-      fullPath: '/settings/notifications'
-      preLoaderRoute: typeof SettingsNotificationsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/password': {
-      id: '/settings/password'
-      path: '/password'
-      fullPath: '/settings/password'
-      preLoaderRoute: typeof SettingsPasswordRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/w/$workspaceId': {
-      id: '/w/$workspaceId'
-      path: '/w/$workspaceId'
-      fullPath: '/w/$workspaceId'
-      preLoaderRoute: typeof WWorkspaceIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/admin/audit': {
-      id: '/settings/admin/audit'
-      path: '/audit'
-      fullPath: '/settings/admin/audit'
-      preLoaderRoute: typeof SettingsAdminAuditRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/settings/admin/email': {
-      id: '/settings/admin/email'
-      path: '/email'
-      fullPath: '/settings/admin/email'
-      preLoaderRoute: typeof SettingsAdminEmailRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/settings/admin/maintenance': {
-      id: '/settings/admin/maintenance'
-      path: '/maintenance'
-      fullPath: '/settings/admin/maintenance'
-      preLoaderRoute: typeof SettingsAdminMaintenanceRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/settings/admin/sso': {
-      id: '/settings/admin/sso'
-      path: '/sso'
-      fullPath: '/settings/admin/sso'
-      preLoaderRoute: typeof SettingsAdminSsoRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/settings/admin/users': {
-      id: '/settings/admin/users'
-      path: '/users'
-      fullPath: '/settings/admin/users'
-      preLoaderRoute: typeof SettingsAdminUsersRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/w/$workspaceId/': {
-      id: '/w/$workspaceId/'
-      path: '/'
-      fullPath: '/w/$workspaceId/'
-      preLoaderRoute: typeof WWorkspaceIdIndexRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/activity': {
-      id: '/w/$workspaceId/activity'
-      path: '/activity'
-      fullPath: '/w/$workspaceId/activity'
-      preLoaderRoute: typeof WWorkspaceIdActivityRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/files': {
-      id: '/w/$workspaceId/files'
-      path: '/files'
-      fullPath: '/w/$workspaceId/files'
-      preLoaderRoute: typeof WWorkspaceIdFilesRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/my-tasks': {
-      id: '/w/$workspaceId/my-tasks'
-      path: '/my-tasks'
-      fullPath: '/w/$workspaceId/my-tasks'
-      preLoaderRoute: typeof WWorkspaceIdMyTasksRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/settings': {
-      id: '/w/$workspaceId/settings'
-      path: '/settings'
-      fullPath: '/w/$workspaceId/settings'
-      preLoaderRoute: typeof WWorkspaceIdSettingsRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/trash': {
-      id: '/w/$workspaceId/trash'
-      path: '/trash'
-      fullPath: '/w/$workspaceId/trash'
-      preLoaderRoute: typeof WWorkspaceIdTrashRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/settings/admin/workspaces/': {
-      id: '/settings/admin/workspaces/'
-      path: '/workspaces'
-      fullPath: '/settings/admin/workspaces/'
-      preLoaderRoute: typeof SettingsAdminWorkspacesIndexRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/settings/admin/workspaces/$workspaceId': {
-      id: '/settings/admin/workspaces/$workspaceId'
-      path: '/workspaces/$workspaceId'
-      fullPath: '/settings/admin/workspaces/$workspaceId'
-      preLoaderRoute: typeof SettingsAdminWorkspacesWorkspaceIdRouteImport
-      parentRoute: typeof SettingsAdminRoute
-    }
-    '/w/$workspaceId/p/$projectId': {
-      id: '/w/$workspaceId/p/$projectId'
-      path: '/p/$projectId'
-      fullPath: '/w/$workspaceId/p/$projectId'
-      preLoaderRoute: typeof WWorkspaceIdPProjectIdRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/t/$taskId': {
-      id: '/w/$workspaceId/t/$taskId'
-      path: '/t/$taskId'
-      fullPath: '/w/$workspaceId/t/$taskId'
-      preLoaderRoute: typeof WWorkspaceIdTTaskIdRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/wiki/': {
-      id: '/w/$workspaceId/wiki/'
-      path: '/wiki'
-      fullPath: '/w/$workspaceId/wiki/'
-      preLoaderRoute: typeof WWorkspaceIdWikiIndexRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/wiki/$pageId': {
-      id: '/w/$workspaceId/wiki/$pageId'
-      path: '/wiki/$pageId'
-      fullPath: '/w/$workspaceId/wiki/$pageId'
-      preLoaderRoute: typeof WWorkspaceIdWikiPageIdRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
-    '/w/$workspaceId/p/$projectId/t/$taskId': {
-      id: '/w/$workspaceId/p/$projectId/t/$taskId'
-      path: '/t/$taskId'
-      fullPath: '/w/$workspaceId/p/$projectId/t/$taskId'
-      preLoaderRoute: typeof WWorkspaceIdPProjectIdTTaskIdRouteImport
-      parentRoute: typeof WWorkspaceIdPProjectIdRoute
-    }
+    "/": {
+      id: "/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/account": {
+      id: "/account";
+      path: "/account";
+      fullPath: "/account";
+      preLoaderRoute: typeof AccountRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/admin": {
+      id: "/admin";
+      path: "/admin";
+      fullPath: "/admin";
+      preLoaderRoute: typeof AdminRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/login": {
+      id: "/login";
+      path: "/login";
+      fullPath: "/login";
+      preLoaderRoute: typeof LoginRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/settings": {
+      id: "/settings";
+      path: "/settings";
+      fullPath: "/settings";
+      preLoaderRoute: typeof SettingsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/invite/$token": {
+      id: "/invite/$token";
+      path: "/invite/$token";
+      fullPath: "/invite/$token";
+      preLoaderRoute: typeof InviteTokenRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/settings/": {
+      id: "/settings/";
+      path: "/";
+      fullPath: "/settings/";
+      preLoaderRoute: typeof SettingsIndexRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/account": {
+      id: "/settings/account";
+      path: "/account";
+      fullPath: "/settings/account";
+      preLoaderRoute: typeof SettingsAccountRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/admin": {
+      id: "/settings/admin";
+      path: "/admin";
+      fullPath: "/settings/admin";
+      preLoaderRoute: typeof SettingsAdminRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/appearance": {
+      id: "/settings/appearance";
+      path: "/appearance";
+      fullPath: "/settings/appearance";
+      preLoaderRoute: typeof SettingsAppearanceRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/calendar": {
+      id: "/settings/calendar";
+      path: "/calendar";
+      fullPath: "/settings/calendar";
+      preLoaderRoute: typeof SettingsCalendarRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/notifications": {
+      id: "/settings/notifications";
+      path: "/notifications";
+      fullPath: "/settings/notifications";
+      preLoaderRoute: typeof SettingsNotificationsRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/password": {
+      id: "/settings/password";
+      path: "/password";
+      fullPath: "/settings/password";
+      preLoaderRoute: typeof SettingsPasswordRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/w/$workspaceId": {
+      id: "/w/$workspaceId";
+      path: "/w/$workspaceId";
+      fullPath: "/w/$workspaceId";
+      preLoaderRoute: typeof WWorkspaceIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/settings/admin/audit": {
+      id: "/settings/admin/audit";
+      path: "/audit";
+      fullPath: "/settings/admin/audit";
+      preLoaderRoute: typeof SettingsAdminAuditRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/settings/admin/email": {
+      id: "/settings/admin/email";
+      path: "/email";
+      fullPath: "/settings/admin/email";
+      preLoaderRoute: typeof SettingsAdminEmailRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/settings/admin/maintenance": {
+      id: "/settings/admin/maintenance";
+      path: "/maintenance";
+      fullPath: "/settings/admin/maintenance";
+      preLoaderRoute: typeof SettingsAdminMaintenanceRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/settings/admin/sso": {
+      id: "/settings/admin/sso";
+      path: "/sso";
+      fullPath: "/settings/admin/sso";
+      preLoaderRoute: typeof SettingsAdminSsoRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/settings/admin/users": {
+      id: "/settings/admin/users";
+      path: "/users";
+      fullPath: "/settings/admin/users";
+      preLoaderRoute: typeof SettingsAdminUsersRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/w/$workspaceId/": {
+      id: "/w/$workspaceId/";
+      path: "/";
+      fullPath: "/w/$workspaceId/";
+      preLoaderRoute: typeof WWorkspaceIdIndexRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/activity": {
+      id: "/w/$workspaceId/activity";
+      path: "/activity";
+      fullPath: "/w/$workspaceId/activity";
+      preLoaderRoute: typeof WWorkspaceIdActivityRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/files": {
+      id: "/w/$workspaceId/files";
+      path: "/files";
+      fullPath: "/w/$workspaceId/files";
+      preLoaderRoute: typeof WWorkspaceIdFilesRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/my-tasks": {
+      id: "/w/$workspaceId/my-tasks";
+      path: "/my-tasks";
+      fullPath: "/w/$workspaceId/my-tasks";
+      preLoaderRoute: typeof WWorkspaceIdMyTasksRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/settings": {
+      id: "/w/$workspaceId/settings";
+      path: "/settings";
+      fullPath: "/w/$workspaceId/settings";
+      preLoaderRoute: typeof WWorkspaceIdSettingsRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/trash": {
+      id: "/w/$workspaceId/trash";
+      path: "/trash";
+      fullPath: "/w/$workspaceId/trash";
+      preLoaderRoute: typeof WWorkspaceIdTrashRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/settings/admin/workspaces/": {
+      id: "/settings/admin/workspaces/";
+      path: "/workspaces";
+      fullPath: "/settings/admin/workspaces/";
+      preLoaderRoute: typeof SettingsAdminWorkspacesIndexRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/settings/admin/workspaces/$workspaceId": {
+      id: "/settings/admin/workspaces/$workspaceId";
+      path: "/workspaces/$workspaceId";
+      fullPath: "/settings/admin/workspaces/$workspaceId";
+      preLoaderRoute: typeof SettingsAdminWorkspacesWorkspaceIdRouteImport;
+      parentRoute: typeof SettingsAdminRoute;
+    };
+    "/w/$workspaceId/p/$projectId": {
+      id: "/w/$workspaceId/p/$projectId";
+      path: "/p/$projectId";
+      fullPath: "/w/$workspaceId/p/$projectId";
+      preLoaderRoute: typeof WWorkspaceIdPProjectIdRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/t/$taskId": {
+      id: "/w/$workspaceId/t/$taskId";
+      path: "/t/$taskId";
+      fullPath: "/w/$workspaceId/t/$taskId";
+      preLoaderRoute: typeof WWorkspaceIdTTaskIdRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/wiki/": {
+      id: "/w/$workspaceId/wiki/";
+      path: "/wiki";
+      fullPath: "/w/$workspaceId/wiki/";
+      preLoaderRoute: typeof WWorkspaceIdWikiIndexRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/wiki/$pageId": {
+      id: "/w/$workspaceId/wiki/$pageId";
+      path: "/wiki/$pageId";
+      fullPath: "/w/$workspaceId/wiki/$pageId";
+      preLoaderRoute: typeof WWorkspaceIdWikiPageIdRouteImport;
+      parentRoute: typeof WWorkspaceIdRoute;
+    };
+    "/w/$workspaceId/p/$projectId/t/$taskId": {
+      id: "/w/$workspaceId/p/$projectId/t/$taskId";
+      path: "/t/$taskId";
+      fullPath: "/w/$workspaceId/p/$projectId/t/$taskId";
+      preLoaderRoute: typeof WWorkspaceIdPProjectIdTTaskIdRouteImport;
+      parentRoute: typeof WWorkspaceIdPProjectIdRoute;
+    };
   }
 }
 
 interface SettingsAdminRouteChildren {
-  SettingsAdminAuditRoute: typeof SettingsAdminAuditRoute
-  SettingsAdminEmailRoute: typeof SettingsAdminEmailRoute
-  SettingsAdminMaintenanceRoute: typeof SettingsAdminMaintenanceRoute
-  SettingsAdminSsoRoute: typeof SettingsAdminSsoRoute
-  SettingsAdminUsersRoute: typeof SettingsAdminUsersRoute
-  SettingsAdminWorkspacesWorkspaceIdRoute: typeof SettingsAdminWorkspacesWorkspaceIdRoute
-  SettingsAdminWorkspacesIndexRoute: typeof SettingsAdminWorkspacesIndexRoute
+  SettingsAdminAuditRoute: typeof SettingsAdminAuditRoute;
+  SettingsAdminEmailRoute: typeof SettingsAdminEmailRoute;
+  SettingsAdminMaintenanceRoute: typeof SettingsAdminMaintenanceRoute;
+  SettingsAdminSsoRoute: typeof SettingsAdminSsoRoute;
+  SettingsAdminUsersRoute: typeof SettingsAdminUsersRoute;
+  SettingsAdminWorkspacesWorkspaceIdRoute: typeof SettingsAdminWorkspacesWorkspaceIdRoute;
+  SettingsAdminWorkspacesIndexRoute: typeof SettingsAdminWorkspacesIndexRoute;
 }
 
 const SettingsAdminRouteChildren: SettingsAdminRouteChildren = {
@@ -669,20 +669,20 @@ const SettingsAdminRouteChildren: SettingsAdminRouteChildren = {
   SettingsAdminWorkspacesWorkspaceIdRoute:
     SettingsAdminWorkspacesWorkspaceIdRoute,
   SettingsAdminWorkspacesIndexRoute: SettingsAdminWorkspacesIndexRoute,
-}
+};
 
 const SettingsAdminRouteWithChildren = SettingsAdminRoute._addFileChildren(
   SettingsAdminRouteChildren,
-)
+);
 
 interface SettingsRouteChildren {
-  SettingsAccountRoute: typeof SettingsAccountRoute
-  SettingsAdminRoute: typeof SettingsAdminRouteWithChildren
-  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
-  SettingsCalendarRoute: typeof SettingsCalendarRoute
-  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
-  SettingsPasswordRoute: typeof SettingsPasswordRoute
-  SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsAccountRoute: typeof SettingsAccountRoute;
+  SettingsAdminRoute: typeof SettingsAdminRouteWithChildren;
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute;
+  SettingsCalendarRoute: typeof SettingsCalendarRoute;
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute;
+  SettingsPasswordRoute: typeof SettingsPasswordRoute;
+  SettingsIndexRoute: typeof SettingsIndexRoute;
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -693,37 +693,37 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsPasswordRoute: SettingsPasswordRoute,
   SettingsIndexRoute: SettingsIndexRoute,
-}
+};
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
-)
+);
 
 interface WWorkspaceIdPProjectIdRouteChildren {
-  WWorkspaceIdPProjectIdTTaskIdRoute: typeof WWorkspaceIdPProjectIdTTaskIdRoute
+  WWorkspaceIdPProjectIdTTaskIdRoute: typeof WWorkspaceIdPProjectIdTTaskIdRoute;
 }
 
 const WWorkspaceIdPProjectIdRouteChildren: WWorkspaceIdPProjectIdRouteChildren =
   {
     WWorkspaceIdPProjectIdTTaskIdRoute: WWorkspaceIdPProjectIdTTaskIdRoute,
-  }
+  };
 
 const WWorkspaceIdPProjectIdRouteWithChildren =
   WWorkspaceIdPProjectIdRoute._addFileChildren(
     WWorkspaceIdPProjectIdRouteChildren,
-  )
+  );
 
 interface WWorkspaceIdRouteChildren {
-  WWorkspaceIdActivityRoute: typeof WWorkspaceIdActivityRoute
-  WWorkspaceIdFilesRoute: typeof WWorkspaceIdFilesRoute
-  WWorkspaceIdMyTasksRoute: typeof WWorkspaceIdMyTasksRoute
-  WWorkspaceIdSettingsRoute: typeof WWorkspaceIdSettingsRoute
-  WWorkspaceIdTrashRoute: typeof WWorkspaceIdTrashRoute
-  WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
-  WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren
-  WWorkspaceIdTTaskIdRoute: typeof WWorkspaceIdTTaskIdRoute
-  WWorkspaceIdWikiPageIdRoute: typeof WWorkspaceIdWikiPageIdRoute
-  WWorkspaceIdWikiIndexRoute: typeof WWorkspaceIdWikiIndexRoute
+  WWorkspaceIdActivityRoute: typeof WWorkspaceIdActivityRoute;
+  WWorkspaceIdFilesRoute: typeof WWorkspaceIdFilesRoute;
+  WWorkspaceIdMyTasksRoute: typeof WWorkspaceIdMyTasksRoute;
+  WWorkspaceIdSettingsRoute: typeof WWorkspaceIdSettingsRoute;
+  WWorkspaceIdTrashRoute: typeof WWorkspaceIdTrashRoute;
+  WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute;
+  WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren;
+  WWorkspaceIdTTaskIdRoute: typeof WWorkspaceIdTTaskIdRoute;
+  WWorkspaceIdWikiPageIdRoute: typeof WWorkspaceIdWikiPageIdRoute;
+  WWorkspaceIdWikiIndexRoute: typeof WWorkspaceIdWikiIndexRoute;
 }
 
 const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
@@ -737,11 +737,11 @@ const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
   WWorkspaceIdTTaskIdRoute: WWorkspaceIdTTaskIdRoute,
   WWorkspaceIdWikiPageIdRoute: WWorkspaceIdWikiPageIdRoute,
   WWorkspaceIdWikiIndexRoute: WWorkspaceIdWikiIndexRoute,
-}
+};
 
 const WWorkspaceIdRouteWithChildren = WWorkspaceIdRoute._addFileChildren(
   WWorkspaceIdRouteChildren,
-)
+);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -751,7 +751,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   InviteTokenRoute: InviteTokenRoute,
   WWorkspaceIdRoute: WWorkspaceIdRouteWithChildren,
-}
+};
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+  ._addFileTypes<FileRouteTypes>();

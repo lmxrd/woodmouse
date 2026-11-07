@@ -4,8 +4,7 @@
 //! `openapi.json` and `openapi.yaml` to the workspace's `target/specs/`.
 //!
 //! The document is built with no state (`routes::api_doc`): no database
-//! is opened — no query could run anyway, only the OpenAPI half of the
-//! routes is used.
+//! is opened, and no frontend build is needed.
 
 use anyhow::Context;
 

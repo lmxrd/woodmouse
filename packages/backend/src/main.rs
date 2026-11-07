@@ -9,7 +9,7 @@
 //! Commands: `woodmouse` serves; `woodmouse healthcheck` asks the running server's health endpoint; `woodmouse check` reports orphaned rows.
 
 // The embedded frontend bundle — a module of this binary, not the library,
-// so spec generation (cargo specs) never requires a built frontend.
+// so spec generation (`mise run gen:spec`) never requires a built frontend.
 mod frontend;
 
 use std::future::IntoFuture;
@@ -33,8 +33,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // `sqlite:<path>` opens a file-backed database (created when missing).
-    let db_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:woodmouse.db".to_string());
+    let db_url = api::config::database_url().map_err(anyhow::Error::msg)?;
 
     let state = AppState::open(&db_url).await.context("could not start")?;
 
@@ -65,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
         // Everything the API does not match is served from the embedded
         // frontend bundle, falling back to index.html for SPA routes.
         .fallback(frontend::handler)
+        .layer(axum::middleware::from_fn(frontend::no_cache))
         .layer(TraceLayer::new_for_http());
 
     let port: u16 = std::env::var("PORT")

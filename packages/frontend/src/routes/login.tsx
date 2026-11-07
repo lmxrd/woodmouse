@@ -11,10 +11,10 @@ import {
   loginTotpSetupMutation,
 } from "woodmouse-sdk/react-query";
 
-import { AuthField as Field, AuthSheet, ErrorNote } from "../components/layout/AuthSheet";
+import { AuthField as Field, AuthSheet, ErrorNote } from "../components/layout/auth-sheet";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { RecoveryCodes, SetupQr } from "../components/settings/TwoFactorSection";
+import { RecoveryCodes, SetupQr } from "../components/settings/two-factor-section";
 import { finishLogin } from "../lib/auth";
 import { SSO_LOGIN_URL, ssoErrorMessage } from "../lib/sso";
 

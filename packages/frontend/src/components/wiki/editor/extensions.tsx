@@ -6,7 +6,7 @@ import type { SearchHit } from "woodmouse-sdk";
 import { searchOptions } from "woodmouse-sdk/react-query";
 
 import { cn } from "../../../lib/utils";
-import { PICK_FILE_EVENT } from "../useFileLibraryPicker";
+import { PICK_FILE_EVENT } from "../use-file-library-picker";
 import {
   BulletItem,
   Callout,

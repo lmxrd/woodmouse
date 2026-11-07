@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { FilesPage } from "../components/files/FilesPage";
+import { FilesPage } from "../components/files/files-page";
 
 interface FilesSearch {
   q?: string;

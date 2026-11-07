@@ -4,7 +4,7 @@ import {
   WorkspaceSettings,
   parseSettingsTab,
   type WorkspaceSettingsTab,
-} from "../components/settings/WorkspaceSettings";
+} from "../components/settings/workspace-settings";
 
 interface SettingsSearch {
   tab?: WorkspaceSettingsTab;
