@@ -3,11 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { createWorkspaceMutation, listWorkspacesOptions } from "woodmouse-sdk/react-query";
 
 import { InlineAdd } from "../components/common/inline-add";
-import { requireLogin } from "../lib/auth";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async ({ context }) => {
-    await requireLogin(context.queryClient);
     const workspaces = await context.queryClient.ensureQueryData(listWorkspacesOptions());
     if (workspaces.length > 0) {
       throw redirect({ to: "/w/$workspaceId", params: { workspaceId: workspaces[0].id } });

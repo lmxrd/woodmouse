@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link, Outlet } from "@tanstack/react-router";
-import { authStatusOptions, meOptions } from "woodmouse-sdk/react-query";
+import { Link, Outlet, useRouteContext } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
 
@@ -13,8 +11,8 @@ const active = "bg-accent font-medium text-foreground";
  * for the super admin, the site admin sections. The selected section fills the rest.
  */
 export function SettingsLayout() {
-  const { data: me } = useQuery(meOptions());
-  const { data: status } = useQuery(authStatusOptions());
+  const { session } = useRouteContext({ from: "__root__" });
+  const me = session.user;
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)]">
       <aside className="flex flex-col gap-3 border-b border-border bg-card p-4 md:border-r md:border-b-0">
@@ -37,7 +35,7 @@ export function SettingsLayout() {
           </Link>
           <Link to="/settings/password" className={link} activeProps={{ className: active }}>
             {/* No passwords with single sign-on only (`OIDC_ONLY`); two-factor is there either way. */}
-            {status?.password_login === false ? "Two-factor" : "Password & two-factor"}
+            {!session.password_login ? "Two-factor" : "Password & two-factor"}
           </Link>
           {me?.super_admin ? (
             <>

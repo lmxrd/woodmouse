@@ -75,3 +75,42 @@ pub async fn error_bodies(response: Response) -> Response {
     parts.headers.extend(json_parts.headers);
     Response::from_parts(parts, Body::new(json_body))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn answer(status: StatusCode, content_type: &str, text: &str) -> (StatusCode, String) {
+        let response = Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, content_type)
+            .body(Body::from(text.to_string()))
+            .unwrap();
+        let response = error_bodies(response).await;
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), MAX_TEXT)
+            .await
+            .unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn plain_text_errors_become_error_bodies() {
+        let (status, body) = answer(
+            StatusCode::BAD_REQUEST,
+            "text/plain; charset=utf-8",
+            "invalid query",
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, r#"{"error":"Invalid query"}"#);
+        // A server error says nothing of itself.
+        let (_, body) = answer(StatusCode::INTERNAL_SERVER_ERROR, "text/plain", "secret").await;
+        assert_eq!(body, r#"{"error":"Internal Server Error"}"#);
+        // Anything else is left alone.
+        let (_, body) = answer(StatusCode::OK, "text/plain", "fine").await;
+        assert_eq!(body, "fine");
+        let (_, body) = answer(StatusCode::NOT_FOUND, "text/html", "<p>gone</p>").await;
+        assert_eq!(body, "<p>gone</p>");
+    }
+}

@@ -184,6 +184,34 @@ impl IntoResponse for ApiError {
 mod tests {
     use super::*;
 
+    async fn body(error: ApiError) -> (StatusCode, String) {
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        (status, String::from_utf8(bytes.to_vec()).unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_failure_on_our_side_says_nothing_of_it() {
+        let database = ApiError::from(sqlx::Error::Protocol("secret detail".into()));
+        let internal = ApiError::internal("saving failed: secret detail");
+        let other = ApiError::from(anyhow::anyhow!("disk full").context("writing the export"));
+        for error in [database, internal, other] {
+            let (status, body) = body(error).await;
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(body, r#"{"error":"Internal server error"}"#);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_client_error_keeps_its_status_and_message() {
+        let (status, body) = body(ApiError::conflict("email already in use")).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body, r#"{"error":"Email already in use"}"#);
+    }
+
     #[test]
     fn database_errors_say_nothing_and_missing_rows_are_404() {
         assert_eq!(

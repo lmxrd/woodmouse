@@ -4,10 +4,8 @@ import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { MobileNav } from "../components/layout/mobile-nav";
 import { Sidebar } from "../components/layout/sidebar";
 import { SearchPalette } from "../components/search/search-palette";
-import { requireLogin } from "../lib/auth";
 
 export const Route = createFileRoute("/w/$workspaceId")({
-  beforeLoad: ({ context }) => requireLogin(context.queryClient),
   component: WorkspaceLayout,
 });
 

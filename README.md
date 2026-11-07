@@ -82,7 +82,7 @@ optional:
 | --- | --- | --- |
 | `PORT` | `8000` | The port to listen on |
 | `PUBLIC_URL` | from the request | Your address, like `https://tasks.example.com`, for links in emails and calendar events. Starting with `https://`, every cookie gets `Secure` and the `__Host-` prefix |
-| `DATABASE_URL` | `sqlite:woodmouse.db` | The SQLite database (the Docker image uses `sqlite:/data/woodmouse.db`) |
+| `DATABASE_URL` | `sqlite:woodmouse.db` | The database, as a URL. SQLite only for now: `sqlite:` and the file's path (the Docker image uses `sqlite:/data/woodmouse.db`) |
 | `DATA_DIR` | `data` | Where uploaded files live (the Docker image uses `/data`) |
 | `MAX_UPLOAD_MB` | `25` | The largest accepted upload |
 | `TRUST_PROXY` | unset | `true` behind a reverse proxy that sets `X-Forwarded-For`: the sign-in limits then count by the client's address from it |

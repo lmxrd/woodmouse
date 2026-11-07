@@ -32,7 +32,38 @@ impl Modify for SecurityAddon {
 /// by any handler.
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "woodmouse", version = "0.1.0", description = "woodmouse API"),
+    info(title = "woodmouse", description = "woodmouse API"),
     modifiers(&SecurityAddon)
 )]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    fn operations() -> Vec<(String, String, serde_json::Value)> {
+        let spec: serde_json::Value =
+            serde_json::from_str(&crate::routes::api_doc().to_pretty_json().unwrap()).unwrap();
+        let mut found = Vec::new();
+        for (path, item) in spec["paths"].as_object().unwrap() {
+            for (method, operation) in item.as_object().unwrap() {
+                found.push((method.to_uppercase(), path.clone(), operation.clone()));
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn operations_have_unique_ids_tags_and_summaries() {
+        let operations = operations();
+        let ids: BTreeSet<_> = operations
+            .iter()
+            .map(|(_, _, op)| op["operationId"].as_str().expect("an operationId"))
+            .collect();
+        assert_eq!(ids.len(), operations.len(), "operation ids must be unique");
+        for (method, path, op) in &operations {
+            assert!(op["tags"][0].is_string(), "{method} {path} has no tag");
+            assert!(op["summary"].is_string(), "{method} {path} has no summary");
+        }
+    }
+}

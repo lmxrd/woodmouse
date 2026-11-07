@@ -14,6 +14,7 @@ declare module "@tanstack/react-query" {
   }
 }
 
+/** The one query cache of the app. Routes use the SDK's query options and mutations through it. */
 export const queryClient: QueryClient = new QueryClient({
   mutationCache: new MutationCache({
     // Any change can show up anywhere (counts, activity, trash), so a saved change refreshes every
@@ -27,7 +28,9 @@ export const queryClient: QueryClient = new QueryClient({
   }),
   defaultOptions: {
     queries: {
-      // Tune caching/refetch behavior project-wide here.
+      // A failed request shows at once. What was loaded stays fresh for 30 s, so moving between pages
+      // does not refetch everything; switching back to the tab refreshes what others changed.
+      retry: false,
       staleTime: 30_000,
     },
   },

@@ -72,7 +72,9 @@ keep.
   table lists them), every yes/no one goes through `config::flag` (a bad value stops the start), and logging
   follows `RUST_LOG` (`info` by default).
 - Handlers live in `src/routes/`; every handler carries a `#[utoipa::path]`
-  annotation. The annotation is the single source of truth — register new
+  annotation and a doc comment: its first line is the operation's summary, the rest its description. The
+  operation id is the handler's name (`admin_list_users`), so handler names are unique across the API and
+  the SDK calls them in camelCase (`adminListUsersOptions`). The annotation is the single source of truth — register new
   handlers in `src/routes/mod.rs` via `utoipa_axum::routes!` (group handlers
   that share a path in one `routes!` call) and they appear in both the axum
   router and the OpenAPI docs. Then run `mise run gen:spec` to regenerate

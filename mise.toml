@@ -22,11 +22,6 @@ zig = "0.15.2" # musl cross-compile (cargo zigbuild): C code for ring/SQLite and
 "aqua:google/osv-scanner" = "2.7.0" # known vulnerabilities in the lockfiles (mise run audit)
 "aqua:aquasecurity/trivy" = "0.76.1" # known vulnerabilities in the image (mise run audit:image)
 
-[env]
-# The dev database, relative to packages/backend (where the backend tasks run).
-DATABASE_URL = "sqlite:woodmouse.db?mode=rwc"
-
-
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
@@ -83,11 +78,13 @@ depends = ["dev:backend", "dev:frontend"]
 
 [tasks."dev:backend"]
 description = "Run and watch for changes for the backend"
+depends = ["ensure:dist"]
 dir = "packages/backend"
 run = "watchexec --restart --stop-signal SIGINT --watch src --watch api --watch entity --watch migration --watch Cargo.toml --watch Cargo.lock --exts rs,toml,sql --ignore '**/target/**' -- cargo run"
 
 [tasks."dev:frontend"]
 description = "Run the frontend dev server"
+depends = ["gen:sdk"]
 dir = "packages/frontend"
 run = "pnpm dev"
 
@@ -210,6 +207,7 @@ run = [
 
 [tasks."fix:frontend"]
 description = "Auto-fix frontend lint and formatting"
+depends = ["install:frontend"]
 dir = "packages/frontend"
 run = "pnpm fix"
 

@@ -1,13 +1,14 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
-import { Button } from "../ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 /** What a confirmation asks. `destructive` paints the action red. */
 export type ConfirmOptions = {
@@ -22,8 +23,9 @@ type Confirm = (options: ConfirmOptions) => Promise<boolean>;
 const ConfirmContext = createContext<Confirm | null>(null);
 
 /**
- * One "are you sure" dialog for the whole app, asked through `useConfirm`:
- * `if (await confirm({...})) ...`, where the browser's `confirm()` would be.
+ * One confirmation dialog for the whole app (shadcn's AlertDialog), asked
+ * through `useConfirm`: `if (await confirm({...})) ...`, where the browser's
+ * `confirm()` would be.
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -33,6 +35,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const confirm = useCallback<Confirm>(
     (next) =>
       new Promise((done) => {
+        // A confirmation still open is answered no.
         resolve.current(false);
         resolve.current = done;
         setOptions(next);
@@ -48,26 +51,25 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      <Dialog open={open} onOpenChange={(next) => !next && answer(false)}>
-        <DialogContent showCloseButton={false} className="rounded-none">
-          <DialogHeader>
-            <DialogTitle className="font-display text-xl">{options?.title}</DialogTitle>
-            {options?.description && <DialogDescription>{options.description}</DialogDescription>}
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => answer(false)}>
-              Keep
-            </Button>
-            <Button
-              type="button"
+      <AlertDialog open={open} onOpenChange={(next) => !next && answer(false)}>
+        <AlertDialogContent className="rounded-none">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-xl">{options?.title}</AlertDialogTitle>
+            {options?.description && (
+              <AlertDialogDescription>{options.description}</AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => answer(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
               variant={options?.destructive ? "destructive" : "default"}
               onClick={() => answer(true)}
             >
               {options?.action}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ConfirmContext.Provider>
   );
 }
