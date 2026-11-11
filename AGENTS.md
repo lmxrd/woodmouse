@@ -61,16 +61,13 @@ Run `mise run check` and `mise run test` before you call a change done.
 - **New versions wait a day.** pnpm refuses versions less than a day old (`minimumReleaseAge`, 1 day, in
   `pnpm-workspace.yaml`): take the newest that is older. It must stay shorter than Dependabot's cooldown, or it
   would block Dependabot's updates.
-- **Dependency updates and security fixes** (`.github/dependabot.yml`): Dependabot's pull requests are `fix(deps)`
-  for what ships (crates, the frontend's and SDK's dependencies, the base image), so merging one releases a patch,
-  and `chore(deps-dev)` for devDependencies; `ci` for actions. Routine updates wait 5 days after their release
-  (`cooldown`), security updates do not. Minor, patch and security updates merge on their own once CI passes
-  (`dependabot-auto-merge.yml`); majors wait for a person. That merge is made with a workflow token and so starts
-  no workflow: `release.yml` also runs daily to pick it up. `security.yml` runs `mise run audit` and scans the
-  published image every day; a finding to accept goes in `osv-scanner.toml`, with its reason.
-
-## Structure
-
+- **Dependency updates and security fixes** (`.github/dependabot.yml`): every routine update, of every ecosystem,
+  comes in one weekly pull request (a multi-ecosystem group), titled `fix(deps)` (a group has one title), so merging
+  it releases a patch; security updates come in pull requests of their own. Routine updates wait 5 days after their
+  release (`cooldown`), security updates do not. A pull request without a major update merges on its own once CI
+  passes (`dependabot-auto-merge.yml`); one with a major waits for a person. That merge is made with a workflow token
+  and so starts no workflow: `release.yml` also runs daily to pick it up. `security.yml` runs `mise run audit` and
+  scans the published image every day; a finding to accept goes in `osv-scanner.toml`, with its reason.  ## Structure
 - One git repository at this root; `packages/backend/` and `packages/frontend/` are stacks with their own
   AGENTS.md (follow those inside each directory). `packages/sdk/` is the frontend's API client, generated from the
   backend's OpenAPI spec (`mise run gen:sdk`), never committed; `packages/e2e/` the Playwright smoke tests.
