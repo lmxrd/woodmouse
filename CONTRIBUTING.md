@@ -165,10 +165,10 @@ CI builds the same binary on every pull request and starts the image to check
 that it is healthy, so a packaging mistake fails the pull request, not the
 release; it also scans the image for known vulnerabilities.
 
-Dependencies update themselves: Dependabot opens weekly pull requests (and one
-at once for a security advisory), and the minor, patch and security ones merge
-on their own when CI passes; majors wait for review. Those that ship are titled
-`fix(deps)`, so the release PR picks them up as a patch release. Bot merges start
+Dependencies update themselves: Dependabot opens one pull request a week with
+every update (and one at once for a security advisory), and they merge on their
+own when CI passes, unless one has a major update, which waits for review. They
+are titled `fix(deps)`, so the release PR picks them up as a patch release. Bot merges start
 no workflow, so the release workflow also runs once a day to update the release
 PR. Merging the release PR is still up to a person. A `Security` workflow checks
 the lockfiles and the published image every day.

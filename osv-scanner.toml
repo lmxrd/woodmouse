@@ -11,3 +11,8 @@ reason = "rsa (Marvin attack): no fixed version exists. It comes in through open
 id = "RUSTSEC-2026-0215"
 ignoreUntil = 2027-05-06
 reason = "smallstr is unmaintained (an informational advisory, no known vulnerability); it comes in through yrs, the live-editing CRDT, which has no release without it yet."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0459"
+ignoreUntil = 2027-02-11
+reason = "libsqlite3-sys before 0.39 bundles SQLite before 3.54, which can return stale memory when it opens a database together with a crafted -wal file of another page size. No fixed version reaches us: sqlx 0.9.0 (the newest) caps libsqlite3-sys below 0.38. It needs someone who can write Woodmouse's own database and -wal files in its data folder, who has the data already. A shorter expiry: look again when sqlx takes libsqlite3-sys 0.39."

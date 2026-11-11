@@ -17,12 +17,17 @@ export function useReferences(editor: Editor | null, workspaceId: string) {
     let known = "";
     let cancelled = false;
 
-    const lookup = async () => {
+    // Which targets changed is decided before anything is awaited, so `known` is never written
+    // from an async function.
+    const lookup = () => {
       const { pageIds, taskIds } = referencedInEditor(editor);
       const key = [...pageIds.sort(), "|", ...taskIds.sort()].join(",");
       if (key === known) return;
       known = key;
       if (pageIds.length + taskIds.length === 0) return;
+      void fetchTitles(pageIds, taskIds);
+    };
+    const fetchTitles = async (pageIds: string[], taskIds: string[]) => {
       const { data } = await resolve({
         path: { id: workspaceId },
         body: { page_ids: pageIds, task_ids: taskIds },
@@ -34,7 +39,7 @@ export function useReferences(editor: Editor | null, workspaceId: string) {
     };
     const schedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => void lookup(), LOOKUP_DELAY_MS);
+      timer = setTimeout(lookup, LOOKUP_DELAY_MS);
     };
 
     schedule();
