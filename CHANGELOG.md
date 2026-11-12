@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.5.0](https://github.com/lmxrd/woodmouse/compare/v0.4.0...v0.5.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* align the architecture and conventions with potoo ([#28](https://github.com/lmxrd/woodmouse/issues/28))
+* **frontend:** DATABASE_URL, WOODMOUSE_SWAGGER_UI, WOODMOUSE_SECURE_COOKIES, OIDC_DISPLAY_NAME and OIDC_ENABLED are no longer read; single sign-on no longer asks for the profile scope by default; X-Forwarded-For is ignored without TRUST_PROXY.
+* DATABASE_URL, WOODMOUSE_SWAGGER_UI, WOODMOUSE_SECURE_COOKIES, OIDC_DISPLAY_NAME and OIDC_ENABLED are no longer read; single sign-on no longer asks for the profile scope by default; X-Forwarded-For is ignored without TRUST_PROXY.
+
+### Features
+
+* **auth:** two-factor authentication, single sign-on only, and API keys ([#17](https://github.com/lmxrd/woodmouse/issues/17)) ([763cf76](https://github.com/lmxrd/woodmouse/commit/763cf7614967e1b512be3ce4646d16a319330ff0))
+* community crates, and woodmouse aligned with potoo ([#22](https://github.com/lmxrd/woodmouse/issues/22)) ([92caa2d](https://github.com/lmxrd/woodmouse/commit/92caa2deb58ea53a3f91092548938a77eca0ac8c))
+
+
+### Bug Fixes
+
+* automated security updates and vulnerability scans ([#18](https://github.com/lmxrd/woodmouse/issues/18)) ([d6227ac](https://github.com/lmxrd/woodmouse/commit/d6227acfdde7065ccc13ef61ea506172368bc0b4))
+* **deps:** bump the dependencies group ([#31](https://github.com/lmxrd/woodmouse/issues/31)) ([9006f49](https://github.com/lmxrd/woodmouse/commit/9006f497b11589bcff7fb9584801ad5488fcaa23))
+* **deps:** bump the npm-minor-and-patch group across 1 directory with 18 updates ([#27](https://github.com/lmxrd/woodmouse/issues/27)) ([b0b0cd3](https://github.com/lmxrd/woodmouse/commit/b0b0cd3db413664d985a9e95d43d7df310ddf27b))
+* **deps:** bump zip ([#21](https://github.com/lmxrd/woodmouse/issues/21)) ([d94f1d1](https://github.com/lmxrd/woodmouse/commit/d94f1d1514e89ceffd166850758e061e9f3b4490))
+* **deps:** the open Dependabot updates, and every version update in one weekly pull request ([#30](https://github.com/lmxrd/woodmouse/issues/30)) ([7f14afb](https://github.com/lmxrd/woodmouse/commit/7f14afb2eb53dd04d069d760ba7e1d9d4777767f))
+
+
+### Code Refactoring
+
+* align the architecture and conventions with potoo ([#28](https://github.com/lmxrd/woodmouse/issues/28)) ([7db088d](https://github.com/lmxrd/woodmouse/commit/7db088d5a0d85209997f40fced871dc709253c0c))
+* **frontend:** shadcn on Base UI instead of Radix ([#25](https://github.com/lmxrd/woodmouse/issues/25)) ([fe74733](https://github.com/lmxrd/woodmouse/commit/fe74733d416e6ce9e87851d31f5e440c80854b1e))
+
 ## [0.4.0](https://github.com/lmxrd/woodmouse/compare/v0.3.1...v0.4.0) (2026-11-03)
 
 
