@@ -32,7 +32,7 @@ axum-login = "0.18.0"
 axum-test = "21.1.0"
 axum = "0.8.9"
 governor = "0.10.4"
-jiff = { version = "0.2.38", features = ["serde", "tzdb-bundle-always"] }
+jiff = { version = "1.0.1", features = ["serde", "tzdb-bundle-always"] }
 mime_guess = "2.0.5"
 # SQLite (bundled, with FTS5) through sqlx, with SeaORM on top.
 sea-orm = { version = "2.0.4", default-features = false, features = ["sqlx-sqlite", "runtime-tokio", "macros", "with-uuid", "with-json"] }
