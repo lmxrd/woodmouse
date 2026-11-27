@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/lmxrd/woodmouse/compare/v0.5.0...v0.5.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **deps:** bump the dependencies group ([#32](https://github.com/lmxrd/woodmouse/issues/32)) ([83145be](https://github.com/lmxrd/woodmouse/commit/83145be079ad2e9987e7deb1b5cc946f5e09eee7))
+
 ## [0.5.0](https://github.com/lmxrd/woodmouse/compare/v0.4.0...v0.5.0) (2026-11-12)
 
 
